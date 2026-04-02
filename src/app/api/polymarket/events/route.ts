@@ -107,7 +107,21 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    return NextResponse.json(events);
+    // Filter out closed/resolved sub-markets from each event
+    for (const event of events as EventData[]) {
+      if (event.markets) {
+        event.markets = event.markets.filter(
+          (m: MarketData) => !(m as { closed?: boolean }).closed
+        );
+      }
+    }
+
+    // Remove events with no active markets left
+    const filtered = (events as EventData[]).filter(
+      (e) => e.markets && e.markets.length > 0
+    );
+
+    return NextResponse.json(filtered);
   } catch {
     return NextResponse.json(
       { error: "Failed to connect to Polymarket API" },
