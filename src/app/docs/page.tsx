@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { cn } from "@/lib/utils";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { SwarmDiagram } from "@/components/docs/swarm-diagram";
 import { AIRDROP_AMOUNTS } from "@/lib/constants";
 
 interface DocSection {
@@ -46,13 +47,14 @@ const sections: DocSection[] = [
     id: "ai-consensus",
     title: "AI Consensus",
     content: (
-      <div className="space-y-3">
-        <p>Inspired by the OASIS framework for multi-agent social simulations (arxiv.org/abs/2411.11581) and the MiroFish swarm intelligence engine.</p>
-        <ul className="list-disc pl-5 space-y-1.5">
-          <li><strong className="text-[#e6edf3]">Multiple Agent Personas</strong> &mdash; AI agents with distinct perspectives evaluate each market independently.</li>
-          <li><strong className="text-[#e6edf3]">Weighted Aggregation</strong> &mdash; Predictions are combined using weighted voting based on confidence.</li>
-          <li><strong className="text-[#e6edf3]">Consensus Score</strong> &mdash; A final percentage and confidence level for each market.</li>
-        </ul>
+      <div className="space-y-4">
+        <p>
+          Imagine you have a really hard question, like &quot;Will it rain tomorrow?&quot; If you ask one person, they might guess wrong. But if you ask 5 very different experts &mdash; a weather scientist, a farmer, a pilot, a fisherman, and a data nerd &mdash; and combine their answers, you&apos;ll probably get a much better answer.
+        </p>
+        <p>
+          That&apos;s exactly what our AI Swarm does, but for prediction markets. We ask 5 AI agents with totally different &quot;personalities&quot; to predict the outcome of each market, then combine their answers into one consensus prediction.
+        </p>
+        <SwarmDiagram />
       </div>
     ),
   },
