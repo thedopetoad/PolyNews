@@ -65,7 +65,7 @@ export default function AIConsensusPage() {
     return all
       .filter((m) => m.yesPrice > 0.05 && m.yesPrice < 0.95)
       .sort((a, b) => parseFloat(b.volume || "0") - parseFloat(a.volume || "0"))
-      .slice(0, 10);
+      .slice(0, 5);
   })();
 
   // Run consensus once on page load (simulates the daily batch result)

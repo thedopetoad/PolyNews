@@ -36,7 +36,9 @@ const PERSONAS = [
   { name: "Devil's Advocate", prompt: "You MUST argue against the popular position. Challenge every assumption." },
 ];
 
-const TEMPS = [0.4, 0.7, 1.0, 1.2, 1.4];
+// 3 temps instead of 5 to stay within Vercel's 60s function timeout
+// 20 personas × 3 temps × 3 rounds = 180 calls (was 300, timed out)
+const TEMPS = [0.5, 0.9, 1.3];
 
 interface Prediction {
   agent: string;
