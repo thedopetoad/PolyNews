@@ -5,13 +5,33 @@ import { cn } from "@/lib/utils";
 
 interface Channel {
   name: string;
-  videoId: string;
+  type: "youtube" | "iframe";
+  src: string; // video ID for YouTube, full URL for iframe
 }
 
-// Only channels with confirmed working 24/7 YouTube embeds
+// Mix of YouTube (stable IDs) and direct embeds from news company websites
 const CHANNELS: Channel[] = [
-  { name: "Al Jazeera", videoId: "gCNeDWCI0vo" },
+  {
+    name: "Al Jazeera",
+    type: "youtube",
+    src: "gCNeDWCI0vo",
+  },
+  {
+    name: "France 24",
+    type: "iframe",
+    src: "https://embed.france24.com/en/live",
+  },
+  {
+    name: "ABC News",
+    type: "iframe",
+    src: "https://abcnews.go.com/video/portableplayer?id=abc_live11",
+  },
 ];
+
+function getEmbedUrl(channel: Channel): string {
+  if (channel.type === "iframe") return channel.src;
+  return `https://www.youtube.com/embed/${channel.src}?autoplay=1&mute=1&rel=0`;
+}
 
 export function LiveStreamPlayer() {
   const [activeChannel, setActiveChannel] = useState(0);
@@ -30,7 +50,7 @@ export function LiveStreamPlayer() {
               key={ch.name}
               onClick={() => setActiveChannel(idx)}
               className={cn(
-                "px-2 py-1 rounded text-[11px] whitespace-nowrap transition-colors",
+                "px-2.5 py-1 rounded text-[11px] whitespace-nowrap transition-colors",
                 idx === activeChannel
                   ? "bg-[#1c2128] text-white"
                   : "text-[#484f58] hover:text-[#768390]"
@@ -41,10 +61,10 @@ export function LiveStreamPlayer() {
           ))}
         </div>
       </div>
-      <div className="relative aspect-video">
+      <div className="relative aspect-video bg-black">
         <iframe
-          key={channel.videoId}
-          src={`https://www.youtube.com/embed/${channel.videoId}?autoplay=1&mute=1&rel=0`}
+          key={channel.name}
+          src={getEmbedUrl(channel)}
           title={channel.name}
           className="absolute inset-0 w-full h-full"
           allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
