@@ -120,6 +120,14 @@ function aggregateConsensus(predictions: AgentPrediction[]) {
   };
 }
 
+// Simple cache: { key -> { data, timestamp } }
+const cache = new Map<string, { data: unknown; timestamp: number }>();
+const CACHE_TTL = 12 * 60 * 60 * 1000; // 12 hours
+
+function getCacheKey(question: string): string {
+  return question.toLowerCase().trim().slice(0, 100);
+}
+
 // POST /api/consensus - Run swarm consensus on a market
 export async function POST(request: NextRequest) {
   if (!process.env.OPENAI_API_KEY) {
@@ -140,6 +148,13 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Check cache first
+    const cacheKey = getCacheKey(marketQuestion);
+    const cached = cache.get(cacheKey);
+    if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+      return NextResponse.json(cached.data);
+    }
+
     // Run all agents in parallel
     const predictions = await Promise.all(
       AGENT_PERSONAS.map((persona) =>
@@ -154,13 +169,18 @@ export async function POST(request: NextRequest) {
     const diff = result.consensus - marketPercent;
     const trend = diff > 3 ? "up" : diff < -3 ? "down" : "flat";
 
-    return NextResponse.json({
+    const responseData = {
       consensus: result.consensus,
       confidence: result.confidence,
       spread: result.spread,
       trend,
       agents: result.predictions,
-    });
+    };
+
+    // Store in cache
+    cache.set(cacheKey, { data: responseData, timestamp: Date.now() });
+
+    return NextResponse.json(responseData);
   } catch {
     return NextResponse.json(
       { error: "Consensus generation failed" },

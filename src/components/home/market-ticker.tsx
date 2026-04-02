@@ -50,7 +50,8 @@ export function MarketTicker() {
   }, [events]);
 
   const filteredMarkets = useMemo(() => {
-    let markets = allMarkets;
+    // Filter out resolved markets
+    let markets = allMarkets.filter((m) => m.yesPrice > 0.01 && m.yesPrice < 0.99);
 
     // Apply category keyword filter
     if (activeCategory !== "all" && activeCategory !== "trending") {

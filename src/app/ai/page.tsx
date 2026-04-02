@@ -143,11 +143,12 @@ export default function AIConsensusPage() {
 
             return (
               <div key={mc.market.id} className={cn("border-b border-[#21262d] last:border-b-0", isExpanded && "bg-[#0d1117]/50")}>
+                {/* Desktop row */}
                 <div
-                  className="grid grid-cols-1 sm:grid-cols-12 gap-2 px-4 py-3.5 items-center cursor-pointer hover:bg-[#1c2128]/50 transition-colors"
+                  className="hidden sm:grid grid-cols-12 gap-2 px-4 py-3.5 items-center cursor-pointer hover:bg-[#1c2128]/50 transition-colors"
                   onClick={() => setExpandedId(isExpanded ? null : mc.market.id)}
                 >
-                  <div className="sm:col-span-5">
+                  <div className="col-span-5">
                     <div className="flex items-start gap-2">
                       <span className="text-[11px] text-[#484f58] tabular-nums mt-0.5">{idx + 1}.</span>
                       <div>
@@ -164,12 +165,10 @@ export default function AIConsensusPage() {
                       </div>
                     </div>
                   </div>
-
-                  <div className="sm:col-span-2 text-center">
+                  <div className="col-span-2 text-center">
                     <span className="text-base font-bold text-[#e6edf3] tabular-nums">{formatPercentage(mc.market.yesPrice)}</span>
                   </div>
-
-                  <div className="sm:col-span-2 text-center">
+                  <div className="col-span-2 text-center">
                     {mc.loading ? (
                       <span className="text-xs text-[#d29922] animate-pulse">...</span>
                     ) : mc.result ? (
@@ -178,21 +177,51 @@ export default function AIConsensusPage() {
                       <span className="text-xs text-[#f85149]">Error</span>
                     )}
                   </div>
-
-                  <div className="sm:col-span-1 text-center">
+                  <div className="col-span-1 text-center">
                     {mc.result && (
                       <span className={cn("text-xs font-semibold tabular-nums", trendColor)}>
                         {diff > 0 ? "+" : ""}{diff.toFixed(0)}%
                       </span>
                     )}
                   </div>
-
-                  <div className="sm:col-span-2">
+                  <div className="col-span-2">
                     {mc.result && (
                       <div className="h-1.5 bg-[#21262d] rounded-full">
                         <div className="h-1.5 rounded-full bg-[#58a6ff] transition-all duration-700" style={{ width: `${mc.result.confidence}%` }} />
                       </div>
                     )}
+                  </div>
+                </div>
+
+                {/* Mobile card */}
+                <div
+                  className="sm:hidden px-4 py-3 cursor-pointer hover:bg-[#1c2128]/50 transition-colors"
+                  onClick={() => setExpandedId(isExpanded ? null : mc.market.id)}
+                >
+                  <p className="text-[13px] text-[#e6edf3] font-medium leading-snug">
+                    {idx + 1}. {mc.market.question}
+                  </p>
+                  <div className="flex items-center gap-4 mt-2">
+                    <div>
+                      <span className="text-[10px] text-[#484f58]">Market</span>
+                      <p className="text-sm font-bold text-[#e6edf3] tabular-nums">{formatPercentage(mc.market.yesPrice)}</p>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-[#484f58]">AI Swarm</span>
+                      {mc.loading ? (
+                        <p className="text-sm text-[#d29922] animate-pulse">...</p>
+                      ) : mc.result ? (
+                        <p className="text-sm font-bold text-[#58a6ff] tabular-nums">{mc.result.consensus.toFixed(0)}%</p>
+                      ) : (
+                        <p className="text-sm text-[#f85149]">Error</p>
+                      )}
+                    </div>
+                    {mc.result && (
+                      <span className={cn("text-xs font-semibold tabular-nums", trendColor)}>
+                        {diff > 0 ? "+" : ""}{diff.toFixed(0)}%
+                      </span>
+                    )}
+                    <span className="text-[10px] text-[#484f58] ml-auto">{formatVolume(mc.market.volume)}</span>
                   </div>
                 </div>
 
