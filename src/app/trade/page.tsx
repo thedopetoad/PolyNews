@@ -355,10 +355,12 @@ function MarketRow({
 /* ─── Portfolio Bar ─── */
 function PortfolioBar({ onSellPosition }: { onSellPosition?: (marketId: string) => void }) {
   const { user, positions, trades, isConnected, claimAirdrop, isClaimingAirdrop, executeTrade, isTrading } = useUser();
-  const [dailyClaimed, setDailyClaimed] = useState(false);
   const [sellingId, setSellingId] = useState<string | null>(null);
 
   if (!isConnected || !user) return null;
+
+  // Check if already claimed today from DB data
+  const dailyClaimed = user.lastDailyAirdrop === new Date().toDateString();
 
   const handleQuickSell = async (pos: typeof positions[0]) => {
     setSellingId(pos.id);
@@ -392,7 +394,7 @@ function PortfolioBar({ onSellPosition }: { onSellPosition?: (marketId: string) 
       </div>
       <div className="flex gap-2 mt-3">
         <button
-          onClick={async () => { try { await claimAirdrop("daily"); setDailyClaimed(true); } catch {} }}
+          onClick={async () => { try { await claimAirdrop("daily"); } catch {} }}
           disabled={dailyClaimed || isClaimingAirdrop}
           className={cn(
             "px-3 py-1.5 rounded text-[11px] font-medium transition-colors",

@@ -6,7 +6,7 @@ import { PolymarketEvent, PolymarketMarket } from "@/types/polymarket";
 async function fetchEvents(params?: Record<string, string>): Promise<PolymarketEvent[]> {
   const searchParams = new URLSearchParams({
     active: "true",
-    limit: "20",
+    limit: "50",
     ...params,
   });
   const res = await fetch(`/api/polymarket/events?${searchParams}`);
