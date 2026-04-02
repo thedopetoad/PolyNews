@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb, users, positions, trades } from "@/db";
-import { eq, and } from "drizzle-orm";
-
-function generateId(): string {
-  return Math.random().toString(36).substring(2, 10) + Date.now().toString(36);
-}
+import { eq, and, sql } from "drizzle-orm";
+import {
+  getAuthenticatedUser,
+  generateSecureId,
+  validateTradeParams,
+} from "@/lib/auth";
 
 // POST /api/trade - Execute a paper trade
 export async function POST(request: NextRequest) {
@@ -13,44 +14,63 @@ export async function POST(request: NextRequest) {
     const { userId, marketId, marketQuestion, outcome, side, shares, price } =
       body;
 
+    // Auth: verify the caller matches the userId
+    const authedUser = getAuthenticatedUser(request);
+    const normalizedUserId = userId?.toLowerCase();
+
+    if (!authedUser || authedUser !== normalizedUserId) {
+      return NextResponse.json(
+        { error: "Unauthorized" },
+        { status: 401 }
+      );
+    }
+
+    if (!marketId || !marketQuestion) {
+      return NextResponse.json(
+        { error: "Missing market fields" },
+        { status: 400 }
+      );
+    }
+
+    // Validate trade parameters
+    const validationError = validateTradeParams({ shares, price, side, outcome });
+    if (validationError) {
+      return NextResponse.json({ error: validationError }, { status: 400 });
+    }
+
     const db = getDb();
-
-    if (
-      !userId || !marketId || !marketQuestion || !outcome || !side ||
-      !shares || !price
-    ) {
-      return NextResponse.json({ error: "Missing fields" }, { status: 400 });
-    }
-
-    // Get user
-    const [user] = await db
-      .select()
-      .from(users)
-      .where(eq(users.id, userId))
-      .limit(1);
-
-    if (!user) {
-      return NextResponse.json({ error: "User not found" }, { status: 404 });
-    }
-
     const cost = shares * price;
+    const tradeId = generateSecureId();
 
     if (side === "buy") {
-      // Check balance
-      if (cost > user.balance) {
+      // Atomic balance deduction using SQL to prevent race conditions
+      const result = await db
+        .update(users)
+        .set({
+          balance: sql`${users.balance} - ${cost}`,
+        })
+        .where(
+          and(
+            eq(users.id, normalizedUserId),
+            sql`${users.balance} >= ${cost}`
+          )
+        )
+        .returning();
+
+      if (result.length === 0) {
         return NextResponse.json(
           { error: "Insufficient balance" },
           { status: 400 }
         );
       }
 
-      // Check for existing position
+      // Update or create position
       const existingPositions = await db
         .select()
         .from(positions)
         .where(
           and(
-            eq(positions.userId, userId),
+            eq(positions.userId, normalizedUserId),
             eq(positions.marketId, marketId),
             eq(positions.outcome, outcome)
           )
@@ -58,7 +78,6 @@ export async function POST(request: NextRequest) {
         .limit(1);
 
       if (existingPositions.length > 0) {
-        // Update existing position
         const pos = existingPositions[0];
         const totalShares = pos.shares + shares;
         const totalCost = pos.shares * pos.avgPrice + shares * price;
@@ -71,10 +90,9 @@ export async function POST(request: NextRequest) {
           })
           .where(eq(positions.id, pos.id));
       } else {
-        // Create new position
         await db.insert(positions).values({
-          id: generateId(),
-          userId,
+          id: generateSecureId(),
+          userId: normalizedUserId,
           marketId,
           marketQuestion,
           outcome,
@@ -82,12 +100,6 @@ export async function POST(request: NextRequest) {
           avgPrice: price,
         });
       }
-
-      // Deduct balance
-      await db
-        .update(users)
-        .set({ balance: user.balance - cost })
-        .where(eq(users.id, userId));
     } else if (side === "sell") {
       // Find position
       const existingPositions = await db
@@ -95,7 +107,7 @@ export async function POST(request: NextRequest) {
         .from(positions)
         .where(
           and(
-            eq(positions.userId, userId),
+            eq(positions.userId, normalizedUserId),
             eq(positions.marketId, marketId),
             eq(positions.outcome, outcome)
           )
@@ -118,27 +130,27 @@ export async function POST(request: NextRequest) {
       }
 
       if (shares === pos.shares) {
-        // Close position entirely
         await db.delete(positions).where(eq(positions.id, pos.id));
       } else {
-        // Reduce position
         await db
           .update(positions)
           .set({ shares: pos.shares - shares, updatedAt: new Date() })
           .where(eq(positions.id, pos.id));
       }
 
-      // Add proceeds to balance
+      // Atomic balance addition
       await db
         .update(users)
-        .set({ balance: user.balance + cost })
-        .where(eq(users.id, userId));
+        .set({
+          balance: sql`${users.balance} + ${cost}`,
+        })
+        .where(eq(users.id, normalizedUserId));
     }
 
     // Record trade
     await db.insert(trades).values({
-      id: generateId(),
-      userId,
+      id: tradeId,
+      userId: normalizedUserId,
       marketId,
       marketQuestion,
       outcome,
@@ -151,7 +163,7 @@ export async function POST(request: NextRequest) {
     const [updatedUser] = await db
       .select()
       .from(users)
-      .where(eq(users.id, userId))
+      .where(eq(users.id, normalizedUserId))
       .limit(1);
 
     return NextResponse.json({ user: updatedUser });

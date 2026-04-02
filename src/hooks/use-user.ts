@@ -42,15 +42,21 @@ export interface DbTrade {
   createdAt: string;
 }
 
+// Helper to create auth headers
+function authHeaders(address: string): HeadersInit {
+  return {
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${address}`,
+  };
+}
+
 async function fetchOrCreateUser(address: string): Promise<DbUser> {
-  // Try to get existing user
   const getRes = await fetch(`/api/user?id=${address}`);
   if (getRes.ok) return getRes.json();
 
-  // Create new user
   const createRes = await fetch("/api/user", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: authHeaders(address),
     body: JSON.stringify({
       id: address,
       authMethod: "wallet",
@@ -62,13 +68,17 @@ async function fetchOrCreateUser(address: string): Promise<DbUser> {
 }
 
 async function fetchPositions(userId: string): Promise<DbPosition[]> {
-  const res = await fetch(`/api/user/positions?userId=${userId}`);
+  const res = await fetch(`/api/user/positions?userId=${userId}`, {
+    headers: { Authorization: `Bearer ${userId}` },
+  });
   if (!res.ok) return [];
   return res.json();
 }
 
 async function fetchTrades(userId: string): Promise<DbTrade[]> {
-  const res = await fetch(`/api/user/trades?userId=${userId}`);
+  const res = await fetch(`/api/user/trades?userId=${userId}`, {
+    headers: { Authorization: `Bearer ${userId}` },
+  });
   if (!res.ok) return [];
   return res.json();
 }
@@ -109,7 +119,7 @@ export function useUser() {
     }) => {
       const res = await fetch("/api/trade", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: authHeaders(address!),
         body: JSON.stringify({ userId: address, ...params }),
       });
       if (!res.ok) {
@@ -129,7 +139,7 @@ export function useUser() {
     mutationFn: async (type: "daily" | "weekly" | "signup") => {
       const res = await fetch("/api/airdrop", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: authHeaders(address!),
         body: JSON.stringify({ userId: address, type }),
       });
       if (!res.ok) {

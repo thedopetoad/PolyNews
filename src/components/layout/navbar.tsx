@@ -8,6 +8,7 @@ import { Sheet, SheetContent, SheetTrigger, SheetTitle } from "@/components/ui/s
 import { NAV_LINKS, APP_NAME } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
+import { GoogleLoginButton } from "@/components/layout/google-login";
 
 export function Navbar() {
   const pathname = usePathname();
@@ -44,7 +45,8 @@ export function Navbar() {
             ))}
           </div>
 
-          <div className="hidden md:flex items-center">
+          <div className="hidden md:flex items-center gap-2">
+            <GoogleLoginButton />
             <ConnectButton
               chainStatus="none"
               showBalance={false}
@@ -74,7 +76,8 @@ export function Navbar() {
                     {link.label}
                   </Link>
                 ))}
-                <div className="mt-3">
+                <div className="mt-3 flex flex-col gap-2">
+                  <GoogleLoginButton />
                   <ConnectButton
                     chainStatus="none"
                     showBalance={false}

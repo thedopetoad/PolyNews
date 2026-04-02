@@ -3,17 +3,49 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useState } from "react";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { WagmiProvider } from "wagmi";
-import { RainbowKitProvider, darkTheme } from "@rainbow-me/rainbowkit";
-import { getDefaultConfig } from "@rainbow-me/rainbowkit";
+import { WagmiProvider, createConfig, http } from "wagmi";
+import {
+  RainbowKitProvider,
+  darkTheme,
+  connectorsForWallets,
+} from "@rainbow-me/rainbowkit";
+import {
+  metaMaskWallet,
+  coinbaseWallet,
+  walletConnectWallet,
+  phantomWallet,
+} from "@rainbow-me/rainbowkit/wallets";
 import { polygon } from "wagmi/chains";
 
 import "@rainbow-me/rainbowkit/styles.css";
 
-const config = getDefaultConfig({
-  appName: "PolyStream",
-  projectId: process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID || "placeholder",
-  chains: [polygon], // Polymarket runs on Polygon
+const projectId =
+  process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID || "placeholder";
+
+const connectors = connectorsForWallets(
+  [
+    {
+      groupName: "Popular",
+      wallets: [
+        metaMaskWallet,
+        coinbaseWallet,
+        phantomWallet,
+        walletConnectWallet,
+      ],
+    },
+  ],
+  {
+    appName: "PolyStream",
+    projectId,
+  }
+);
+
+const config = createConfig({
+  connectors,
+  chains: [polygon],
+  transports: {
+    [polygon.id]: http(),
+  },
   ssr: true,
 });
 
