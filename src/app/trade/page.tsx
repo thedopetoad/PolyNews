@@ -1,6 +1,30 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
+
+function DailyCountdown() {
+  const [timeLeft, setTimeLeft] = useState("");
+  useEffect(() => {
+    const update = () => {
+      const now = new Date();
+      const tomorrow = new Date(now);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      tomorrow.setHours(0, 0, 0, 0);
+      const ms = tomorrow.getTime() - now.getTime();
+      const h = Math.floor(ms / 3600000);
+      const m = Math.floor((ms % 3600000) / 60000);
+      setTimeLeft(`${h}h ${m}m`);
+    };
+    update();
+    const interval = setInterval(update, 60000);
+    return () => clearInterval(interval);
+  }, []);
+  return (
+    <span className="px-3 py-1.5 rounded text-[11px] font-medium border border-[#21262d] text-[#484f58] inline-block">
+      Next claim in {timeLeft}
+    </span>
+  );
+}
 import { usePolymarketEvents } from "@/hooks/use-polymarket";
 import { useUser } from "@/hooks/use-user";
 import {
@@ -392,17 +416,18 @@ function PortfolioBar({ onSellPosition }: { onSellPosition?: (marketId: string) 
           <p className="font-mono">{user.referralCode}</p>
         </div>
       </div>
-      <div className="flex gap-2 mt-3">
-        <button
-          onClick={async () => { try { await claimAirdrop("daily"); } catch {} }}
-          disabled={dailyClaimed || isClaimingAirdrop}
-          className={cn(
-            "px-3 py-1.5 rounded text-[11px] font-medium transition-colors",
-            dailyClaimed ? "bg-[#1c2128] text-[#484f58]" : "bg-[#238636] hover:bg-[#2ea043] text-white"
-          )}
-        >
-          {dailyClaimed ? "Claimed" : `+${AIRDROP_AMOUNTS.daily} Daily`}
-        </button>
+      <div className="mt-3">
+        {dailyClaimed ? (
+          <DailyCountdown />
+        ) : (
+          <button
+            onClick={async () => { try { await claimAirdrop("daily"); } catch {} }}
+            disabled={isClaimingAirdrop}
+            className="px-3 py-1.5 rounded text-[11px] font-medium bg-[#238636] hover:bg-[#2ea043] text-white transition-colors"
+          >
+            {isClaimingAirdrop ? "Claiming..." : `+${AIRDROP_AMOUNTS.daily} Daily`}
+          </button>
+        )}
       </div>
 
       {/* Positions with sell buttons */}
