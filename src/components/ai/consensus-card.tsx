@@ -63,7 +63,7 @@ export function ConsensusCard({
       {/* Header */}
       <div className="flex items-start justify-between gap-2">
         <a
-          href={`${POLYMARKET_BASE_URL}/event/${market.slug || market.conditionId}`}
+          href={`${POLYMARKET_BASE_URL}/event/${market.eventSlug || market.slug || market.conditionId}`}
           target="_blank"
           rel="noopener noreferrer"
           className="text-[13px] font-medium text-[#e6edf3] leading-snug line-clamp-2 min-h-[2.5rem] hover:text-[#58a6ff] transition-colors"

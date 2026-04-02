@@ -23,6 +23,7 @@ export interface PolymarketMarket {
   lastTradePrice?: number;
   oneDayPriceChange?: number;
   clobTokenIds?: string; // JSON stringified array
+  eventSlug?: string; // Attached by our API from the parent event
 }
 
 export interface PolymarketEvent {

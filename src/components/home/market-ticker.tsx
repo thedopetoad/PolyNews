@@ -15,7 +15,7 @@ import { cn } from "@/lib/utils";
 function TickerCard({ market }: { market: MarketWithPrices }) {
   return (
     <a
-      href={`${POLYMARKET_BASE_URL}/event/${market.slug || market.conditionId}`}
+      href={`${POLYMARKET_BASE_URL}/event/${market.eventSlug || market.slug || market.conditionId}`}
       target="_blank"
       rel="noopener noreferrer"
       className="flex-shrink-0 w-64 rounded-lg border border-[#21262d] bg-[#161b22] p-3 hover:border-[#30363d] transition-colors"

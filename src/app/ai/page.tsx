@@ -204,7 +204,7 @@ export default function AIConsensusPage() {
                       <span className="text-[11px] text-[#484f58] tabular-nums mt-0.5">{idx + 1}.</span>
                       <div>
                         <a
-                          href={`${POLYMARKET_BASE_URL}/event/${mc.market.slug}`}
+                          href={`${POLYMARKET_BASE_URL}/event/${mc.market.eventSlug || mc.market.slug}`}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="text-[13px] text-[#e6edf3] hover:text-[#58a6ff] font-medium leading-snug"

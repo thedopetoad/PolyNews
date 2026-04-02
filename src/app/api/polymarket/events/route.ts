@@ -72,7 +72,15 @@ export async function GET(request: NextRequest) {
 
     for (const event of events as EventData[]) {
       if (!event.markets) continue;
+      // Attach event slug to each market so links work correctly
+      const eventSlug = event.slug as string || "";
+      const eventImage = event.image as string || "";
       for (const market of event.markets) {
+        (market as Record<string, unknown>).eventSlug = eventSlug;
+        // Use event image as fallback if market has no image
+        if (!market.image && eventImage) {
+          (market as Record<string, unknown>).image = eventImage;
+        }
         if (market.clobTokenIds) {
           try {
             const tokenIds = JSON.parse(market.clobTokenIds as string);
