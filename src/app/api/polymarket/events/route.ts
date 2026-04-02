@@ -14,8 +14,9 @@ export async function GET(request: NextRequest) {
     if (val !== null) params.set(key, val);
   }
 
-  // Enforce defaults and caps
+  // Enforce defaults and caps - must be active AND not closed
   if (!params.has("active")) params.set("active", "true");
+  if (!params.has("closed")) params.set("closed", "false");
   const limit = Math.min(parseInt(params.get("limit") || "20"), MAX_LIMIT);
   params.set("limit", String(limit));
 

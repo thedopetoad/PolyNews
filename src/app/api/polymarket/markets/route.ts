@@ -15,6 +15,7 @@ export async function GET(request: NextRequest) {
   }
 
   if (!params.has("active")) params.set("active", "true");
+  if (!params.has("closed")) params.set("closed", "false");
   const limit = Math.min(parseInt(params.get("limit") || "50"), MAX_LIMIT);
   params.set("limit", String(limit));
 
