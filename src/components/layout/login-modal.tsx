@@ -1,9 +1,12 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { useAccount, useConnect, useDisconnect } from "wagmi";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { getWeb3AuthInstance } from "@/lib/web3auth";
+import { useAuthStore } from "@/stores/use-auth-store";
+import { useUser } from "@/hooks/use-user";
+import Link from "next/link";
 
 function GoogleIcon() {
   return (
@@ -17,12 +20,30 @@ function GoogleIcon() {
 }
 
 export function LoginButton() {
-  const [open, setOpen] = useState(false);
+  const [loginOpen, setLoginOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
-  const [googleAddress, setGoogleAddress] = useState<string | null>(null);
-  const { address, isConnected } = useAccount();
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  const { address: wagmiAddress, isConnected: wagmiConnected } = useAccount();
   const { connectors, connect } = useConnect();
-  const { disconnect } = useDisconnect();
+  const { disconnect: wagmiDisconnect } = useDisconnect();
+  const { googleAddress, setGoogleAddress } = useAuthStore();
+  const { user } = useUser();
+
+  const connectedAddress = wagmiAddress || googleAddress;
+  const isConnected = !!(wagmiConnected || googleAddress);
+
+  // Close menu on outside click
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setMenuOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
 
   const handleGoogleLogin = useCallback(async () => {
     try {
@@ -40,7 +61,7 @@ export function LoginButton() {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ id: accounts[0], authMethod: "google", walletAddress: accounts[0] }),
           });
-          setOpen(false);
+          setLoginOpen(false);
         }
       }
     } catch (err) {
@@ -48,45 +69,92 @@ export function LoginButton() {
     } finally {
       setGoogleLoading(false);
     }
-  }, []);
+  }, [setGoogleAddress]);
 
-  const handleGoogleLogout = useCallback(async () => {
-    const web3auth = getWeb3AuthInstance();
-    if (web3auth) { await web3auth.logout(); setGoogleAddress(null); }
-  }, []);
+  const handleDisconnect = useCallback(async () => {
+    if (wagmiConnected) {
+      wagmiDisconnect();
+    }
+    if (googleAddress) {
+      try {
+        const web3auth = getWeb3AuthInstance();
+        if (web3auth) await web3auth.logout();
+      } catch {}
+      setGoogleAddress(null);
+    }
+    setMenuOpen(false);
+  }, [wagmiConnected, wagmiDisconnect, googleAddress, setGoogleAddress]);
 
-  const connectedAddress = address || googleAddress;
-  if (connectedAddress) {
+  // ─── Connected: show address with dropdown ───
+  if (isConnected && connectedAddress) {
     return (
-      <button
-        onClick={() => { if (address) disconnect(); else handleGoogleLogout(); }}
-        className="h-8 px-3 rounded-full bg-[#1c2128] text-[#adbac7] text-xs font-medium border border-[#21262d] hover:border-[#30363d] transition-colors"
-      >
-        {connectedAddress.slice(0, 6)}...{connectedAddress.slice(-4)}
-      </button>
+      <div className="relative" ref={menuRef}>
+        <button
+          onClick={() => setMenuOpen(!menuOpen)}
+          className="h-8 px-3 rounded-full bg-[#1c2128] text-[#adbac7] text-xs font-medium border border-[#21262d] hover:border-[#30363d] transition-colors"
+        >
+          {connectedAddress.slice(0, 6)}...{connectedAddress.slice(-4)}
+        </button>
+
+        {menuOpen && (
+          <div className="absolute right-0 top-10 w-56 rounded-lg border border-[#21262d] bg-[#161b22] shadow-xl z-50 overflow-hidden">
+            {/* Balance */}
+            {user && (
+              <div className="px-4 py-3 border-b border-[#21262d]">
+                <p className="text-[10px] text-[#484f58] uppercase">Balance</p>
+                <p className="text-base font-bold text-white tabular-nums">
+                  {user.balance.toLocaleString(undefined, { maximumFractionDigits: 0 })} PST
+                </p>
+              </div>
+            )}
+
+            {/* Menu items */}
+            <Link
+              href="/trade"
+              onClick={() => setMenuOpen(false)}
+              className="block px-4 py-2.5 text-sm text-[#adbac7] hover:bg-[#1c2128] transition-colors"
+            >
+              Paper Trade
+            </Link>
+            <Link
+              href="/ai"
+              onClick={() => setMenuOpen(false)}
+              className="block px-4 py-2.5 text-sm text-[#adbac7] hover:bg-[#1c2128] transition-colors"
+            >
+              AI Consensus
+            </Link>
+
+            <div className="border-t border-[#21262d]">
+              <button
+                onClick={handleDisconnect}
+                className="w-full text-left px-4 py-2.5 text-sm text-[#f85149] hover:bg-[#1c2128] transition-colors"
+              >
+                Disconnect
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
     );
   }
 
-  // Map connector IDs to friendly names
+  // ─── Not connected: show login button + modal ───
   const walletNames: Record<string, string> = {
-    "metaMaskSDK": "MetaMask",
-    "metaMask": "MetaMask",
-    "coinbaseWalletSDK": "Coinbase Wallet",
-    "coinbaseWallet": "Coinbase Wallet",
-    "walletConnect": "WalletConnect",
-    "phantom": "Phantom",
-    "injected": "Browser Wallet",
+    metaMaskSDK: "MetaMask",
+    metaMask: "MetaMask",
+    coinbaseWalletSDK: "Coinbase Wallet",
+    coinbaseWallet: "Coinbase Wallet",
+    walletConnect: "WalletConnect",
+    phantom: "Phantom",
+    injected: "Browser Wallet",
   };
-
   const walletColors: Record<string, string> = {
-    "MetaMask": "#E87F24",
+    MetaMask: "#E87F24",
     "Coinbase Wallet": "#0052FF",
-    "WalletConnect": "#3B99FC",
-    "Phantom": "#AB9FF2",
+    WalletConnect: "#3B99FC",
+    Phantom: "#AB9FF2",
     "Browser Wallet": "#768390",
   };
-
-  // Deduplicate connectors by friendly name
   const seen = new Set<string>();
   const uniqueWallets = connectors.filter((c) => {
     const name = walletNames[c.id] || c.name;
@@ -98,18 +166,17 @@ export function LoginButton() {
   return (
     <>
       <button
-        onClick={() => setOpen(true)}
+        onClick={() => setLoginOpen(true)}
         className="h-8 px-4 rounded-full bg-[#238636] hover:bg-[#2ea043] text-white text-xs font-medium transition-colors"
       >
         Log In
       </button>
 
-      <Dialog open={open} onOpenChange={setOpen}>
+      <Dialog open={loginOpen} onOpenChange={setLoginOpen}>
         <DialogContent className="border-[#21262d] bg-[#161b22] max-w-sm">
           <DialogHeader>
             <DialogTitle className="text-white text-center">Log in to PolyStream</DialogTitle>
           </DialogHeader>
-
           <div className="space-y-2 mt-2">
             <button
               onClick={handleGoogleLogin}
@@ -121,20 +188,18 @@ export function LoginButton() {
                 {googleLoading ? "Connecting..." : "Continue with Google"}
               </span>
             </button>
-
             <div className="flex items-center gap-3 py-2">
               <div className="flex-1 h-px bg-[#21262d]" />
               <span className="text-[10px] text-[#484f58]">or connect wallet</span>
               <div className="flex-1 h-px bg-[#21262d]" />
             </div>
-
             {uniqueWallets.slice(0, 4).map((connector) => {
               const name = walletNames[connector.id] || connector.name;
               const color = walletColors[name] || "#768390";
               return (
                 <button
                   key={connector.uid}
-                  onClick={() => { connect({ connector }); setOpen(false); }}
+                  onClick={() => { connect({ connector }); setLoginOpen(false); }}
                   className="w-full flex items-center gap-3 px-4 py-3 rounded-lg bg-[#0d1117] border border-[#21262d] hover:border-[#30363d] transition-colors text-left"
                 >
                   <div className="w-5 h-5 rounded-full flex-shrink-0" style={{ backgroundColor: color }} />

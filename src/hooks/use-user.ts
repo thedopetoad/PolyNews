@@ -2,6 +2,7 @@
 
 import { useAccount } from "wagmi";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useAuthStore } from "@/stores/use-auth-store";
 
 export interface DbUser {
   id: string;
@@ -42,7 +43,6 @@ export interface DbTrade {
   createdAt: string;
 }
 
-// Helper to create auth headers
 function authHeaders(address: string): HeadersInit {
   return {
     "Content-Type": "application/json",
@@ -50,7 +50,7 @@ function authHeaders(address: string): HeadersInit {
   };
 }
 
-async function fetchOrCreateUser(address: string): Promise<DbUser> {
+async function fetchOrCreateUser(address: string, authMethod: string = "wallet"): Promise<DbUser> {
   const getRes = await fetch(`/api/user?id=${address}`, {
     headers: { Authorization: `Bearer ${address}` },
   });
@@ -61,7 +61,7 @@ async function fetchOrCreateUser(address: string): Promise<DbUser> {
     headers: authHeaders(address),
     body: JSON.stringify({
       id: address,
-      authMethod: "wallet",
+      authMethod,
       walletAddress: address,
     }),
   });
@@ -86,12 +86,18 @@ async function fetchTrades(userId: string): Promise<DbTrade[]> {
 }
 
 export function useUser() {
-  const { address, isConnected } = useAccount();
+  const { address: wagmiAddress, isConnected: wagmiConnected } = useAccount();
+  const googleAddress = useAuthStore((s) => s.googleAddress);
   const queryClient = useQueryClient();
+
+  // Unified: use wagmi address if connected, otherwise Google address
+  const address = wagmiAddress || googleAddress;
+  const isConnected = !!(wagmiConnected || googleAddress);
+  const authMethod = wagmiAddress ? "wallet" : "google";
 
   const userQuery = useQuery({
     queryKey: ["user", address],
-    queryFn: () => fetchOrCreateUser(address!),
+    queryFn: () => fetchOrCreateUser(address!, authMethod),
     enabled: !!address && isConnected,
     staleTime: 30_000,
   });
@@ -161,6 +167,7 @@ export function useUser() {
     trades: tradesQuery.data || [],
     isConnected,
     isLoading: userQuery.isLoading,
+    address: address || null,
     executeTrade: tradeMutation.mutateAsync,
     isTrading: tradeMutation.isPending,
     tradeError: tradeMutation.error?.message || null,
