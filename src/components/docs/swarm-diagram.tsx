@@ -49,27 +49,27 @@ const AGENTS = [
 const STEPS = [
   {
     title: "1. Pick the Top Markets",
-    desc: "We look at Polymarket and find the biggest, most popular prediction markets \u2014 the ones with millions of dollars in trading volume.",
+    desc: "We find the biggest Polymarket markets by trading volume \u2014 the ones where millions of dollars are at stake.",
     icon: "\ud83c\udfaf",
   },
   {
-    title: "2. Send to 5 AI Agents",
-    desc: "Each market question gets sent to 5 different AI agents. Each agent has a completely different personality and way of thinking.",
-    icon: "\ud83e\udd16",
-  },
-  {
-    title: "3. Agents Think Independently",
-    desc: "Each agent reads the question, thinks about it from their unique perspective, and makes a prediction. They DON'T see what the other agents say.",
+    title: "2. Round 1: Independent Predictions",
+    desc: "20 AI agents with completely different personalities each make a prediction WITHOUT seeing anyone else's answer. Each agent runs at 5 creativity levels = 100 real predictions. Zero groupthink.",
     icon: "\ud83e\udde0",
   },
   {
-    title: "4. Predictions Get Combined",
-    desc: "We take all 5 predictions and combine them using a weighted average. Agents who are more confident get more weight. This is called consensus.",
-    icon: "\u2696\ufe0f",
+    title: "3. Round 2: The Debate",
+    desc: "Now all agents see the Round 1 results: the average prediction, the strongest bull argument, and the strongest bear argument. Each agent can change their mind or double down. The contrarian challenges everyone, the risk assessor flags overconfidence.",
+    icon: "\ud83d\udde3\ufe0f",
   },
   {
-    title: "5. Compare to the Market",
-    desc: "We show the AI swarm's prediction next to the actual Polymarket price. If they disagree, that might mean the market is wrong \u2014 or the AI is!",
+    title: "4. Round 3: Final Vote",
+    desc: "Agents see how the debate shifted the consensus and give their final, most carefully calibrated prediction. Round 3 votes count 3x more than Round 1. Another 100 predictions.",
+    icon: "\ud83d\uddf3\ufe0f",
+  },
+  {
+    title: "5. Bootstrap to 100,000",
+    desc: "The 300 real predictions are resampled with statistical variation to simulate 100,000 agents. This gives the consensus mathematical weight. The final number is compared to the actual Polymarket price.",
     icon: "\ud83d\udcc8",
   },
 ];
@@ -193,9 +193,10 @@ export function SwarmDiagram() {
           {/* Consensus result */}
           <div className="text-center">
             <div className="inline-block bg-[#58a6ff]/10 border border-[#58a6ff]/30 rounded-lg px-6 py-3">
-              <p className="text-[10px] text-[#58a6ff] uppercase tracking-wider">Swarm Consensus</p>
+              <p className="text-[10px] text-[#58a6ff] uppercase tracking-wider">100,000 Agent Consensus (3 debate rounds)</p>
               <p className="text-2xl font-bold text-white mt-1">67% Yes</p>
-              <p className="text-[10px] text-[#768390] mt-0.5">vs Market: 60% &mdash; AI says +7% higher</p>
+              <p className="text-[10px] text-[#768390] mt-0.5">Round 1: 62% &rarr; Debate: 65% &rarr; Final: 67%</p>
+              <p className="text-[10px] text-[#768390]">vs Market: 60% &mdash; AI says +7% higher</p>
             </div>
           </div>
         </div>

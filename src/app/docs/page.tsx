@@ -54,8 +54,35 @@ const sections: DocSection[] = [
         <p>
           The <a href="https://arxiv.org/abs/2411.11581" target="_blank" className="text-[#58a6ff] hover:underline">OASIS research paper</a> showed this works with up to <strong className="text-[#e6edf3]">1 million AI agents</strong> simulating social interactions to predict outcomes. MiroFish uses hundreds of thousands of agents with 23 different social behaviors (posting, commenting, following, arguing, etc.) to model how real humans would react to events.
         </p>
+        <h4 className="font-semibold text-[#e6edf3] mt-4">Our Implementation: 3-Round Debate System</h4>
+        <p>We run a full inter-agent debate across 3 rounds, just like the OASIS model recommends:</p>
+        <div className="bg-[#0d1117] rounded-lg border border-[#21262d] divide-y divide-[#21262d] mt-3 mb-3">
+          <div className="p-3">
+            <p className="text-[#58a6ff] font-medium text-xs">Round 1: Independent Predictions</p>
+            <p className="text-xs mt-1">20 agent personas (Market Analyst, Economist, Contrarian, Historian, Devil&apos;s Advocate, and 15 more) each predict independently at 5 different &quot;creativity&quot; temperatures. That&apos;s <strong className="text-[#e6edf3]">100 real GPT-4o-mini predictions</strong> with zero groupthink &mdash; nobody sees anyone else&apos;s answer.</p>
+          </div>
+          <div className="p-3">
+            <p className="text-[#58a6ff] font-medium text-xs">Round 2: The Debate</p>
+            <p className="text-xs mt-1">All 100 agents now see a summary of Round 1: the average prediction, the strongest bull argument, and the strongest bear argument. Each agent can change their mind or double down. This is where the magic happens &mdash; contrarians challenge the consensus, risk assessors flag overconfidence, and the debate shifts the average. Another <strong className="text-[#e6edf3]">100 predictions</strong>.</p>
+          </div>
+          <div className="p-3">
+            <p className="text-[#58a6ff] font-medium text-xs">Round 3: Final Calibrated Vote</p>
+            <p className="text-xs mt-1">Agents see how the debate shifted the consensus (e.g. &quot;Pre-debate: 65% &rarr; Post-debate: 58%&quot;) and give their final, most calibrated prediction. Round 3 votes are weighted 3x heavier than Round 1 in the final consensus. Another <strong className="text-[#e6edf3]">100 predictions</strong>.</p>
+          </div>
+        </div>
+        <h4 className="font-semibold text-[#e6edf3]">Scaling: 300 &rarr; 100,000</h4>
         <p>
-          Our implementation uses <strong className="text-[#e6edf3]">20 specialized agent personas</strong> (Market Analyst, Political Strategist, Contrarian, Economist, Historian, and 15 more), each running at 5 different &quot;creativity levels&quot; for <strong className="text-[#e6edf3]">100 real GPT-4o-mini predictions</strong> per market. These 100 predictions are then bootstrapped (resampled with statistical variation) to simulate a <strong className="text-[#e6edf3]">10,000-agent swarm</strong>. The next step is inter-agent debate, where agents argue with each other before reaching consensus, like the full OASIS model.
+          The 300 real predictions are bootstrapped (resampled with statistical noise) to simulate <strong className="text-[#e6edf3]">100,000 agents</strong>. This gives the consensus statistical validity without costing $50 per run. Each market costs about $0.05 in API calls. Results are cached in our database for 5 hours, so the swarm only runs ~5 times per day.
+        </p>
+        <h4 className="font-semibold text-[#e6edf3] mt-3">The 20 Agent Personas</h4>
+        <div className="flex flex-wrap gap-1 mt-1">
+          {["Market Analyst", "Political Strategist", "Contrarian", "News Analyst", "Risk Assessor", "Economist", "Geopolitical Expert", "Tech Analyst", "Behavioral Psychologist", "Statistician", "Historian", "Legal Scholar", "Sociologist", "Insurance Actuary", "Venture Capitalist", "Crypto Trader", "Military Strategist", "Climate Scientist", "Investigative Journalist", "Devil's Advocate"].map((name) => (
+            <span key={name} className="text-[10px] text-[#768390] bg-[#1c2128] px-2 py-0.5 rounded border border-[#21262d]">{name}</span>
+          ))}
+        </div>
+        <h4 className="font-semibold text-[#e6edf3] mt-3">Why Debate Matters</h4>
+        <p>
+          Without debate, you get 100 independent guesses averaged together. With debate, you get something closer to how real humans reach consensus &mdash; arguments are challenged, overconfidence gets checked, and the final number reflects genuine deliberation. The OASIS paper showed that this inter-agent interaction produces emergent social phenomena (group polarization, herd effects, information cascades) that mirror real human behavior.
         </p>
         <SwarmDiagram />
       </div>
