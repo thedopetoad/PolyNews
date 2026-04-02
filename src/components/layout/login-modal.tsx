@@ -6,7 +6,6 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { getWeb3AuthInstance } from "@/lib/web3auth";
 import { useAuthStore } from "@/stores/use-auth-store";
 import { useUser } from "@/hooks/use-user";
-import Link from "next/link";
 
 function GoogleIcon() {
   return (
@@ -34,12 +33,9 @@ export function LoginButton() {
   const connectedAddress = wagmiAddress || googleAddress;
   const isConnected = !!(wagmiConnected || googleAddress);
 
-  // Close menu on outside click
   useEffect(() => {
     const handler = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        setMenuOpen(false);
-      }
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false);
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
@@ -72,20 +68,15 @@ export function LoginButton() {
   }, [setGoogleAddress]);
 
   const handleDisconnect = useCallback(async () => {
-    if (wagmiConnected) {
-      wagmiDisconnect();
-    }
+    if (wagmiConnected) wagmiDisconnect();
     if (googleAddress) {
-      try {
-        const web3auth = getWeb3AuthInstance();
-        if (web3auth) await web3auth.logout();
-      } catch {}
+      try { const w = getWeb3AuthInstance(); if (w) await w.logout(); } catch {}
       setGoogleAddress(null);
     }
     setMenuOpen(false);
   }, [wagmiConnected, wagmiDisconnect, googleAddress, setGoogleAddress]);
 
-  // ─── Connected: show address with dropdown ───
+  // ─── Connected: address with simple dropdown ───
   if (isConnected && connectedAddress) {
     return (
       <div className="relative" ref={menuRef}>
@@ -95,10 +86,8 @@ export function LoginButton() {
         >
           {connectedAddress.slice(0, 6)}...{connectedAddress.slice(-4)}
         </button>
-
         {menuOpen && (
-          <div className="absolute right-0 top-10 w-56 rounded-lg border border-[#21262d] bg-[#161b22] shadow-xl z-50 overflow-hidden">
-            {/* Balance */}
+          <div className="absolute right-0 top-10 w-48 rounded-lg border border-[#21262d] bg-[#161b22] shadow-xl z-50 overflow-hidden">
             {user && (
               <div className="px-4 py-3 border-b border-[#21262d]">
                 <p className="text-[10px] text-[#484f58] uppercase">Balance</p>
@@ -107,86 +96,48 @@ export function LoginButton() {
                 </p>
               </div>
             )}
-
-            {/* Menu items */}
-            <Link
-              href="/trade"
-              onClick={() => setMenuOpen(false)}
-              className="block px-4 py-2.5 text-sm text-[#adbac7] hover:bg-[#1c2128] transition-colors"
+            <button
+              onClick={handleDisconnect}
+              className="w-full text-left px-4 py-2.5 text-sm text-[#f85149] hover:bg-[#1c2128] transition-colors"
             >
-              Paper Trade
-            </Link>
-            <Link
-              href="/ai"
-              onClick={() => setMenuOpen(false)}
-              className="block px-4 py-2.5 text-sm text-[#adbac7] hover:bg-[#1c2128] transition-colors"
-            >
-              AI Consensus
-            </Link>
-
-            <div className="border-t border-[#21262d]">
-              <button
-                onClick={handleDisconnect}
-                className="w-full text-left px-4 py-2.5 text-sm text-[#f85149] hover:bg-[#1c2128] transition-colors"
-              >
-                Disconnect
-              </button>
-            </div>
+              Log out
+            </button>
           </div>
         )}
       </div>
     );
   }
 
-  // ─── Not connected: show login button + modal ───
+  // ─── Not connected ───
   const walletNames: Record<string, string> = {
-    metaMaskSDK: "MetaMask",
-    metaMask: "MetaMask",
-    coinbaseWalletSDK: "Coinbase Wallet",
-    coinbaseWallet: "Coinbase Wallet",
-    walletConnect: "WalletConnect",
-    phantom: "Phantom",
-    injected: "Browser Wallet",
+    metaMaskSDK: "MetaMask", metaMask: "MetaMask",
+    coinbaseWalletSDK: "Coinbase Wallet", coinbaseWallet: "Coinbase Wallet",
+    walletConnect: "WalletConnect", phantom: "Phantom", injected: "Browser Wallet",
   };
   const walletColors: Record<string, string> = {
-    MetaMask: "#E87F24",
-    "Coinbase Wallet": "#0052FF",
-    WalletConnect: "#3B99FC",
-    Phantom: "#AB9FF2",
-    "Browser Wallet": "#768390",
+    MetaMask: "#E87F24", "Coinbase Wallet": "#0052FF",
+    WalletConnect: "#3B99FC", Phantom: "#AB9FF2", "Browser Wallet": "#768390",
   };
   const seen = new Set<string>();
   const uniqueWallets = connectors.filter((c) => {
     const name = walletNames[c.id] || c.name;
     if (seen.has(name)) return false;
-    seen.add(name);
-    return true;
+    seen.add(name); return true;
   });
 
   return (
     <>
-      <button
-        onClick={() => setLoginOpen(true)}
-        className="h-8 px-4 rounded-full bg-[#238636] hover:bg-[#2ea043] text-white text-xs font-medium transition-colors"
-      >
+      <button onClick={() => setLoginOpen(true)} className="h-8 px-4 rounded-full bg-[#238636] hover:bg-[#2ea043] text-white text-xs font-medium transition-colors">
         Log In
       </button>
-
       <Dialog open={loginOpen} onOpenChange={setLoginOpen}>
         <DialogContent className="border-[#21262d] bg-[#161b22] max-w-sm">
-          <DialogHeader>
-            <DialogTitle className="text-white text-center">Log in to PolyStream</DialogTitle>
-          </DialogHeader>
+          <DialogHeader><DialogTitle className="text-white text-center">Log in to PolyStream</DialogTitle></DialogHeader>
           <div className="space-y-2 mt-2">
-            <button
-              onClick={handleGoogleLogin}
-              disabled={googleLoading}
-              className="w-full flex items-center gap-3 px-4 py-3 rounded-lg bg-[#0d1117] border border-[#21262d] hover:border-[#30363d] transition-colors text-left"
-            >
+            <button onClick={handleGoogleLogin} disabled={googleLoading}
+              className="w-full flex items-center gap-3 px-4 py-3 rounded-lg bg-[#0d1117] border border-[#21262d] hover:border-[#30363d] transition-colors text-left">
               <GoogleIcon />
-              <span className="text-sm text-[#e6edf3] font-medium">
-                {googleLoading ? "Connecting..." : "Continue with Google"}
-              </span>
+              <span className="text-sm text-[#e6edf3] font-medium">{googleLoading ? "Connecting..." : "Continue with Google"}</span>
             </button>
             <div className="flex items-center gap-3 py-2">
               <div className="flex-1 h-px bg-[#21262d]" />
@@ -197,11 +148,8 @@ export function LoginButton() {
               const name = walletNames[connector.id] || connector.name;
               const color = walletColors[name] || "#768390";
               return (
-                <button
-                  key={connector.uid}
-                  onClick={() => { connect({ connector }); setLoginOpen(false); }}
-                  className="w-full flex items-center gap-3 px-4 py-3 rounded-lg bg-[#0d1117] border border-[#21262d] hover:border-[#30363d] transition-colors text-left"
-                >
+                <button key={connector.uid} onClick={() => { connect({ connector }); setLoginOpen(false); }}
+                  className="w-full flex items-center gap-3 px-4 py-3 rounded-lg bg-[#0d1117] border border-[#21262d] hover:border-[#30363d] transition-colors text-left">
                   <div className="w-5 h-5 rounded-full flex-shrink-0" style={{ backgroundColor: color }} />
                   <span className="text-sm text-[#e6edf3]">{name}</span>
                 </button>

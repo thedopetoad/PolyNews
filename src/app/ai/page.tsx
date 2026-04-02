@@ -84,7 +84,7 @@ export default function AIConsensusPage() {
   }, [topMarkets.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
-    <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8 relative z-10">
       <div className="flex items-start justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold text-white">AI Swarm Consensus</h1>
@@ -99,17 +99,9 @@ export default function AIConsensusPage() {
         </div>
       </div>
 
-      <div className="rounded-lg border border-[#21262d] bg-[#161b22] overflow-hidden mb-6">
-        <div className="px-4 py-2 border-b border-[#21262d] flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <span className={cn("w-1.5 h-1.5 rounded-full", running ? "bg-[#d29922] animate-pulse" : "bg-[#3fb950]")} />
-            <span className="text-[11px] text-[#484f58]">
-              {running ? "Agents debating..." : "Swarm Network"}
-            </span>
-          </div>
-          {lastRun && <span className="text-[10px] text-[#484f58]">{lastRun}</span>}
-        </div>
-        <SwarmVisualization />
+      {/* Swarm dots as page background */}
+      <div className="fixed inset-0 pointer-events-none z-0 opacity-40">
+        <SwarmVisualization className="h-full" />
       </div>
 
       {/* Results */}

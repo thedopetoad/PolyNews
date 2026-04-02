@@ -377,14 +377,23 @@ function MarketRow({
 }
 
 /* ─── Portfolio Bar ─── */
-function PortfolioBar({ onSellPosition }: { onSellPosition?: (marketId: string) => void }) {
+function PortfolioBar({ onPositionClick }: { onPositionClick?: (marketId: string, question: string) => void }) {
   const { user, positions, trades, isConnected, claimAirdrop, isClaimingAirdrop, executeTrade, isTrading } = useUser();
   const [sellingId, setSellingId] = useState<string | null>(null);
+  const [claimError, setClaimError] = useState<string | null>(null);
 
   if (!isConnected || !user) return null;
 
-  // Check if already claimed today from DB data
   const dailyClaimed = user.lastDailyAirdrop === new Date().toDateString();
+
+  const handleClaim = async () => {
+    setClaimError(null);
+    try {
+      await claimAirdrop("daily");
+    } catch (e: unknown) {
+      setClaimError(e instanceof Error ? e.message : "Claim failed");
+    }
+  };
 
   const handleQuickSell = async (pos: typeof positions[0]) => {
     setSellingId(pos.id);
@@ -421,13 +430,14 @@ function PortfolioBar({ onSellPosition }: { onSellPosition?: (marketId: string) 
           <DailyCountdown />
         ) : (
           <button
-            onClick={async () => { try { await claimAirdrop("daily"); } catch {} }}
+            onClick={handleClaim}
             disabled={isClaimingAirdrop}
             className="px-3 py-1.5 rounded text-[11px] font-medium bg-[#238636] hover:bg-[#2ea043] text-white transition-colors"
           >
-            {isClaimingAirdrop ? "Claiming..." : `+${AIRDROP_AMOUNTS.daily} Daily`}
+            {isClaimingAirdrop ? "Claiming..." : "Claim 100 PST"}
           </button>
         )}
+        {claimError && <p className="text-[10px] text-[#f85149] mt-1">{claimError}</p>}
       </div>
 
       {/* Positions with sell buttons */}
@@ -435,9 +445,13 @@ function PortfolioBar({ onSellPosition }: { onSellPosition?: (marketId: string) 
         <div className="mt-3 pt-3 border-t border-[#21262d]">
           <p className="text-[10px] text-[#484f58] uppercase tracking-wider mb-2">Open Positions</p>
           {positions.map((pos) => (
-            <div key={pos.id} className="flex items-center justify-between py-2 text-[12px] border-b border-[#21262d] last:border-b-0">
+            <div
+              key={pos.id}
+              className="flex items-center justify-between py-2 text-[12px] border-b border-[#21262d] last:border-b-0 cursor-pointer hover:bg-[#1c2128] -mx-4 px-4 transition-colors"
+              onClick={() => onPositionClick?.(pos.marketId, pos.marketQuestion)}
+            >
               <div className="flex-1 min-w-0 mr-2">
-                <span className="text-[#adbac7] truncate block">{pos.marketQuestion}</span>
+                <span className="text-[#adbac7] truncate block hover:text-[#58a6ff]">{pos.marketQuestion}</span>
                 <span className={cn(
                   "text-[11px] font-medium",
                   pos.outcome === "Yes" ? "text-[#3fb950]" : "text-[#f85149]"
@@ -516,7 +530,10 @@ export default function TradePage() {
         <LoginButton />
       </div>
 
-      <PortfolioBar />
+      <PortfolioBar onPositionClick={(marketId) => {
+        const market = markets.find((m) => m.id === marketId);
+        if (market) setSelectedMarket(market);
+      }} />
 
       {/* Filters */}
       <div className="flex items-center gap-3 mt-6 mb-4">
