@@ -1,20 +1,22 @@
 "use client";
 
+import { useState } from "react";
 import { MarketWithPrices, formatPercentage, formatVolume } from "@/types/polymarket";
 import { POLYMARKET_BASE_URL } from "@/lib/constants";
 
-interface ConsensusData {
-  consensus: number;
+interface AgentPrediction {
+  agent: string;
+  probability: number;
   confidence: number;
-  trend: "up" | "down" | "flat";
+  reasoning: string;
 }
 
-function generateConsensus(market: MarketWithPrices): ConsensusData {
-  const variation = (Math.random() - 0.5) * 0.1;
-  const consensus = Math.max(0.01, Math.min(0.99, market.yesPrice + variation));
-  const confidence = 40 + Math.random() * 50;
-  const trend = variation > 0.03 ? "up" : variation < -0.03 ? "down" : "flat";
-  return { consensus, confidence, trend };
+interface ConsensusResult {
+  consensus: number;
+  confidence: number;
+  spread: number;
+  trend: "up" | "down" | "flat";
+  agents: AgentPrediction[];
 }
 
 export function ConsensusCard({
@@ -24,58 +26,122 @@ export function ConsensusCard({
   market: MarketWithPrices;
   newsKeywords?: string[];
 }) {
-  const consensus = generateConsensus(market);
+  const [result, setResult] = useState<ConsensusResult | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [showAgents, setShowAgents] = useState(false);
+
   const text = `${market.question} ${market.description || ""}`.toLowerCase();
   const isNewsRelated = newsKeywords.some((kw) => text.includes(kw));
 
-  const trendColor = consensus.trend === "up" ? "text-[#3fb950]" : consensus.trend === "down" ? "text-[#f85149]" : "text-[#484f58]";
-  const trendArrow = consensus.trend === "up" ? "\u2191" : consensus.trend === "down" ? "\u2193" : "\u2014";
+  const fetchConsensus = async () => {
+    setLoading(true);
+    try {
+      const res = await fetch("/api/consensus", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          marketQuestion: market.question,
+          currentYesPrice: market.yesPrice,
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setResult(data);
+      }
+    } catch {
+      // silently fail
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const trendColor = result?.trend === "up" ? "text-[#3fb950]" : result?.trend === "down" ? "text-[#f85149]" : "text-[#484f58]";
+  const trendArrow = result?.trend === "up" ? "\u2191" : result?.trend === "down" ? "\u2193" : "\u2014";
 
   return (
-    <a
-      href={`${POLYMARKET_BASE_URL}/event/${market.slug || market.conditionId}`}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="block rounded-lg border border-[#21262d] bg-[#161b22] p-4 hover:border-[#30363d] transition-colors"
-    >
-      <p className="text-[13px] font-medium text-[#e6edf3] leading-snug line-clamp-2 min-h-[2.5rem]">
-        {market.question || market.groupItemTitle}
-      </p>
-
-      <div className="flex items-baseline gap-2 mt-3">
-        <span className="text-2xl font-bold text-white tabular-nums">
-          {formatPercentage(consensus.consensus)}
-        </span>
-        <span className="text-xs text-[#768390]">Yes</span>
-        <span className={`text-xs font-medium ${trendColor}`}>{trendArrow}</span>
-      </div>
-
-      {/* Confidence bar */}
-      <div className="mt-3">
-        <div className="flex justify-between text-[10px] text-[#484f58] mb-1">
-          <span>Confidence</span>
-          <span>{consensus.confidence >= 70 ? "High" : consensus.confidence >= 45 ? "Medium" : "Low"}</span>
-        </div>
-        <div className="h-1 bg-[#21262d] rounded-full">
-          <div
-            className="h-1 rounded-full bg-[#58a6ff]"
-            style={{ width: `${consensus.confidence}%` }}
-          />
-        </div>
-      </div>
-
-      <div className="flex items-center justify-between mt-3 text-[11px]">
-        <span className="text-[#484f58]">
-          Market: <span className="text-[#768390]">{formatPercentage(market.yesPrice)}</span>
-          {" \u00b7 "}
-          {formatVolume(market.volume)} Vol
-        </span>
+    <div className="rounded-lg border border-[#21262d] bg-[#161b22] p-4">
+      {/* Header */}
+      <div className="flex items-start justify-between gap-2">
+        <a
+          href={`${POLYMARKET_BASE_URL}/event/${market.slug || market.conditionId}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-[13px] font-medium text-[#e6edf3] leading-snug line-clamp-2 min-h-[2.5rem] hover:text-[#58a6ff] transition-colors"
+        >
+          {market.question || market.groupItemTitle}
+        </a>
         {isNewsRelated && (
-          <span className="text-[#d29922] bg-[#d29922]/10 px-1.5 py-0.5 rounded text-[10px]">
-            In News
+          <span className="flex-shrink-0 text-[#d29922] bg-[#d29922]/10 px-1.5 py-0.5 rounded text-[10px]">
+            News
           </span>
         )}
       </div>
-    </a>
+
+      {/* Market price */}
+      <div className="flex items-center gap-3 mt-2 text-xs text-[#484f58]">
+        <span>Market: <span className="text-[#3fb950]">Yes {formatPercentage(market.yesPrice)}</span></span>
+        <span>{formatVolume(market.volume)} Vol</span>
+      </div>
+
+      {/* Consensus result or button */}
+      {result ? (
+        <div className="mt-3 space-y-2">
+          {/* Consensus number */}
+          <div className="flex items-baseline gap-2">
+            <span className="text-2xl font-bold text-white tabular-nums">
+              {result.consensus.toFixed(0)}%
+            </span>
+            <span className="text-xs text-[#768390]">AI Yes</span>
+            <span className={`text-xs font-medium ${trendColor}`}>{trendArrow}</span>
+          </div>
+
+          {/* Confidence bar */}
+          <div>
+            <div className="flex justify-between text-[10px] text-[#484f58] mb-1">
+              <span>Confidence</span>
+              <span>{result.confidence}%{result.spread > 15 ? " (agents disagree)" : ""}</span>
+            </div>
+            <div className="h-1 bg-[#21262d] rounded-full">
+              <div
+                className="h-1 rounded-full bg-[#58a6ff] transition-all duration-500"
+                style={{ width: `${result.confidence}%` }}
+              />
+            </div>
+          </div>
+
+          {/* Agent breakdown toggle */}
+          <button
+            onClick={() => setShowAgents(!showAgents)}
+            className="text-[11px] text-[#58a6ff] hover:underline"
+          >
+            {showAgents ? "Hide" : "Show"} agent breakdown ({result.agents.length} agents)
+          </button>
+
+          {showAgents && (
+            <div className="space-y-1.5 mt-1">
+              {result.agents.map((agent) => (
+                <div key={agent.agent} className="bg-[#0d1117] rounded p-2 border border-[#21262d]">
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span className="text-[#adbac7] font-medium">{agent.agent}</span>
+                    <span className="text-white tabular-nums">{agent.probability}%</span>
+                  </div>
+                  <p className="text-[10px] text-[#484f58] mt-1 line-clamp-2">
+                    {agent.reasoning}
+                  </p>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      ) : (
+        <button
+          onClick={fetchConsensus}
+          disabled={loading}
+          className="mt-3 w-full py-2 rounded-md text-xs font-medium bg-[#58a6ff]/10 text-[#58a6ff] hover:bg-[#58a6ff]/20 transition-colors disabled:opacity-50"
+        >
+          {loading ? "Running 5 agents..." : "Get AI Consensus"}
+        </button>
+      )}
+    </div>
   );
 }
