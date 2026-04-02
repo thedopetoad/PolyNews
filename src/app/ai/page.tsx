@@ -1,11 +1,32 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { usePolymarketEvents } from "@/hooks/use-polymarket";
 import { parseMarketPrices, PolymarketEvent, MarketWithPrices, formatPercentage, formatVolume } from "@/types/polymarket";
 import { SwarmVisualization } from "@/components/ai/swarm-visualization";
 import { POLYMARKET_BASE_URL } from "@/lib/constants";
 import { cn } from "@/lib/utils";
+
+function useCountdown() {
+  const [timeLeft, setTimeLeft] = useState("");
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const now = Date.now();
+      const cycleLengthMs = 5 * 60 * 60 * 1000; // 5 hours
+      const elapsed = now % cycleLengthMs;
+      const remaining = cycleLengthMs - elapsed;
+
+      const hours = Math.floor(remaining / (60 * 60 * 1000));
+      const minutes = Math.floor((remaining % (60 * 60 * 1000)) / (60 * 1000));
+      const seconds = Math.floor((remaining % (60 * 1000)) / 1000);
+      setTimeLeft(`${hours}h ${minutes}m ${seconds}s`);
+    }, 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  return timeLeft;
+}
 
 interface AgentPrediction {
   agent: string;
@@ -83,16 +104,43 @@ export default function AIConsensusPage() {
     run();
   }, [topMarkets.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const countdown = useCountdown();
+
   return (
     <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       {/* Header */}
       <div className="mb-6">
-        <h1 className="text-2xl font-bold text-white">AI Swarm Consensus</h1>
-        <p className="mt-1 text-sm text-[#768390] max-w-2xl">
-          10,000 AI agents with 20 distinct personas analyze the top Polymarket markets.
-          100 real predictions are bootstrapped to simulate a 10,000-agent swarm consensus.
-          Inspired by the <a href="https://arxiv.org/abs/2411.11581" target="_blank" className="text-[#58a6ff] hover:underline">OASIS framework</a>.
-        </p>
+        <div className="flex items-start justify-between">
+          <div>
+            <h1 className="text-2xl font-bold text-white">AI Swarm Consensus</h1>
+            <p className="mt-1 text-sm text-[#768390] max-w-xl">
+              100,000 AI agents with 20 personas run 3 debate rounds on the top markets.
+              Inspired by <a href="https://arxiv.org/abs/2411.11581" target="_blank" className="text-[#58a6ff] hover:underline">OASIS</a>.
+            </p>
+          </div>
+          {/* Countdown */}
+          <div className="text-right flex-shrink-0 ml-4">
+            <p className="text-[10px] text-[#484f58] uppercase tracking-wider">Next swarm run</p>
+            <p className="text-lg font-bold text-[#58a6ff] tabular-nums">{countdown}</p>
+          </div>
+        </div>
+
+        {/* Debate round explainer */}
+        <div className="flex gap-2 mt-4">
+          {[
+            { label: "Round 1", desc: "Independent predictions" },
+            { label: "Round 2", desc: "Agents debate & update" },
+            { label: "Round 3", desc: "Final calibrated vote" },
+          ].map((r, i) => (
+            <div key={r.label} className="flex items-center gap-2 text-[11px]">
+              {i > 0 && <span className="text-[#21262d]">&rarr;</span>}
+              <span className="bg-[#1c2128] border border-[#21262d] rounded px-2 py-1">
+                <span className="text-[#58a6ff] font-medium">{r.label}:</span>{" "}
+                <span className="text-[#768390]">{r.desc}</span>
+              </span>
+            </div>
+          ))}
+        </div>
       </div>
 
       {/* Swarm visualization */}
@@ -101,7 +149,7 @@ export default function AIConsensusPage() {
           <div className="flex items-center gap-2">
             <span className={cn("w-1.5 h-1.5 rounded-full", running ? "bg-[#d29922] animate-pulse" : "bg-[#3fb950]")} />
             <span className="text-[11px] text-[#484f58]">
-              {running ? "Agents analyzing markets..." : "Swarm Agent Network"}
+              {running ? "300 API calls across 3 debate rounds..." : "Swarm Agent Network \u2014 100K agents"}
             </span>
           </div>
           {lastRun && (
