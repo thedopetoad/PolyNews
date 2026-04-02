@@ -55,7 +55,7 @@ const sections: DocSection[] = [
           The <a href="https://arxiv.org/abs/2411.11581" target="_blank" className="text-[#58a6ff] hover:underline">OASIS research paper</a> showed this works with up to <strong className="text-[#e6edf3]">1 million AI agents</strong> simulating social interactions to predict outcomes. MiroFish uses hundreds of thousands of agents with 23 different social behaviors (posting, commenting, following, arguing, etc.) to model how real humans would react to events.
         </p>
         <p>
-          Our implementation is a <strong className="text-[#e6edf3]">simplified version</strong> running 5 specialized agent personas via GPT-4o-mini. Each agent call costs money, so we trade scale for diversity &mdash; 5 agents with very different expertise rather than 500,000 similar ones. As we scale, we plan to increase the agent count and add inter-agent debate (where agents argue with each other before reaching consensus, like the full OASIS model).
+          Our implementation uses <strong className="text-[#e6edf3]">20 specialized agent personas</strong> (Market Analyst, Political Strategist, Contrarian, Economist, Historian, and 15 more), each running at 5 different &quot;creativity levels&quot; for <strong className="text-[#e6edf3]">100 real GPT-4o-mini predictions</strong> per market. These 100 predictions are then bootstrapped (resampled with statistical variation) to simulate a <strong className="text-[#e6edf3]">10,000-agent swarm</strong>. The next step is inter-agent debate, where agents argue with each other before reaching consensus, like the full OASIS model.
         </p>
         <SwarmDiagram />
       </div>

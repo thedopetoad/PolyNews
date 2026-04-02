@@ -89,8 +89,8 @@ export default function AIConsensusPage() {
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-white">AI Swarm Consensus</h1>
         <p className="mt-1 text-sm text-[#768390] max-w-2xl">
-          5 AI agents with distinct perspectives analyze the top Polymarket markets by volume
-          and produce a weighted consensus prediction. Updated daily.
+          10,000 AI agents with 20 distinct personas analyze the top Polymarket markets.
+          100 real predictions are bootstrapped to simulate a 10,000-agent swarm consensus.
           Inspired by the <a href="https://arxiv.org/abs/2411.11581" target="_blank" className="text-[#58a6ff] hover:underline">OASIS framework</a>.
         </p>
       </div>
@@ -113,11 +113,14 @@ export default function AIConsensusPage() {
 
       {/* Agent personas */}
       <div className="flex flex-wrap gap-1.5 mb-6">
-        {["Market Analyst", "Political Strategist", "Contrarian Trader", "News Analyst", "Risk Assessor"].map((name) => (
+        {["Market Analyst", "Political Strategist", "Contrarian", "News Analyst", "Risk Assessor", "Economist", "Geopolitical", "Tech Analyst", "Psychologist", "Statistician", "Historian", "Legal Scholar", "Sociologist", "Actuary", "VC", "Crypto Trader", "Military", "Climate", "Journalist", "Devil's Advocate"].map((name) => (
           <span key={name} className="text-[10px] text-[#484f58] bg-[#1c2128] px-2 py-0.5 rounded border border-[#21262d]">
             {name}
           </span>
         ))}
+        <span className="text-[10px] text-[#58a6ff] bg-[#58a6ff]/10 px-2 py-0.5 rounded border border-[#58a6ff]/20">
+          = 10,000 agents
+        </span>
       </div>
 
       {/* Results table */}

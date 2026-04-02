@@ -353,11 +353,27 @@ function MarketRow({
 }
 
 /* ─── Portfolio Bar ─── */
-function PortfolioBar() {
-  const { user, positions, trades, isConnected, claimAirdrop, isClaimingAirdrop } = useUser();
+function PortfolioBar({ onSellPosition }: { onSellPosition?: (marketId: string) => void }) {
+  const { user, positions, trades, isConnected, claimAirdrop, isClaimingAirdrop, executeTrade, isTrading } = useUser();
   const [dailyClaimed, setDailyClaimed] = useState(false);
+  const [sellingId, setSellingId] = useState<string | null>(null);
 
   if (!isConnected || !user) return null;
+
+  const handleQuickSell = async (pos: typeof positions[0]) => {
+    setSellingId(pos.id);
+    try {
+      await executeTrade({
+        marketId: pos.marketId,
+        marketQuestion: pos.marketQuestion,
+        outcome: pos.outcome as "Yes" | "No",
+        side: "sell",
+        shares: pos.shares,
+        price: pos.avgPrice || 0.5,
+      });
+    } catch {}
+    setSellingId(null);
+  };
 
   return (
     <div className="rounded-lg border border-[#21262d] bg-[#161b22] p-4">
@@ -387,19 +403,28 @@ function PortfolioBar() {
         </button>
       </div>
 
-      {/* Positions */}
+      {/* Positions with sell buttons */}
       {positions.length > 0 && (
         <div className="mt-3 pt-3 border-t border-[#21262d]">
           <p className="text-[10px] text-[#484f58] uppercase tracking-wider mb-2">Open Positions</p>
           {positions.map((pos) => (
-            <div key={pos.id} className="flex items-center justify-between py-1.5 text-[12px]">
-              <span className="text-[#adbac7] truncate flex-1 mr-2">{pos.marketQuestion}</span>
-              <span className={cn(
-                "font-medium flex-shrink-0",
-                pos.outcome === "Yes" ? "text-[#3fb950]" : "text-[#f85149]"
-              )}>
-                {pos.shares} {pos.outcome} @ {pos.avgPrice.toFixed(2)}
-              </span>
+            <div key={pos.id} className="flex items-center justify-between py-2 text-[12px] border-b border-[#21262d] last:border-b-0">
+              <div className="flex-1 min-w-0 mr-2">
+                <span className="text-[#adbac7] truncate block">{pos.marketQuestion}</span>
+                <span className={cn(
+                  "text-[11px] font-medium",
+                  pos.outcome === "Yes" ? "text-[#3fb950]" : "text-[#f85149]"
+                )}>
+                  {pos.shares} {pos.outcome} @ {pos.avgPrice.toFixed(2)}
+                </span>
+              </div>
+              <button
+                onClick={() => handleQuickSell(pos)}
+                disabled={isTrading && sellingId === pos.id}
+                className="flex-shrink-0 px-2.5 py-1 rounded text-[10px] font-medium bg-[#f85149]/10 text-[#f85149] hover:bg-[#f85149]/20 transition-colors"
+              >
+                {isTrading && sellingId === pos.id ? "..." : "Close"}
+              </button>
             </div>
           ))}
         </div>

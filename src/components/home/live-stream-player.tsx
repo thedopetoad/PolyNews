@@ -21,11 +21,6 @@ const CHANNELS: Channel[] = [
     type: "iframe",
     src: "https://embed.france24.com/en/live",
   },
-  {
-    name: "ABC News",
-    type: "iframe",
-    src: "https://abcnews.go.com/video/portableplayer?id=abc_live11",
-  },
 ];
 
 function getEmbedUrl(channel: Channel): string {
