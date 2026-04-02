@@ -115,6 +115,28 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    // Categorize each market based on its question text
+    const categoryKeywords: Record<string, string[]> = {
+      Politics: ["president", "election", "democrat", "republican", "senate", "congress", "nomination", "governor", "mayor", "vote", "ballot", "primary"],
+      Geopolitics: ["ukraine", "russia", "china", "iran", "israel", "gaza", "nato", "war", "ceasefire", "military", "troops", "sanctions"],
+      Crypto: ["bitcoin", "ethereum", "crypto", "btc", "eth", "defi", "nft", "solana", "coinbase", "microstrategy", "stablecoin"],
+      Finance: ["fed", "interest rate", "inflation", "gdp", "recession", "stock", "oil", "gold", "tariff", "ipo", "s&p", "nasdaq"],
+      Tech: ["ai", "openai", "google", "apple", "meta", "tesla", "nvidia", "tiktok", "spacex", "gpt", "starship"],
+      Sports: ["nba", "nfl", "mlb", "nhl", "ufc", "championship", "finals", "stanley cup", "super bowl", "world cup", "premier league"],
+      Culture: ["oscar", "grammy", "album", "movie", "gta", "rihanna", "taylor swift", "playboi", "jesus", "pregnant"],
+    };
+    for (const event of events as EventData[]) {
+      if (!event.markets) continue;
+      for (const market of event.markets) {
+        const q = ((market as Record<string, unknown>).question as string || "").toLowerCase();
+        let cat = "Other";
+        for (const [category, keywords] of Object.entries(categoryKeywords)) {
+          if (keywords.some((kw) => q.includes(kw))) { cat = category; break; }
+        }
+        (market as Record<string, unknown>).category = cat;
+      }
+    }
+
     // Filter out closed/resolved sub-markets from each event
     for (const event of events as EventData[]) {
       if (event.markets) {

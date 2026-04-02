@@ -99,9 +99,9 @@ export default function AIConsensusPage() {
         </div>
       </div>
 
-      {/* Swarm dots as page background */}
-      <div className="fixed inset-0 pointer-events-none z-0 opacity-40">
-        <SwarmVisualization className="h-full" />
+      {/* Plexus dots as page background */}
+      <div className="fixed inset-0 pointer-events-none z-0 opacity-30">
+        <SwarmVisualization className="!h-screen" />
       </div>
 
       {/* Results */}
@@ -187,7 +187,7 @@ export default function AIConsensusPage() {
         </div>
       )}
 
-      <p className="text-center text-[11px] text-[#484f58] mt-4">
+      <p className="text-center text-[11px] text-[#484f58] mt-2 mb-0">
         Powered by 100,000 AI agents across 3 debate rounds.{" "}
         <Link href="/docs#ai-consensus" className="text-[#58a6ff] hover:underline">How does this work?</Link>
       </p>

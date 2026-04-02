@@ -492,13 +492,9 @@ export default function TradePage() {
 
     // Category filter
     if (category !== "all" && category !== "trending") {
-      const cat = MARKET_CATEGORIES.find((c) => c.key === category);
-      if (cat && "keywords" in cat) {
-        const kws = cat.keywords as readonly string[];
-        all = all.filter((m) => {
-          const text = `${m.question} ${m.description || ""}`.toLowerCase();
-          return kws.some((kw) => text.includes(kw));
-        });
+      const catLabel = MARKET_CATEGORIES.find((c) => c.key === category)?.label;
+      if (catLabel) {
+        all = all.filter((m) => m.category === catLabel);
       }
     }
 
@@ -509,6 +505,14 @@ export default function TradePage() {
 
     return all.sort((a, b) => parseFloat(b.volume || "0") - parseFloat(a.volume || "0")).slice(0, 40);
   }, [events, search, category]);
+
+  // ALL markets unfiltered (for position click lookup)
+  const allMarkets = useMemo(() => {
+    if (!events) return [];
+    return events.flatMap((e: PolymarketEvent) =>
+      (e.markets || []).map((m) => parseMarketPrices(m))
+    ).filter((m) => m.yesPrice > 0.01 && m.yesPrice < 0.99);
+  }, [events]);
 
   // Detail view
   if (selectedMarket) {
@@ -531,7 +535,7 @@ export default function TradePage() {
       </div>
 
       <PortfolioBar onPositionClick={(marketId) => {
-        const market = markets.find((m) => m.id === marketId);
+        const market = allMarkets.find((m) => m.id === marketId) || markets.find((m) => m.id === marketId);
         if (market) setSelectedMarket(market);
       }} />
 

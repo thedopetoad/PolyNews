@@ -88,6 +88,10 @@ export function LoginButton() {
         </button>
         {menuOpen && (
           <div className="absolute right-0 top-10 w-48 rounded-lg border border-[#21262d] bg-[#161b22] shadow-xl z-50 overflow-hidden">
+            <div className="px-4 py-3 border-b border-[#21262d]">
+              <p className="text-[10px] text-[#484f58] uppercase">Wallet</p>
+              <p className="text-[11px] text-[#adbac7] font-mono break-all">{connectedAddress}</p>
+            </div>
             {user && (
               <div className="px-4 py-3 border-b border-[#21262d]">
                 <p className="text-[10px] text-[#484f58] uppercase">Balance</p>

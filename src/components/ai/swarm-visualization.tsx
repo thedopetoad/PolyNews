@@ -107,7 +107,7 @@ export function SwarmVisualization({ className }: { className?: string }) {
     <canvas
       ref={canvasRef}
       className={`w-full ${className || ""}`}
-      style={{ height: 200 }}
+      style={{ height: className?.includes("h-screen") ? "100vh" : 200 }}
     />
   );
 }

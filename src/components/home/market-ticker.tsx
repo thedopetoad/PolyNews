@@ -47,13 +47,9 @@ export function MarketTicker() {
     let markets = allMarkets;
 
     if (activeCategory !== "all" && activeCategory !== "trending") {
-      const cat = MARKET_CATEGORIES.find((c) => c.key === activeCategory);
-      if (cat && "keywords" in cat) {
-        const catKeywords = cat.keywords as readonly string[];
-        markets = markets.filter((m) => {
-          const text = `${m.question} ${m.description || ""} ${m.groupItemTitle || ""}`.toLowerCase();
-          return catKeywords.some((kw) => text.includes(kw));
-        });
+      const catLabel = MARKET_CATEGORIES.find((c) => c.key === activeCategory)?.label;
+      if (catLabel) {
+        markets = markets.filter((m) => m.category === catLabel);
       }
     }
 
@@ -109,6 +105,17 @@ export function MarketTicker() {
         )
       ) : (
         <p className="text-sm text-[#484f58] text-center py-6">No markets in this category</p>
+      )}
+
+      {filteredMarkets.length > 0 && (
+        <div className="flex justify-start mt-2">
+          <a
+            href="/trade"
+            className="text-[11px] text-[#58a6ff] hover:underline"
+          >
+            Browse all markets &rarr;
+          </a>
+        </div>
       )}
     </div>
   );

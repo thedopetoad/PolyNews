@@ -24,6 +24,7 @@ export interface PolymarketMarket {
   oneDayPriceChange?: number;
   clobTokenIds?: string; // JSON stringified array
   eventSlug?: string; // Attached by our API from the parent event
+  category?: string; // Categorized by our API (Politics, Crypto, etc.)
 }
 
 export interface PolymarketEvent {
