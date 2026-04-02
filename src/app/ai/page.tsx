@@ -167,7 +167,7 @@ export default function AIConsensusPage() {
           </span>
         ))}
         <span className="text-[10px] text-[#58a6ff] bg-[#58a6ff]/10 px-2 py-0.5 rounded border border-[#58a6ff]/20">
-          = 10,000 agents
+          = 100,000 agents
         </span>
       </div>
 

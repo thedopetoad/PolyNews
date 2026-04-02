@@ -17,6 +17,12 @@ export interface PolymarketMarket {
   description: string;
   groupItemTitle: string;
   enableOrderBook: boolean;
+  // CLOB fields (more accurate than outcomePrices)
+  bestBid?: number;
+  bestAsk?: number;
+  lastTradePrice?: number;
+  oneDayPriceChange?: number;
+  clobTokenIds?: string; // JSON stringified array
 }
 
 export interface PolymarketEvent {
@@ -52,11 +58,24 @@ export function parseMarketPrices(market: PolymarketMarket): MarketWithPrices {
   let noPrice = 0.5;
   let parsedOutcomes: string[] = ["Yes", "No"];
 
-  try {
-    const prices = JSON.parse(market.outcomePrices);
-    yesPrice = parseFloat(prices[0]) || 0.5;
-    noPrice = parseFloat(prices[1]) || 0.5;
-  } catch {}
+  // Priority 1: Use lastTradePrice or bestBid (most accurate, from CLOB)
+  if (market.lastTradePrice && market.lastTradePrice > 0 && market.lastTradePrice < 1) {
+    yesPrice = market.lastTradePrice;
+    noPrice = 1 - yesPrice;
+  }
+  // Priority 2: Use bestBid/bestAsk midpoint
+  else if (market.bestBid && market.bestAsk && market.bestBid > 0) {
+    yesPrice = (market.bestBid + market.bestAsk) / 2;
+    noPrice = 1 - yesPrice;
+  }
+  // Priority 3: Fall back to outcomePrices (can be stale)
+  else {
+    try {
+      const prices = JSON.parse(market.outcomePrices);
+      yesPrice = parseFloat(prices[0]) || 0.5;
+      noPrice = parseFloat(prices[1]) || 0.5;
+    } catch {}
+  }
 
   try {
     parsedOutcomes = JSON.parse(market.outcomes);
