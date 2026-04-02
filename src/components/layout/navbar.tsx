@@ -7,8 +7,7 @@ import { Menu } from "lucide-react";
 import { Sheet, SheetContent, SheetTrigger, SheetTitle } from "@/components/ui/sheet";
 import { NAV_LINKS, APP_NAME } from "@/lib/constants";
 import { cn } from "@/lib/utils";
-import { ConnectButton } from "@rainbow-me/rainbowkit";
-import { GoogleLoginButton } from "@/components/layout/google-login";
+import { LoginButton } from "@/components/layout/login-modal";
 
 export function Navbar() {
   const pathname = usePathname();
@@ -45,13 +44,8 @@ export function Navbar() {
             ))}
           </div>
 
-          <div className="hidden md:flex items-center gap-2">
-            <GoogleLoginButton />
-            <ConnectButton
-              chainStatus="none"
-              showBalance={false}
-              accountStatus="avatar"
-            />
+          <div className="hidden md:flex items-center">
+            <LoginButton />
           </div>
 
           <Sheet open={open} onOpenChange={setOpen}>
@@ -76,13 +70,8 @@ export function Navbar() {
                     {link.label}
                   </Link>
                 ))}
-                <div className="mt-3 flex flex-col gap-2">
-                  <GoogleLoginButton />
-                  <ConnectButton
-                    chainStatus="none"
-                    showBalance={false}
-                    accountStatus="avatar"
-                  />
+                <div className="mt-3">
+                  <LoginButton />
                 </div>
               </div>
             </SheetContent>

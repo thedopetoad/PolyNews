@@ -1,39 +1,47 @@
 "use client";
 
 import { useState } from "react";
-import { STREAM_CHANNELS, StreamChannel } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 
-function StreamEmbed({ channel, muted = true }: { channel: StreamChannel; muted?: boolean }) {
-  if (channel.platform === "rumble") {
-    // Infowars - embed their live page via Rumble channel
-    return (
-      <iframe
-        src="https://rumble.com/c/InfowarsLive"
-        title={channel.name}
-        className="absolute inset-0 w-full h-full"
-        allowFullScreen
-      />
-    );
-  }
+interface Channel {
+  name: string;
+  // YouTube handle-based embed (works for channels with active live streams)
+  handle?: string;
+  // Direct video ID (for known stable streams)
+  videoId?: string;
+  // External embed URL
+  embedUrl?: string;
+}
 
-  // YouTube: use channel-based live stream embed
-  const src = `https://www.youtube.com/embed/live_stream?channel=${channel.id}&autoplay=1&mute=${muted ? 1 : 0}&rel=0`;
-  return (
-    <iframe
-      src={src}
-      title={channel.name}
-      className="absolute inset-0 w-full h-full"
-      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-      allowFullScreen
-    />
-  );
+const CHANNELS: Channel[] = [
+  { name: "Al Jazeera", handle: "aljaborzenglish", videoId: "gCNeDWCI0vo" },
+  { name: "Sky News", handle: "skynews" },
+  { name: "France 24", handle: "FRANCE24English" },
+  { name: "DW News", handle: "DWNews" },
+  { name: "Infowars", embedUrl: "https://www.infowars.com/show" },
+];
+
+function getEmbedUrl(channel: Channel): string {
+  // If we have a direct video ID, use it
+  if (channel.videoId) {
+    return `https://www.youtube.com/embed/${channel.videoId}?autoplay=1&mute=1&rel=0`;
+  }
+  // If external embed
+  if (channel.embedUrl) {
+    return channel.embedUrl;
+  }
+  // Use YouTube handle-based live embed
+  // This redirects to the current live stream for the channel
+  if (channel.handle) {
+    return `https://www.youtube.com/embed/live_stream?channel=${channel.handle}&autoplay=1&mute=1&rel=0`;
+  }
+  return "";
 }
 
 export function LiveStreamPlayer() {
   const [activeChannel, setActiveChannel] = useState(0);
   const [multiView, setMultiView] = useState(false);
-  const channel = STREAM_CHANNELS[activeChannel];
+  const channel = CHANNELS[activeChannel];
 
   return (
     <div className="rounded-lg border border-[#21262d] bg-[#161b22] overflow-hidden">
@@ -67,9 +75,9 @@ export function LiveStreamPlayer() {
 
         {!multiView && (
           <div className="flex gap-1 ml-auto overflow-x-auto">
-            {STREAM_CHANNELS.map((ch, idx) => (
+            {CHANNELS.map((ch, idx) => (
               <button
-                key={ch.id}
+                key={ch.name}
                 onClick={() => setActiveChannel(idx)}
                 className={cn(
                   "px-2 py-1 rounded text-[11px] whitespace-nowrap transition-colors",
@@ -88,20 +96,31 @@ export function LiveStreamPlayer() {
       {/* Stream(s) */}
       {multiView ? (
         <div className="grid grid-cols-2 gap-px bg-[#21262d]">
-          {STREAM_CHANNELS.filter((c) => c.platform === "youtube")
-            .slice(0, 4)
-            .map((ch) => (
-              <div key={ch.id} className="relative aspect-video bg-[#0d1117]">
-                <StreamEmbed channel={ch} muted />
-                <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent px-2 py-1 pointer-events-none">
-                  <span className="text-[10px] font-medium text-white/80">{ch.name}</span>
-                </div>
+          {CHANNELS.slice(0, 4).map((ch) => (
+            <div key={ch.name} className="relative aspect-video bg-[#0d1117]">
+              <iframe
+                src={getEmbedUrl(ch)}
+                title={ch.name}
+                className="absolute inset-0 w-full h-full"
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                allowFullScreen
+              />
+              <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent px-2 py-1 pointer-events-none">
+                <span className="text-[10px] font-medium text-white/80">{ch.name}</span>
               </div>
-            ))}
+            </div>
+          ))}
         </div>
       ) : (
         <div className="relative aspect-video">
-          <StreamEmbed channel={channel} />
+          <iframe
+            key={channel.name}
+            src={getEmbedUrl(channel)}
+            title={channel.name}
+            className="absolute inset-0 w-full h-full"
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+            allowFullScreen
+          />
         </div>
       )}
     </div>
