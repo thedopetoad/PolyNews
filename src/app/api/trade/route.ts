@@ -32,6 +32,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Length limits to prevent storage abuse
+    if (typeof marketId !== "string" || marketId.length > 200) {
+      return NextResponse.json({ error: "Invalid marketId" }, { status: 400 });
+    }
+    if (typeof marketQuestion !== "string" || marketQuestion.length > 500) {
+      return NextResponse.json({ error: "Invalid marketQuestion" }, { status: 400 });
+    }
+
     // Validate trade parameters
     const validationError = validateTradeParams({ shares, price, side, outcome });
     if (validationError) {
@@ -101,41 +109,33 @@ export async function POST(request: NextRequest) {
         });
       }
     } else if (side === "sell") {
-      // Find position
-      const existingPositions = await db
-        .select()
-        .from(positions)
+      // Atomic sell: deduct shares only if enough exist
+      const updated = await db
+        .update(positions)
+        .set({
+          shares: sql`${positions.shares} - ${shares}`,
+          updatedAt: new Date(),
+        })
         .where(
           and(
             eq(positions.userId, normalizedUserId),
             eq(positions.marketId, marketId),
-            eq(positions.outcome, outcome)
+            eq(positions.outcome, outcome),
+            sql`${positions.shares} >= ${shares}`
           )
         )
-        .limit(1);
+        .returning();
 
-      if (existingPositions.length === 0) {
+      if (updated.length === 0) {
         return NextResponse.json(
-          { error: "No position to sell" },
+          { error: "No position or not enough shares" },
           { status: 400 }
         );
       }
 
-      const pos = existingPositions[0];
-      if (shares > pos.shares) {
-        return NextResponse.json(
-          { error: "Not enough shares" },
-          { status: 400 }
-        );
-      }
-
-      if (shares === pos.shares) {
-        await db.delete(positions).where(eq(positions.id, pos.id));
-      } else {
-        await db
-          .update(positions)
-          .set({ shares: pos.shares - shares, updatedAt: new Date() })
-          .where(eq(positions.id, pos.id));
+      // Clean up zero-share positions
+      if (updated[0].shares === 0) {
+        await db.delete(positions).where(eq(positions.id, updated[0].id));
       }
 
       // Atomic balance addition

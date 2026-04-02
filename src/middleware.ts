@@ -38,6 +38,10 @@ export function middleware(request: NextRequest) {
     "Strict-Transport-Security",
     "max-age=31536000; includeSubDomains"
   );
+  response.headers.set(
+    "Content-Security-Policy",
+    "default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline' https://*.web3auth.io https://*.walletconnect.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data: https:; frame-src https://www.youtube.com https://rumble.com https://*.web3auth.io https://*.walletconnect.com; connect-src 'self' https: wss:;"
+  );
 
   // Rate limit API routes only
   if (request.nextUrl.pathname.startsWith("/api/")) {

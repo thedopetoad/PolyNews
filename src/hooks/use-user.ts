@@ -51,7 +51,9 @@ function authHeaders(address: string): HeadersInit {
 }
 
 async function fetchOrCreateUser(address: string): Promise<DbUser> {
-  const getRes = await fetch(`/api/user?id=${address}`);
+  const getRes = await fetch(`/api/user?id=${address}`, {
+    headers: { Authorization: `Bearer ${address}` },
+  });
   if (getRes.ok) return getRes.json();
 
   const createRes = await fetch("/api/user", {

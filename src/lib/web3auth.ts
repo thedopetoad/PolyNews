@@ -14,7 +14,7 @@ export function getWeb3AuthInstance(): Web3Auth | null {
   if (!web3authInstance) {
     web3authInstance = new Web3Auth({
       clientId,
-      web3AuthNetwork: WEB3AUTH_NETWORK.SAPPHIRE_DEVNET,
+      web3AuthNetwork: WEB3AUTH_NETWORK.SAPPHIRE_MAINNET,
       chainConfig: {
         chainNamespace: CHAIN_NAMESPACES.EIP155,
         chainId: "0x89",

@@ -7,7 +7,7 @@ import {
   generateReferralCode,
 } from "@/lib/auth";
 
-// GET /api/user?id=0x123... - Get user
+// GET /api/user?id=0x123... - Get own user (auth required)
 export async function GET(request: NextRequest) {
   const userId = request.nextUrl.searchParams.get("id");
   if (!userId || !isValidAddress(userId)) {
@@ -17,21 +17,28 @@ export async function GET(request: NextRequest) {
     );
   }
 
+  // Only allow users to fetch their own record
+  const authed = request.headers.get("authorization")?.replace("Bearer ", "").trim().toLowerCase();
+  const requestedId = userId.toLowerCase();
+
+  if (!authed || authed !== requestedId) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   try {
     const db = getDb();
-    const id = userId.toLowerCase();
 
     const existing = await db
       .select()
       .from(users)
-      .where(eq(users.id, id))
+      .where(eq(users.id, requestedId))
       .limit(1);
 
     if (existing.length > 0) {
       await db
         .update(users)
         .set({ lastLoginAt: new Date() })
-        .where(eq(users.id, id));
+        .where(eq(users.id, requestedId));
       return NextResponse.json(existing[0]);
     }
 
