@@ -49,10 +49,13 @@ const sections: DocSection[] = [
     content: (
       <div className="space-y-4">
         <p>
-          Imagine you have a really hard question, like &quot;Will it rain tomorrow?&quot; If you ask one person, they might guess wrong. But if you ask 5 very different experts &mdash; a weather scientist, a farmer, a pilot, a fisherman, and a data nerd &mdash; and combine their answers, you&apos;ll probably get a much better answer.
+          Imagine you have a really hard question, like &quot;Will it rain tomorrow?&quot; If you ask one person, they might guess wrong. But if you ask many very different experts &mdash; a weather scientist, a farmer, a pilot, a fisherman, and a data nerd &mdash; and combine their answers, you&apos;ll probably get a much better answer.
         </p>
         <p>
-          That&apos;s exactly what our AI Swarm does, but for prediction markets. We ask 5 AI agents with totally different &quot;personalities&quot; to predict the outcome of each market, then combine their answers into one consensus prediction.
+          The <a href="https://arxiv.org/abs/2411.11581" target="_blank" className="text-[#58a6ff] hover:underline">OASIS research paper</a> showed this works with up to <strong className="text-[#e6edf3]">1 million AI agents</strong> simulating social interactions to predict outcomes. MiroFish uses hundreds of thousands of agents with 23 different social behaviors (posting, commenting, following, arguing, etc.) to model how real humans would react to events.
+        </p>
+        <p>
+          Our implementation is a <strong className="text-[#e6edf3]">simplified version</strong> running 5 specialized agent personas via GPT-4o-mini. Each agent call costs money, so we trade scale for diversity &mdash; 5 agents with very different expertise rather than 500,000 similar ones. As we scale, we plan to increase the agent count and add inter-agent debate (where agents argue with each other before reaching consensus, like the full OASIS model).
         </p>
         <SwarmDiagram />
       </div>

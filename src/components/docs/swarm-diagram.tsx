@@ -215,7 +215,7 @@ export function SwarmDiagram() {
             <strong className="text-[#adbac7]">Confidence weighting.</strong> An agent who says &quot;I&apos;m 90% sure&quot; gets more weight than one who says &quot;I&apos;m only 40% sure.&quot; This means the final number reflects both the prediction AND how confident each agent is.
           </p>
           <p>
-            <strong className="text-[#adbac7]">Based on real research.</strong> This approach is inspired by the <a href="https://arxiv.org/abs/2411.11581" target="_blank" className="text-[#58a6ff] hover:underline">OASIS framework</a>, which showed that large groups of AI agents can simulate realistic social dynamics and produce surprisingly accurate predictions.
+            <strong className="text-[#adbac7]">Based on real research.</strong> The <a href="https://arxiv.org/abs/2411.11581" target="_blank" className="text-[#58a6ff] hover:underline">OASIS framework</a> runs up to 1 million agents that simulate entire social networks &mdash; agents follow, argue, share, and influence each other just like real people. MiroFish uses hundreds of thousands of these agents to predict real-world outcomes. Our version is a simplified 5-agent model that trades scale for cost-efficiency, but applies the same core principle: diverse perspectives + weighted aggregation = better predictions.
           </p>
         </div>
       </div>
