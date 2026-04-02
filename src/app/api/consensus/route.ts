@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
+import crypto from "crypto";
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -141,9 +142,49 @@ function bootstrapConsensus(predictions: AgentPrediction[], sampleSize: number =
   };
 }
 
-// Cache
-const cache = new Map<string, { data: unknown; timestamp: number }>();
-const CACHE_TTL = 12 * 60 * 60 * 1000;
+const CACHE_TTL_HOURS = 12;
+
+function hashQuestion(q: string): string {
+  return crypto.createHash("sha256").update(q.toLowerCase().trim()).digest("hex").slice(0, 32);
+}
+
+// Try to read from DB cache
+async function getFromDbCache(questionHash: string): Promise<unknown | null> {
+  try {
+    const { getDb, consensusCache } = await import("@/db");
+    const { eq, gt } = await import("drizzle-orm");
+    const db = getDb();
+    const cutoff = new Date(Date.now() - CACHE_TTL_HOURS * 60 * 60 * 1000);
+
+    const rows = await db
+      .select()
+      .from(consensusCache)
+      .where(eq(consensusCache.id, questionHash))
+      .limit(1);
+
+    if (rows.length > 0 && new Date(rows[0].createdAt) > cutoff) {
+      return JSON.parse(rows[0].result);
+    }
+  } catch {}
+  return null;
+}
+
+// Write to DB cache
+async function writeToDbCache(questionHash: string, question: string, data: unknown) {
+  try {
+    const { getDb, consensusCache } = await import("@/db");
+    const db = getDb();
+
+    // Upsert: delete old then insert
+    const { eq } = await import("drizzle-orm");
+    await db.delete(consensusCache).where(eq(consensusCache.id, questionHash));
+    await db.insert(consensusCache).values({
+      id: questionHash,
+      marketQuestion: question,
+      result: JSON.stringify(data),
+    });
+  } catch {}
+}
 
 // POST /api/consensus
 export async function POST(request: NextRequest) {
@@ -159,11 +200,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Missing fields" }, { status: 400 });
     }
 
-    // Check cache
-    const cacheKey = marketQuestion.toLowerCase().trim().slice(0, 100);
-    const cached = cache.get(cacheKey);
-    if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
-      return NextResponse.json(cached.data);
+    // Check DB cache first
+    const questionHash = hashQuestion(marketQuestion);
+    const cached = await getFromDbCache(questionHash);
+    if (cached) {
+      return NextResponse.json(cached);
     }
 
     // Run 20 personas × 5 temperatures = 100 real predictions
@@ -196,7 +237,8 @@ export async function POST(request: NextRequest) {
       agents: result.predictions,
     };
 
-    cache.set(cacheKey, { data: responseData, timestamp: Date.now() });
+    // Cache in DB (persists across serverless instances)
+    await writeToDbCache(questionHash, marketQuestion, responseData);
     return NextResponse.json(responseData);
   } catch {
     return NextResponse.json({ error: "Consensus generation failed" }, { status: 500 });

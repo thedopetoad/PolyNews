@@ -59,6 +59,14 @@ export const airdrops = pgTable("airdrops", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
+// AI consensus cache
+export const consensusCache = pgTable("consensus_cache", {
+  id: text("id").primaryKey(), // market question hash
+  marketQuestion: text("market_question").notNull(),
+  result: text("result").notNull(), // JSON stringified consensus result
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
 // Referral tracking
 export const referrals = pgTable(
   "referrals",
