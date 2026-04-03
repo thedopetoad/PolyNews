@@ -13,46 +13,54 @@ const SILLY_BLOCKLIST = [
 ];
 
 /**
- * Get the top 10 quality markets for AI consensus:
- * - Ends 1 week to 2 months from now
- * - Volume >= $100K
- * - Not resolved (price 5%-95%)
- * - Not silly/joke markets
- * - Category diversity (max 3 per category)
+ * Get the top 10 quality markets for AI consensus.
+ * Prioritizes soonest-ending markets (1 day to 5 weeks) with high volume,
+ * category diversity, and no joke markets.
  */
 export function getTopConsensusMarkets(events: PolymarketEvent[]): MarketWithPrices[] {
   const now = Date.now();
-  const oneWeek = now + 7 * 24 * 60 * 60 * 1000;
-  const twoMonths = now + 60 * 24 * 60 * 60 * 1000;
+  const oneDay = now + 1 * 24 * 60 * 60 * 1000;
+  const fiveWeeks = now + 35 * 24 * 60 * 60 * 1000;
 
-  let markets = events
+  const markets = events
     .flatMap((e) => (e.markets || []).map((m) => parseMarketPrices(m)))
     .filter((m) => {
-      // Price range: not resolved
       if (m.yesPrice <= 0.05 || m.yesPrice >= 0.95) return false;
+      if (parseFloat(m.volume || "0") < 50000) return false;
 
-      // Volume >= $100K
-      if (parseFloat(m.volume || "0") < 100000) return false;
-
-      // End date in 1 week to 2 months
       const end = new Date(m.endDate).getTime();
-      if (isNaN(end) || end < oneWeek || end > twoMonths) return false;
+      if (isNaN(end) || end < oneDay || end > fiveWeeks) return false;
 
-      // Not silly
       const q = (m.question || "").toLowerCase();
       if (SILLY_BLOCKLIST.some((term) => q.includes(term))) return false;
 
       return true;
-    })
-    .sort((a, b) => parseFloat(b.volume || "0") - parseFloat(a.volume || "0"));
+    });
 
-  // Category diversity: max 3 per category
+  // Sort by end date FIRST (soonest first), then by volume as tiebreaker
+  markets.sort((a, b) => {
+    const endA = new Date(a.endDate).getTime();
+    const endB = new Date(b.endDate).getTime();
+    if (endA !== endB) return endA - endB; // Soonest first
+    return parseFloat(b.volume || "0") - parseFloat(a.volume || "0"); // Highest volume
+  });
+
+  // Category diversity: max 2 per category, max 3 from same event/topic
   const categoryCounts: Record<string, number> = {};
+  const topicCounts: Record<string, number> = {};
   const diverse: MarketWithPrices[] = [];
+
   for (const m of markets) {
     const cat = m.category || "Other";
-    if ((categoryCounts[cat] || 0) >= 3) continue;
+    if ((categoryCounts[cat] || 0) >= 2) continue;
+
+    // Detect same-topic markets (e.g., "2026 Masters" or "Hungary PM")
+    const topic = (m.question || "").replace(/\b(Will|win|the|be|a|an)\b/gi, "").slice(0, 30).trim();
+    const topicKey = topic.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 20);
+    if ((topicCounts[topicKey] || 0) >= 2) continue;
+
     categoryCounts[cat] = (categoryCounts[cat] || 0) + 1;
+    topicCounts[topicKey] = (topicCounts[topicKey] || 0) + 1;
     diverse.push(m);
     if (diverse.length === 10) break;
   }
@@ -61,38 +69,49 @@ export function getTopConsensusMarkets(events: PolymarketEvent[]): MarketWithPri
 }
 
 /**
- * Get the top 5 sports markets ending soon (today, fallback to next 3 days).
+ * Get the top 5 sports markets ending soonest.
+ * Prioritizes imminent markets (today → 2 weeks), with volume-based fallback.
  */
 export function getSportsMarketsEndingSoon(events: PolymarketEvent[]): MarketWithPrices[] {
-  const today = new Date();
-  const todayStr = today.toDateString();
+  const now = Date.now();
+  const twoWeeks = now + 14 * 24 * 60 * 60 * 1000;
 
   const allSports = events
     .flatMap((e) => (e.markets || []).map((m) => parseMarketPrices(m)))
     .filter((m) => {
       if (m.category !== "Sports") return false;
       if (m.yesPrice <= 0.05 || m.yesPrice >= 0.95) return false;
+      if (parseFloat(m.volume || "0") < 10000) return false;
       return true;
+    });
+
+  // First: markets ending within 2 weeks, sorted by end date
+  const endingSoon = allSports
+    .filter((m) => {
+      const end = new Date(m.endDate).getTime();
+      return !isNaN(end) && end >= now && end <= twoWeeks;
     })
-    .sort((a, b) => parseFloat(b.volume || "0") - parseFloat(a.volume || "0"));
+    .sort((a, b) => new Date(a.endDate).getTime() - new Date(b.endDate).getTime());
 
-  // Try markets ending today first
-  const endingToday = allSports.filter((m) => {
-    const end = new Date(m.endDate);
-    return !isNaN(end.getTime()) && end.toDateString() === todayStr;
+  // Topic diversity: max 2 per event/topic
+  const topicCounts: Record<string, number> = {};
+  const diverse: MarketWithPrices[] = [];
+
+  const pool = endingSoon.length >= 5 ? endingSoon : allSports.sort((a, b) => {
+    const endA = new Date(a.endDate).getTime();
+    const endB = new Date(b.endDate).getTime();
+    if (Math.abs(endA - endB) > 7 * 86400000) return endA - endB;
+    return parseFloat(b.volume || "0") - parseFloat(a.volume || "0");
   });
 
-  if (endingToday.length >= 5) return endingToday.slice(0, 5);
+  for (const m of pool) {
+    const topic = (m.question || "").replace(/\b(Will|win|the|be|a|an)\b/gi, "").slice(0, 30).trim();
+    const topicKey = topic.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 20);
+    if ((topicCounts[topicKey] || 0) >= 2) continue;
+    topicCounts[topicKey] = (topicCounts[topicKey] || 0) + 1;
+    diverse.push(m);
+    if (diverse.length === 5) break;
+  }
 
-  // Fallback: next 3 days
-  const threeDays = Date.now() + 3 * 24 * 60 * 60 * 1000;
-  const endingSoon = allSports.filter((m) => {
-    const end = new Date(m.endDate).getTime();
-    return !isNaN(end) && end <= threeDays && end >= Date.now();
-  });
-
-  if (endingSoon.length >= 5) return endingSoon.slice(0, 5);
-
-  // Ultimate fallback: just top 5 sports by volume
-  return allSports.slice(0, 5);
+  return diverse;
 }
