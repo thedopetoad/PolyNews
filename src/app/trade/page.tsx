@@ -17,7 +17,7 @@ import { cn } from "@/lib/utils";
 import { AIRDROP_AMOUNTS, POLYMARKET_BASE_URL } from "@/lib/constants";
 import { LoginButton } from "@/components/layout/login-modal";
 import { getTopConsensusMarkets } from "@/lib/market-filters";
-import { useLivePrices } from "@/hooks/use-live-prices";
+import { useLivePrices, usePositionLivePrices } from "@/hooks/use-live-prices";
 
 /* ─── Daily Countdown ─── */
 function DailyCountdown() {
@@ -142,17 +142,25 @@ function PortfolioTab({ allMarkets, onSwitchTab }: { allMarkets: MarketWithPrice
   const queryClient = useQueryClient();
   const [claimError, setClaimError] = useState<string | null>(null);
 
-  // Build list of markets matching open positions for live price fetching
-  const positionMarkets = useMemo(() => {
+  // Build price targets from stored clobTokenIds on positions
+  const priceTargets = useMemo(() => {
     return positions
+      .filter((pos) => !pos.marketQuestion.toLowerCase().includes("bitcoin up or down")) // BTC handled separately
       .map((pos) => {
-        return allMarkets.find((m) => m.id === pos.marketId)
-          || allMarkets.find((m) => m.conditionId === pos.marketId)
-          || allMarkets.find((m) => m.question === pos.marketQuestion);
+        // Use stored clobTokenId if available, otherwise try to find from allMarkets
+        let tokenId = pos.clobTokenId || "";
+        if (!tokenId) {
+          const market = allMarkets.find((m) => m.id === pos.marketId)
+            || allMarkets.find((m) => m.question === pos.marketQuestion);
+          if (market?.clobTokenIds) {
+            try { const ids = JSON.parse(market.clobTokenIds); tokenId = ids[0] || ""; } catch {}
+          }
+        }
+        return { id: pos.marketId, tokenId, fallbackYes: pos.avgPrice, fallbackNo: 1 - pos.avgPrice };
       })
-      .filter((m): m is MarketWithPrices => m !== null && m !== undefined);
+      .filter((t) => t.tokenId);
   }, [positions, allMarkets]);
-  const { getPrice: getPositionLivePrice } = useLivePrices(positionMarkets);
+  const { getPrice: getPositionLivePrice } = usePositionLivePrices(priceTargets);
   const [closingId, setClosingId] = useState<string | null>(null);
   const [autoCloseMsg, setAutoCloseMsg] = useState<string | null>(null);
   const autoCloseRef = useRef<Set<string>>(new Set());
@@ -213,7 +221,7 @@ function PortfolioTab({ allMarkets, onSwitchTab }: { allMarkets: MarketWithPrice
   };
 
   const getLivePrice = (pos: DbPosition): number | null => {
-    // Check if it's a BTC 5-min position
+    // BTC 5-min positions use dedicated polling
     const isBtc5m = pos.marketQuestion.toLowerCase().includes("bitcoin up or down");
     if (isBtc5m && btcData?.active) {
       if (pos.marketId === btcData.active.marketId) {
@@ -222,14 +230,8 @@ function PortfolioTab({ allMarkets, onSwitchTab }: { allMarkets: MarketWithPrice
       return null;
     }
 
-    // Find the market in events data
-    const market = allMarkets.find((m) => m.id === pos.marketId)
-      || allMarkets.find((m) => m.conditionId === pos.marketId)
-      || allMarkets.find((m) => m.question === pos.marketQuestion);
-    if (!market) return null;
-
-    // Use direct CLOB live price (refreshes every 15s)
-    const live = getPositionLivePrice(market);
+    // Use direct CLOB price from stored clobTokenId (works even if market left events API)
+    const live = getPositionLivePrice(pos.marketId, pos.avgPrice, 1 - pos.avgPrice);
     return pos.outcome === "Yes" || pos.outcome === "Up" ? live.yesPrice : live.noPrice;
   };
 
@@ -428,6 +430,8 @@ function Btc5mCard({ onBought }: { onBought: () => void }) {
     if (!active || !canTrade) return;
     setError(null);
     try {
+      let tokenId = "";
+      try { const ids = JSON.parse(active.conditionId || "[]"); tokenId = ids[0] || ""; } catch {}
       await executeTrade({
         marketId: active.marketId,
         marketQuestion: active.question,
@@ -435,6 +439,9 @@ function Btc5mCard({ onBought }: { onBought: () => void }) {
         side: "buy",
         shares,
         price,
+        clobTokenId: tokenId,
+        marketEndDate: active.endDate,
+        eventSlug: active.slug,
       });
       setAmount("");
       onBought();
@@ -602,6 +609,8 @@ function TradableMarketsTab({ allMarkets, events, onBought }: {
     if (!selectedMarket || !canTrade) return;
     setError(null);
     try {
+      let tokenId = "";
+      try { const ids = JSON.parse(selectedMarket.clobTokenIds || "[]"); tokenId = ids[0] || ""; } catch {}
       await executeTrade({
         marketId: selectedMarket.id,
         marketQuestion: selectedMarket.question,
@@ -609,6 +618,9 @@ function TradableMarketsTab({ allMarkets, events, onBought }: {
         side: "buy",
         shares,
         price,
+        clobTokenId: tokenId,
+        marketEndDate: selectedMarket.endDate,
+        eventSlug: selectedMarket.eventSlug || selectedMarket.slug,
       });
       setSelectedMarket(null);
       setAmount("");

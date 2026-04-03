@@ -11,8 +11,8 @@ import {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { userId, marketId, marketQuestion, outcome, side, shares, price } =
-      body;
+    const { userId, marketId, marketQuestion, outcome, side, shares, price,
+      clobTokenId, marketEndDate, eventSlug } = body;
 
     // Auth: verify the caller matches the userId
     const authedUser = getAuthenticatedUser(request);
@@ -106,6 +106,9 @@ export async function POST(request: NextRequest) {
           outcome,
           shares,
           avgPrice: price,
+          clobTokenId: clobTokenId || null,
+          marketEndDate: marketEndDate || null,
+          eventSlug: eventSlug || null,
         });
       }
     } else if (side === "sell") {

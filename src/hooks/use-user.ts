@@ -27,6 +27,9 @@ export interface DbPosition {
   outcome: string;
   shares: number;
   avgPrice: number;
+  clobTokenId: string | null;
+  marketEndDate: string | null;
+  eventSlug: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -124,6 +127,9 @@ export function useUser() {
       side: "buy" | "sell";
       shares: number;
       price: number;
+      clobTokenId?: string;
+      marketEndDate?: string;
+      eventSlug?: string;
     }) => {
       const res = await fetch("/api/trade", {
         method: "POST",

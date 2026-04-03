@@ -30,9 +30,12 @@ export const positions = pgTable("positions", {
   userId: text("user_id").notNull().references(() => users.id),
   marketId: text("market_id").notNull(),
   marketQuestion: text("market_question").notNull(),
-  outcome: text("outcome").notNull(), // "Yes" or "No"
+  outcome: text("outcome").notNull(), // "Yes", "No", "Up", or "Down"
   shares: real("shares").notNull(),
   avgPrice: real("avg_price").notNull(),
+  clobTokenId: text("clob_token_id"), // For direct CLOB price lookups even if market leaves events API
+  marketEndDate: text("market_end_date"), // ISO date string — when the market resolves
+  eventSlug: text("event_slug"), // For linking to Polymarket
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
