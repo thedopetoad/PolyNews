@@ -534,8 +534,11 @@ export default function TradePage() {
         <LoginButton />
       </div>
 
-      <PortfolioBar onPositionClick={(marketId) => {
-        const market = allMarkets.find((m) => m.id === marketId) || markets.find((m) => m.id === marketId);
+      <PortfolioBar onPositionClick={(marketId, question) => {
+        const market = allMarkets.find((m) => m.id === marketId)
+          || allMarkets.find((m) => m.conditionId === marketId)
+          || allMarkets.find((m) => m.question === question)
+          || markets.find((m) => m.id === marketId);
         if (market) setSelectedMarket(market);
       }} />
 

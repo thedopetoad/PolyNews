@@ -78,7 +78,7 @@ export async function POST(request: NextRequest) {
     }
 
     const db = getDb();
-    const normalizedId = authMethod === "wallet" ? id.toLowerCase() : id;
+    const normalizedId = id.toLowerCase();
 
     // Check if user already exists
     const existing = await db

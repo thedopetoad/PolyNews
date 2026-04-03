@@ -4,6 +4,20 @@ import { POLYMARKET_GAMMA_API } from "@/lib/constants";
 const ALLOWED_PARAMS = ["active", "closed", "limit", "offset", "slug", "id", "tag"];
 const MAX_LIMIT = 50;
 
+interface MarketData {
+  clobTokenIds?: string;
+  outcomePrices?: string;
+  lastTradePrice?: number;
+  bestBid?: number;
+  bestAsk?: number;
+  [key: string]: unknown;
+}
+
+interface EventData {
+  markets?: MarketData[];
+  [key: string]: unknown;
+}
+
 /**
  * Fetch real-time midpoint price from CLOB API for a token.
  */
@@ -35,39 +49,70 @@ export async function GET(request: NextRequest) {
   params.set("limit", String(limit));
 
   try {
-    const response = await fetch(
-      `${POLYMARKET_GAMMA_API}/events?${params.toString()}`,
-      {
+    let events: EventData[];
+
+    // If no tag specified, fetch from multiple tags for diversity
+    if (!params.has("tag")) {
+      const tags = ["politics", "sports", "crypto", "finance", "science", "pop-culture"];
+      const perTag = Math.max(4, Math.floor(limit / tags.length));
+      const tagParams = new URLSearchParams(params);
+      tagParams.set("limit", String(perTag));
+
+      const tagFetches = tags.map(async (tag) => {
+        const tp = new URLSearchParams(tagParams);
+        tp.set("tag", tag);
+        try {
+          const res = await fetch(`${POLYMARKET_GAMMA_API}/events?${tp.toString()}`, {
+            headers: { Accept: "application/json" },
+            next: { revalidate: 60 },
+          });
+          if (!res.ok) return [];
+          return res.json();
+        } catch {
+          return [];
+        }
+      });
+
+      // Also fetch default (no tag) for trending/popular
+      const defaultFetch = fetch(`${POLYMARKET_GAMMA_API}/events?${params.toString()}`, {
         headers: { Accept: "application/json" },
         next: { revalidate: 60 },
+      }).then((r) => (r.ok ? r.json() : [])).catch(() => []);
+
+      const [defaultEvents, ...tagResults] = await Promise.all([defaultFetch, ...tagFetches]);
+
+      // Merge and deduplicate by event ID
+      const seen = new Set<string>();
+      events = [];
+      for (const batch of [defaultEvents, ...tagResults]) {
+        for (const event of batch as EventData[]) {
+          const eid = (event as Record<string, unknown>).id as string;
+          if (eid && !seen.has(eid)) {
+            seen.add(eid);
+            events.push(event);
+          }
+        }
       }
-    );
-
-    if (!response.ok) {
-      return NextResponse.json(
-        { error: "Failed to fetch events" },
-        { status: response.status }
+    } else {
+      const response = await fetch(
+        `${POLYMARKET_GAMMA_API}/events?${params.toString()}`,
+        {
+          headers: { Accept: "application/json" },
+          next: { revalidate: 60 },
+        }
       );
-    }
 
-    const events = await response.json();
+      if (!response.ok) {
+        return NextResponse.json(
+          { error: "Failed to fetch events" },
+          { status: response.status }
+        );
+      }
+
+      events = await response.json();
+    }
 
     // Enrich each market with real-time CLOB prices
-    // Collect all token IDs first, then batch fetch
-    interface MarketData {
-      clobTokenIds?: string;
-      outcomePrices?: string;
-      lastTradePrice?: number;
-      bestBid?: number;
-      bestAsk?: number;
-      [key: string]: unknown;
-    }
-
-    interface EventData {
-      markets?: MarketData[];
-      [key: string]: unknown;
-    }
-
     const priceFetches: { event: EventData; market: MarketData; tokenId: string }[] = [];
 
     for (const event of events as EventData[]) {
@@ -118,13 +163,13 @@ export async function GET(request: NextRequest) {
     // Categorize each market based on its question text
     // Order matters! More specific categories first to prevent misclassification
     const categoryKeywords: [string, string[]][] = [
-      ["Sports", ["nba", "nfl", "mlb", "nhl", "ufc", "championship", "finals", "stanley cup", "super bowl", "world cup", "premier league", "oilers", "golden knights", "bulls", "spurs", "thunder", "avalanche", "wild", "lakers", "celtics"]],
+      ["Sports", ["nba", "nfl", "mlb", "nhl", "ufc", "championship", "finals", "stanley cup", "super bowl", "world cup", "premier league", "serie a", "la liga", "bundesliga", "oilers", "golden knights", "bulls", "spurs", "thunder", "avalanche", "wild", "lakers", "celtics", "panthers", "rangers", "hurricanes", "stars", "lightning", "maple leafs", "bruins", "jets", "flames", "senators", "canucks", "kraken", "predators", "blue jackets", "red wings", "blackhawks", "islanders", "devils", "flyers", "penguins", "capitals", "canadiens", "sabres", "ducks", "sharks", "coyotes", "warriors", "nuggets", "heat", "knicks", "nets", "clippers", "bucks", "76ers", "cavaliers", "pacers", "hawks", "magic", "raptors", "pistons", "hornets", "wizards", "grizzlies", "pelicans", "trail blazers", "timberwolves", "mavericks", "rockets", "suns", "kings"]],
       ["Culture", ["oscar", "grammy", "album", "movie", "gta vi", "gta 6", "before gta", "rihanna", "taylor swift", "playboi", "jesus", "pregnant", "bachelor"]],
       ["Geopolitics", ["ukraine", "russia", "china", "iran", "israel", "gaza", "nato", "war", "ceasefire", "military", "troops", "sanctions", "macron", "starmer"]],
       ["Crypto", ["bitcoin", "ethereum", "crypto", "btc", "eth", "defi", "nft", "solana", "coinbase", "microstrategy", "stablecoin"]],
       ["Tech", ["ai ", "openai", "google", "apple", "meta", "tesla", "nvidia", "tiktok", "spacex", "gpt", "starship"]],
       ["Politics", ["president", "election", "democrat", "republican", "senate", "congress", "nomination", "governor", "mayor", "vote", "ballot", "primary"]],
-      ["Finance", ["fed ", "interest rate", "inflation", "gdp", "recession", "stock", "oil", "gold", "tariff", "ipo", "s&p", "nasdaq", "kraken ipo"]],
+      ["Finance", ["fed ", "interest rate", "inflation", "gdp", "recession", "stock", "oil", "gold", "tariff", "ipo", "s&p", "nasdaq"]],
     ];
     for (const event of events as EventData[]) {
       if (!event.markets) continue;
