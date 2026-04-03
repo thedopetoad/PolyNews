@@ -5,53 +5,20 @@ export const POLYMARKET_GAMMA_API = "https://gamma-api.polymarket.com";
 export const POLYMARKET_BASE_URL = "https://polymarket.com";
 
 export interface StreamChannel {
-  id: string;
+  channelId: string;
   name: string;
-  videoId: string;
-  platform: "youtube" | "rumble";
-  color: string; // accent color for the channel
+  color: string;
 }
 
 export const STREAM_CHANNELS: StreamChannel[] = [
-  {
-    id: "UCNye-wNBqNL5ZzHSJj3l8Bg",
-    name: "Al Jazeera",
-    videoId: "",
-    platform: "youtube",
-    color: "#d4a843",
-  },
-  {
-    id: "UCQfwfsi2Dcf8IMIWbJELOZQ",
-    name: "Sky News",
-    videoId: "",
-    platform: "youtube",
-    color: "#c80000",
-  },
-  {
-    id: "UCQGqX5Ndpm4snE0NTjyOJnA",
-    name: "France 24",
-    videoId: "",
-    platform: "youtube",
-    color: "#00a1e0",
-  },
-  {
-    id: "UCknLrEdhRCp1aegoMqRaCZg",
-    name: "DW News",
-    videoId: "",
-    platform: "youtube",
-    color: "#0055a4",
-  },
-  {
-    id: "infowars",
-    name: "Infowars",
-    videoId: "",
-    platform: "rumble",
-    color: "#ff6600",
-  },
+  { channelId: "UCNye-wNBqNL5ZzHSJj3l8Bg", name: "Al Jazeera", color: "#d4a843" },
+  { channelId: "UCJg9wBPyKMNA5sRDnvzmkdg", name: "LiveNow FOX", color: "#003366" },
+  { channelId: "UCBi2mrWuNuyYy4gbM6fU18Q", name: "ABC News", color: "#0040C1" },
+  { channelId: "UC8p1vwvWtl6T73JiExfWs1g", name: "CBS News", color: "#1A1A1A" },
+  { channelId: "UCQfwfsi2Dcf8IMIWbJELOZQ", name: "Sky News", color: "#c80000" },
+  { channelId: "UCQGqX5Ndpm4snE0NTjyOJnA", name: "France 24", color: "#00a1e0" },
+  { channelId: "UCknLrEdhRCp1aegoMqRaCZg", name: "DW News", color: "#0055a4" },
 ];
-
-// Keep legacy alias for any components still importing it
-export const YOUTUBE_CHANNELS = STREAM_CHANNELS;
 
 export const MARKET_CATEGORIES = [
   { key: "all", label: "All" },
