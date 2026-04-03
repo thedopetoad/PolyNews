@@ -116,21 +116,22 @@ export async function GET(request: NextRequest) {
     }
 
     // Categorize each market based on its question text
-    const categoryKeywords: Record<string, string[]> = {
-      Politics: ["president", "election", "democrat", "republican", "senate", "congress", "nomination", "governor", "mayor", "vote", "ballot", "primary"],
-      Geopolitics: ["ukraine", "russia", "china", "iran", "israel", "gaza", "nato", "war", "ceasefire", "military", "troops", "sanctions"],
-      Crypto: ["bitcoin", "ethereum", "crypto", "btc", "eth", "defi", "nft", "solana", "coinbase", "microstrategy", "stablecoin"],
-      Finance: ["fed", "interest rate", "inflation", "gdp", "recession", "stock", "oil", "gold", "tariff", "ipo", "s&p", "nasdaq"],
-      Tech: ["ai", "openai", "google", "apple", "meta", "tesla", "nvidia", "tiktok", "spacex", "gpt", "starship"],
-      Sports: ["nba", "nfl", "mlb", "nhl", "ufc", "championship", "finals", "stanley cup", "super bowl", "world cup", "premier league"],
-      Culture: ["oscar", "grammy", "album", "movie", "gta", "rihanna", "taylor swift", "playboi", "jesus", "pregnant"],
-    };
+    // Order matters! More specific categories first to prevent misclassification
+    const categoryKeywords: [string, string[]][] = [
+      ["Sports", ["nba", "nfl", "mlb", "nhl", "ufc", "championship", "finals", "stanley cup", "super bowl", "world cup", "premier league", "oilers", "golden knights", "bulls", "spurs", "thunder", "avalanche", "wild", "lakers", "celtics"]],
+      ["Culture", ["oscar", "grammy", "album", "movie", "gta vi", "gta 6", "before gta", "rihanna", "taylor swift", "playboi", "jesus", "pregnant", "bachelor"]],
+      ["Geopolitics", ["ukraine", "russia", "china", "iran", "israel", "gaza", "nato", "war", "ceasefire", "military", "troops", "sanctions", "macron", "starmer"]],
+      ["Crypto", ["bitcoin", "ethereum", "crypto", "btc", "eth", "defi", "nft", "solana", "coinbase", "microstrategy", "stablecoin"]],
+      ["Tech", ["ai ", "openai", "google", "apple", "meta", "tesla", "nvidia", "tiktok", "spacex", "gpt", "starship"]],
+      ["Politics", ["president", "election", "democrat", "republican", "senate", "congress", "nomination", "governor", "mayor", "vote", "ballot", "primary"]],
+      ["Finance", ["fed ", "interest rate", "inflation", "gdp", "recession", "stock", "oil", "gold", "tariff", "ipo", "s&p", "nasdaq", "kraken ipo"]],
+    ];
     for (const event of events as EventData[]) {
       if (!event.markets) continue;
       for (const market of event.markets) {
         const q = ((market as Record<string, unknown>).question as string || "").toLowerCase();
         let cat = "Other";
-        for (const [category, keywords] of Object.entries(categoryKeywords)) {
+        for (const [category, keywords] of categoryKeywords) {
           if (keywords.some((kw) => q.includes(kw))) { cat = category; break; }
         }
         (market as Record<string, unknown>).category = cat;

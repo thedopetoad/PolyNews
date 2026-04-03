@@ -51,11 +51,12 @@ export function LoginButton() {
       if (provider) {
         const accounts = (await provider.request({ method: "eth_accounts" })) as string[] | undefined;
         if (accounts && accounts.length > 0) {
-          setGoogleAddress(accounts[0]);
+          const addr = accounts[0].toLowerCase();
+          setGoogleAddress(addr);
           await fetch("/api/user", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ id: accounts[0], authMethod: "google", walletAddress: accounts[0] }),
+            body: JSON.stringify({ id: addr, authMethod: "google", walletAddress: addr }),
           });
           setLoginOpen(false);
         }
