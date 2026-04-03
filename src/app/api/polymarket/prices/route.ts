@@ -18,7 +18,7 @@ export async function GET(request: NextRequest) {
       `https://clob.polymarket.com/midpoint?token_id=${tokenId}`,
       {
         headers: { Accept: "application/json" },
-        next: { revalidate: 30 }, // Cache for 30 seconds
+        next: { revalidate: 5 }, // Cache for 5 seconds
       }
     );
 

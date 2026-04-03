@@ -16,7 +16,8 @@ import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { AIRDROP_AMOUNTS, POLYMARKET_BASE_URL } from "@/lib/constants";
 import { LoginButton } from "@/components/layout/login-modal";
-import { getTopConsensusMarkets, getSportsMarketsEndingSoon } from "@/lib/market-filters";
+import { getTopConsensusMarkets } from "@/lib/market-filters";
+import { useLivePrices } from "@/hooks/use-live-prices";
 
 /* ─── Daily Countdown ─── */
 function DailyCountdown() {
@@ -553,9 +554,9 @@ function TradableMarketsTab({ allMarkets, events, onBought }: {
   const [error, setError] = useState<string | null>(null);
   const [consensusResults, setConsensusResults] = useState<Record<string, ConsensusResult>>({});
 
-  // Get the 10 AI consensus markets + 5 sports markets
+  // Get the 10 AI consensus markets
   const consensusMarkets = useMemo(() => getTopConsensusMarkets(events), [events]);
-  const sportsMarkets = useMemo(() => getSportsMarketsEndingSoon(events), [events]);
+  const { getPrice } = useLivePrices(consensusMarkets);
 
   // Fetch consensus results for the AI markets
   useEffect(() => {
@@ -576,7 +577,8 @@ function TradableMarketsTab({ allMarkets, events, onBought }: {
     });
   }, [consensusMarkets.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const price = selectedMarket ? (outcome === "Yes" ? selectedMarket.yesPrice : selectedMarket.noPrice) : 0;
+  const selectedLive = selectedMarket ? getPrice(selectedMarket) : null;
+  const price = selectedLive ? (outcome === "Yes" ? selectedLive.yesPrice : selectedLive.noPrice) : 0;
   const shares = parseFloat(amount) || 0;
   const cost = shares * price;
   const balance = user?.balance || 0;
@@ -632,8 +634,8 @@ function TradableMarketsTab({ allMarkets, events, onBought }: {
 
       {/* Live odds */}
       <div className="flex gap-2 flex-shrink-0">
-        <span className="text-xs font-semibold text-[#3fb950] tabular-nums">Yes {formatPercentage(market.yesPrice)}</span>
-        <span className="text-xs font-semibold text-[#f85149] tabular-nums">No {formatPercentage(market.noPrice)}</span>
+        <span className="text-xs font-semibold text-[#3fb950] tabular-nums">Yes {formatPercentage(getPrice(market).yesPrice)}</span>
+        <span className="text-xs font-semibold text-[#f85149] tabular-nums">No {formatPercentage(getPrice(market).noPrice)}</span>
       </div>
 
       {/* Trade button */}
@@ -698,7 +700,7 @@ function TradableMarketsTab({ allMarkets, events, onBought }: {
                       : "bg-[#0d1117] border-[#21262d] text-[#768390]"
                   )}
                 >
-                  Yes {formatPercentage(selectedMarket.yesPrice)}
+                  Yes {selectedLive ? formatPercentage(selectedLive.yesPrice) : ""}
                 </button>
                 <button
                   onClick={() => setOutcome("No")}
@@ -709,7 +711,7 @@ function TradableMarketsTab({ allMarkets, events, onBought }: {
                       : "bg-[#0d1117] border-[#21262d] text-[#768390]"
                   )}
                 >
-                  No {formatPercentage(selectedMarket.noPrice)}
+                  No {selectedLive ? formatPercentage(selectedLive.noPrice) : ""}
                 </button>
               </div>
 

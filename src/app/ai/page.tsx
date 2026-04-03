@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { usePolymarketEvents } from "@/hooks/use-polymarket";
+import { useLivePrices } from "@/hooks/use-live-prices";
 import { PolymarketEvent, MarketWithPrices, formatPercentage, formatVolume } from "@/types/polymarket";
 import { getTopConsensusMarkets } from "@/lib/market-filters";
 import { SwarmVisualization } from "@/components/ai/swarm-visualization";
@@ -46,7 +47,8 @@ export default function AIConsensusPage() {
   const [running, setRunning] = useState(false);
   const countdown = useCountdown();
 
-  const topMarkets = events ? getTopConsensusMarkets(events as PolymarketEvent[]) : [];
+  const topMarkets = useMemo(() => events ? getTopConsensusMarkets(events as PolymarketEvent[]) : [], [events]);
+  const { getPrice } = useLivePrices(topMarkets);
 
   useEffect(() => {
     if (topMarkets.length === 0 || results.length > 0 || running) return;
@@ -112,7 +114,9 @@ export default function AIConsensusPage() {
           )}
 
           {results.map((mc, idx) => {
-            const diff = mc.result ? mc.result.consensus - mc.market.yesPrice * 100 : 0;
+            const liveP = getPrice(mc.market);
+            const liveYes = liveP.yesPrice;
+            const diff = mc.result ? mc.result.consensus - liveYes * 100 : 0;
             const trendColor = diff > 3 ? "text-[#3fb950]" : diff < -3 ? "text-[#f85149]" : "text-[#484f58]";
             const marketUrl = `${POLYMARKET_BASE_URL}/event/${mc.market.eventSlug || mc.market.slug}`;
 
@@ -134,7 +138,7 @@ export default function AIConsensusPage() {
                     </p>
                   </div>
                   <div className="col-span-2 text-center">
-                    <span className="text-lg font-bold text-[#e6edf3] tabular-nums">{formatPercentage(mc.market.yesPrice)}</span>
+                    <span className="text-lg font-bold text-[#e6edf3] tabular-nums">{formatPercentage(liveYes)}</span>
                   </div>
                   <div className="col-span-3 text-center">
                     {mc.loading ? (
@@ -165,7 +169,7 @@ export default function AIConsensusPage() {
                   <div className="flex items-center gap-4 mt-2">
                     <div>
                       <span className="text-[10px] text-[#484f58]">Market</span>
-                      <p className="text-sm font-bold text-[#e6edf3]">{formatPercentage(mc.market.yesPrice)}</p>
+                      <p className="text-sm font-bold text-[#e6edf3]">{formatPercentage(liveYes)}</p>
                     </div>
                     <div>
                       <span className="text-[10px] text-[#484f58]">AI Swarm</span>
