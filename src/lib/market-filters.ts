@@ -45,14 +45,14 @@ export function getTopConsensusMarkets(events: PolymarketEvent[]): MarketWithPri
     return parseFloat(b.volume || "0") - parseFloat(a.volume || "0"); // Highest volume
   });
 
-  // Category diversity: max 2 per category, max 3 from same event/topic
+  // Category diversity: max 4 per category, max 2 from same event/topic
   const categoryCounts: Record<string, number> = {};
   const topicCounts: Record<string, number> = {};
   const diverse: MarketWithPrices[] = [];
 
   for (const m of markets) {
     const cat = m.category || "Other";
-    if ((categoryCounts[cat] || 0) >= 2) continue;
+    if ((categoryCounts[cat] || 0) >= 4) continue;
 
     // Detect same-topic markets (e.g., "2026 Masters" or "Hungary PM")
     const topic = (m.question || "").replace(/\b(Will|win|the|be|a|an)\b/gi, "").slice(0, 30).trim();

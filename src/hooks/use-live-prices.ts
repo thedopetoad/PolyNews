@@ -18,17 +18,15 @@ interface PriceTarget {
 export function useLivePrices(markets: MarketWithPrices[]) {
   const [prices, setPrices] = useState<Record<string, { yesPrice: number; noPrice: number }>>({});
   const [ready, setReady] = useState(false);
-  const marketsRef = useRef(markets);
-  marketsRef.current = markets;
+  const marketIds = markets.map((m) => m.id).join(",");
 
-  const fetchPrices = useCallback(async () => {
-    const current = marketsRef.current;
-    if (current.length === 0) { setReady(true); return; }
+  const fetchPrices = useCallback(async (mkts: MarketWithPrices[]) => {
+    if (mkts.length === 0) return;
 
     const updates: Record<string, { yesPrice: number; noPrice: number }> = {};
 
     await Promise.all(
-      current.map(async (market) => {
+      mkts.map(async (market) => {
         if (!market.clobTokenIds) return;
         try {
           const tokenIds = JSON.parse(market.clobTokenIds);
@@ -50,12 +48,14 @@ export function useLivePrices(markets: MarketWithPrices[]) {
     setReady(true);
   }, []);
 
+  // Re-fetch immediately when markets change, and poll every 15s
   useEffect(() => {
+    if (markets.length === 0) return;
     setReady(false);
-    fetchPrices();
-    const interval = setInterval(fetchPrices, 15000);
+    fetchPrices(markets);
+    const interval = setInterval(() => fetchPrices(markets), 15000);
     return () => clearInterval(interval);
-  }, [fetchPrices]);
+  }, [marketIds, fetchPrices]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const getPrice = useCallback(
     (market: MarketWithPrices) => {
