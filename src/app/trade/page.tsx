@@ -467,45 +467,65 @@ function Btc5mCard({ onBought }: { onBought: () => void }) {
         )}
 
         {isConnected ? (
-          <div className="flex items-center gap-3">
-            <div className="grid grid-cols-2 gap-2 flex-shrink-0">
+          <div className="space-y-3">
+            {/* Outcome buttons */}
+            <div className="grid grid-cols-2 gap-2">
               <button
                 onClick={() => setOutcome("Up")}
                 className={cn(
-                  "px-4 py-2 rounded-lg text-sm font-medium border transition-all",
+                  "px-4 py-2.5 rounded-lg text-sm font-medium border transition-all",
                   outcome === "Up"
                     ? "bg-[#238636]/15 border-[#238636] text-[#3fb950]"
                     : "bg-[#0d1117] border-[#21262d] text-[#768390]"
                 )}
               >
-                Up {(active.upPrice * 100).toFixed(0)}%
+                Up {(active.upPrice * 100).toFixed(0)}¢
               </button>
               <button
                 onClick={() => setOutcome("Down")}
                 className={cn(
-                  "px-4 py-2 rounded-lg text-sm font-medium border transition-all",
+                  "px-4 py-2.5 rounded-lg text-sm font-medium border transition-all",
                   outcome === "Down"
                     ? "bg-[#f85149]/10 border-[#f85149]/50 text-[#f85149]"
                     : "bg-[#0d1117] border-[#21262d] text-[#768390]"
                 )}
               >
-                Down {(active.downPrice * 100).toFixed(0)}%
+                Down {(active.downPrice * 100).toFixed(0)}¢
               </button>
             </div>
-            <Input
-              type="number"
-              placeholder="Shares"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              className="bg-[#0d1117] border-[#21262d] text-white h-10 w-28"
-            />
+
+            {/* Amount + To Win */}
+            <div className="flex items-end gap-3">
+              <div className="flex-1">
+                <div className="flex justify-between text-xs text-[#484f58] mb-1.5">
+                  <span>Amount (PST)</span>
+                  <button onClick={() => setAmount(String(Math.floor(balance)))} className="text-[#58a6ff] hover:underline">Max</button>
+                </div>
+                <Input
+                  type="number"
+                  placeholder="0"
+                  value={amount}
+                  onChange={(e) => setAmount(e.target.value)}
+                  className="bg-[#0d1117] border-[#21262d] text-white h-10"
+                />
+              </div>
+              {cost > 0 && (
+                <div className="text-right pb-1">
+                  <p className="text-[10px] text-[#484f58]">Avg. Price {(price * 100).toFixed(0)}¢</p>
+                  <p className="text-[10px] text-[#484f58]">To win</p>
+                  <p className="text-xl font-bold text-[#3fb950] tabular-nums">{(cost / price - cost).toFixed(0)} PST</p>
+                </div>
+              )}
+            </div>
+
             <Button
               onClick={handleBuy}
               disabled={!canTrade || isTrading}
-              className="h-10 bg-[#d29922] hover:bg-[#d29922]/80 text-black font-medium"
+              className="w-full h-10 bg-[#d29922] hover:bg-[#d29922]/80 text-black font-medium"
             >
-              {isTrading ? "..." : shares > 0 ? `Buy ${outcome} — ${cost.toFixed(0)} PST` : `Buy ${outcome}`}
+              {isTrading ? "Processing..." : cost > 0 ? `Buy ${outcome} — ${cost.toFixed(0)} PST` : `Buy ${outcome}`}
             </Button>
+            <p className="text-center text-[11px] text-[#484f58]">Balance: {balance.toLocaleString(undefined, { maximumFractionDigits: 0 })} PST</p>
           </div>
         ) : (
           <div className="flex items-center gap-2">
@@ -514,7 +534,7 @@ function Btc5mCard({ onBought }: { onBought: () => void }) {
           </div>
         )}
         {error && <p className="text-xs text-[#f85149]">{error}</p>}
-        <p className="text-[10px] text-[#484f58]">Positions auto-close when the 5-minute window ends. Correct prediction pays 1 PST/share.</p>
+        <p className="text-[10px] text-[#484f58]">Positions auto-close when the 5-minute window ends. Shares pay out 1 PST each if your prediction is correct, 0 if wrong.</p>
       </div>
     </div>
   );
@@ -726,21 +746,16 @@ function TradableMarketsTab({ allMarkets, events, onBought }: {
                 />
               </div>
 
-              {/* Summary */}
-              {shares > 0 && (
-                <div className="bg-[#0d1117] rounded-lg p-3 space-y-1.5 text-xs border border-[#21262d]">
-                  <div className="flex justify-between text-[#768390]">
-                    <span>Price per share</span>
-                    <span>{(price * 100).toFixed(0)}% ({price.toFixed(3)} PST)</span>
+              {/* Summary + To Win */}
+              {cost > 0 && (
+                <div className="bg-[#0d1117] rounded-lg p-3 text-xs border border-[#21262d]">
+                  <div className="flex justify-between text-[#768390] mb-1.5">
+                    <span>Avg. Price {(price * 100).toFixed(0)}¢</span>
+                    <span>Cost: {cost.toFixed(2)} PST</span>
                   </div>
-                  <div className="flex justify-between text-[#768390]">
-                    <span>Total cost</span>
-                    <span className="text-white font-medium">{cost.toFixed(2)} PST</span>
-                  </div>
-                  <div className="h-px bg-[#21262d]" />
-                  <div className="flex justify-between text-[#768390]">
-                    <span>Potential return (if correct)</span>
-                    <span className="text-[#3fb950]">{shares.toFixed(0)} PST (+{(shares - cost).toFixed(0)})</span>
+                  <div className="flex justify-between items-end">
+                    <span className="text-[#768390]">To win</span>
+                    <span className="text-xl font-bold text-[#3fb950] tabular-nums">{(cost / price - cost).toFixed(0)} PST</span>
                   </div>
                 </div>
               )}
