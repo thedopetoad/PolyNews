@@ -20,7 +20,7 @@ const SILLY_BLOCKLIST = [
 export function getTopConsensusMarkets(events: PolymarketEvent[]): MarketWithPrices[] {
   const now = Date.now();
   const oneDay = now + 1 * 24 * 60 * 60 * 1000;
-  const fiveWeeks = now + 35 * 24 * 60 * 60 * 1000;
+  const threeMonths = now + 90 * 24 * 60 * 60 * 1000;
 
   const markets = events
     .flatMap((e) => (e.markets || []).map((m) => parseMarketPrices(m)))
@@ -29,7 +29,7 @@ export function getTopConsensusMarkets(events: PolymarketEvent[]): MarketWithPri
       if (parseFloat(m.volume || "0") < 50000) return false;
 
       const end = new Date(m.endDate).getTime();
-      if (isNaN(end) || end < oneDay || end > fiveWeeks) return false;
+      if (isNaN(end) || end < oneDay || end > threeMonths) return false;
 
       const q = (m.question || "").toLowerCase();
       if (SILLY_BLOCKLIST.some((term) => q.includes(term))) return false;
