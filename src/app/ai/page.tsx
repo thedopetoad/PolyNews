@@ -85,7 +85,7 @@ export default function AIConsensusPage() {
 
   return (
     <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 pt-4 pb-4 relative z-10 min-h-screen">
-      <div className="flex items-start justify-between mb-6">
+      <div className="flex items-start justify-between mb-6 relative z-10">
         <div>
           <h1 className="text-2xl font-bold text-white">AI Swarm Consensus</h1>
           <p className="mt-1 text-sm text-[#768390] max-w-xl">
@@ -106,9 +106,9 @@ export default function AIConsensusPage() {
 
       {/* Results */}
       {isLoading ? (
-        <p className="text-sm text-[#484f58] text-center py-16">Loading markets...</p>
+        <p className="text-sm text-[#484f58] text-center py-16 relative z-10">Loading markets...</p>
       ) : (
-        <div className="rounded-lg border border-[#21262d] bg-[#161b22] overflow-hidden">
+        <div className="rounded-lg border border-[#21262d] bg-[#161b22] overflow-hidden relative z-10">
           <div className="hidden sm:grid grid-cols-12 gap-2 px-4 py-2.5 border-b border-[#21262d] text-[10px] text-[#484f58] uppercase tracking-wider">
             <div className="col-span-5">Market</div>
             <div className="col-span-2 text-center">Market</div>
@@ -187,7 +187,7 @@ export default function AIConsensusPage() {
         </div>
       )}
 
-      <p className="text-center text-[11px] text-[#484f58] mt-2 mb-0">
+      <p className="text-center text-[11px] text-[#484f58] mt-2 mb-0 relative z-10">
         Powered by 100,000 AI agents across 3 debate rounds.{" "}
         <Link href="/docs#ai-consensus" className="text-[#58a6ff] hover:underline">How does this work?</Link>
       </p>
