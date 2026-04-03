@@ -54,9 +54,8 @@ export async function GET(request: NextRequest) {
     // If no tag specified, fetch from multiple tags for diversity
     if (!params.has("tag")) {
       const tags = ["politics", "sports", "crypto", "finance", "science", "pop-culture"];
-      const perTag = Math.max(4, Math.floor(limit / tags.length));
       const tagParams = new URLSearchParams(params);
-      tagParams.set("limit", String(perTag));
+      tagParams.set("limit", "3");
 
       const tagFetches = tags.map(async (tag) => {
         const tp = new URLSearchParams(tagParams);
@@ -81,7 +80,7 @@ export async function GET(request: NextRequest) {
 
       const [defaultEvents, ...tagResults] = await Promise.all([defaultFetch, ...tagFetches]);
 
-      // Merge and deduplicate by event ID
+      // Merge and deduplicate by event ID, cap at requested limit
       const seen = new Set<string>();
       events = [];
       for (const batch of [defaultEvents, ...tagResults]) {
@@ -93,6 +92,8 @@ export async function GET(request: NextRequest) {
           }
         }
       }
+      // Cap total events to avoid CLOB price fetch timeout
+      events = events.slice(0, limit);
     } else {
       const response = await fetch(
         `${POLYMARKET_GAMMA_API}/events?${params.toString()}`,
@@ -137,10 +138,11 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // Fetch CLOB prices in parallel (max 20 concurrent to avoid rate limits)
+    // Fetch CLOB prices in parallel — cap at 80 to avoid Vercel timeout
+    const cappedFetches = priceFetches.slice(0, 80);
     const BATCH_SIZE = 20;
-    for (let i = 0; i < priceFetches.length; i += BATCH_SIZE) {
-      const batch = priceFetches.slice(i, i + BATCH_SIZE);
+    for (let i = 0; i < cappedFetches.length; i += BATCH_SIZE) {
+      const batch = cappedFetches.slice(i, i + BATCH_SIZE);
       const prices = await Promise.all(
         batch.map((b) => getClobPrice(b.tokenId))
       );

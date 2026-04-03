@@ -426,18 +426,20 @@ function PortfolioBar({ onPositionClick }: { onPositionClick?: (marketId: string
         </div>
       </div>
       <div className="mt-3">
-        {dailyClaimed ? (
+        {dailyClaimed || claimError === "Already claimed today" ? (
           <DailyCountdown />
         ) : (
-          <button
-            onClick={handleClaim}
-            disabled={isClaimingAirdrop}
-            className="px-3 py-1.5 rounded text-[11px] font-medium bg-[#238636] hover:bg-[#2ea043] text-white transition-colors"
-          >
-            {isClaimingAirdrop ? "Claiming..." : "Claim 100 PST"}
-          </button>
+          <>
+            <button
+              onClick={handleClaim}
+              disabled={isClaimingAirdrop}
+              className="px-3 py-1.5 rounded text-[11px] font-medium bg-[#238636] hover:bg-[#2ea043] text-white transition-colors"
+            >
+              {isClaimingAirdrop ? "Claiming..." : "Claim 100 PST"}
+            </button>
+            {claimError && <p className="text-[10px] text-[#f85149] mt-1">{claimError}</p>}
+          </>
         )}
-        {claimError && <p className="text-[10px] text-[#f85149] mt-1">{claimError}</p>}
       </div>
 
       {/* Positions with sell buttons */}
