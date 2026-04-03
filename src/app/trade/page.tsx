@@ -141,6 +141,18 @@ function PortfolioTab({ allMarkets, onSwitchTab }: { allMarkets: MarketWithPrice
   const { user, positions, trades, isConnected, claimAirdrop, isClaimingAirdrop, executeTrade, isTrading, address } = useUser();
   const queryClient = useQueryClient();
   const [claimError, setClaimError] = useState<string | null>(null);
+
+  // Build list of markets matching open positions for live price fetching
+  const positionMarkets = useMemo(() => {
+    return positions
+      .map((pos) => {
+        return allMarkets.find((m) => m.id === pos.marketId)
+          || allMarkets.find((m) => m.conditionId === pos.marketId)
+          || allMarkets.find((m) => m.question === pos.marketQuestion);
+      })
+      .filter((m): m is MarketWithPrices => m !== null && m !== undefined);
+  }, [positions, allMarkets]);
+  const { getPrice: getPositionLivePrice } = useLivePrices(positionMarkets);
   const [closingId, setClosingId] = useState<string | null>(null);
   const [autoCloseMsg, setAutoCloseMsg] = useState<string | null>(null);
   const autoCloseRef = useRef<Set<string>>(new Set());
@@ -204,19 +216,21 @@ function PortfolioTab({ allMarkets, onSwitchTab }: { allMarkets: MarketWithPrice
     // Check if it's a BTC 5-min position
     const isBtc5m = pos.marketQuestion.toLowerCase().includes("bitcoin up or down");
     if (isBtc5m && btcData?.active) {
-      // If position is for the current active market, use live CLOB price
       if (pos.marketId === btcData.active.marketId) {
         return pos.outcome === "Up" ? btcData.active.upPrice : btcData.active.downPrice;
       }
-      // If position is for a resolved previous market, return null (will be auto-closed)
       return null;
     }
 
+    // Find the market in events data
     const market = allMarkets.find((m) => m.id === pos.marketId)
       || allMarkets.find((m) => m.conditionId === pos.marketId)
       || allMarkets.find((m) => m.question === pos.marketQuestion);
     if (!market) return null;
-    return pos.outcome === "Yes" ? market.yesPrice : market.noPrice;
+
+    // Use direct CLOB live price (refreshes every 15s)
+    const live = getPositionLivePrice(market);
+    return pos.outcome === "Yes" || pos.outcome === "Up" ? live.yesPrice : live.noPrice;
   };
 
   const handleClose = async (pos: DbPosition) => {
