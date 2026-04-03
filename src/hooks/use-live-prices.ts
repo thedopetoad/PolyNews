@@ -13,15 +13,17 @@ interface PriceTarget {
 /**
  * Fetches live CLOB prices for specific markets every 15 seconds.
  * Returns a map of marketId -> { yesPrice, noPrice }.
+ * `ready` is false until the first fetch completes.
  */
 export function useLivePrices(markets: MarketWithPrices[]) {
   const [prices, setPrices] = useState<Record<string, { yesPrice: number; noPrice: number }>>({});
+  const [ready, setReady] = useState(false);
   const marketsRef = useRef(markets);
   marketsRef.current = markets;
 
   const fetchPrices = useCallback(async () => {
     const current = marketsRef.current;
-    if (current.length === 0) return;
+    if (current.length === 0) { setReady(true); return; }
 
     const updates: Record<string, { yesPrice: number; noPrice: number }> = {};
 
@@ -45,9 +47,11 @@ export function useLivePrices(markets: MarketWithPrices[]) {
     if (Object.keys(updates).length > 0) {
       setPrices((prev) => ({ ...prev, ...updates }));
     }
+    setReady(true);
   }, []);
 
   useEffect(() => {
+    setReady(false);
     fetchPrices();
     const interval = setInterval(fetchPrices, 15000);
     return () => clearInterval(interval);
@@ -61,7 +65,7 @@ export function useLivePrices(markets: MarketWithPrices[]) {
     [prices]
   );
 
-  return { prices, getPrice };
+  return { prices, getPrice, ready };
 }
 
 /**

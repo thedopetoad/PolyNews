@@ -48,7 +48,7 @@ export default function AIConsensusPage() {
   const countdown = useCountdown();
 
   const topMarkets = useMemo(() => events ? getTopConsensusMarkets(events as PolymarketEvent[]) : [], [events]);
-  const { getPrice } = useLivePrices(topMarkets);
+  const { getPrice, ready: pricesReady } = useLivePrices(topMarkets);
 
   useEffect(() => {
     if (topMarkets.length === 0 || results.length > 0 || running) return;
@@ -98,8 +98,8 @@ export default function AIConsensusPage() {
       </div>
 
       {/* Results */}
-      {isLoading ? (
-        <p className="text-sm text-[#484f58] text-center py-16 relative z-10">Loading markets...</p>
+      {isLoading || !pricesReady ? (
+        <p className="text-sm text-[#484f58] text-center py-16 relative z-10">Loading live prices...</p>
       ) : (
         <div className="rounded-lg border border-[#21262d] bg-[#161b22] overflow-hidden relative z-10">
           <div className="hidden sm:grid grid-cols-12 gap-2 px-4 py-2.5 border-b border-[#21262d] text-[10px] text-[#484f58] uppercase tracking-wider">

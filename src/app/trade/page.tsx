@@ -577,7 +577,7 @@ function TradableMarketsTab({ allMarkets, events, onBought }: {
 
   // Get the 10 AI consensus markets
   const consensusMarkets = useMemo(() => getTopConsensusMarkets(events), [events]);
-  const { getPrice } = useLivePrices(consensusMarkets);
+  const { getPrice, ready: pricesReady } = useLivePrices(consensusMarkets);
 
   // Fetch consensus results for the AI markets
   useEffect(() => {
@@ -690,8 +690,8 @@ function TradableMarketsTab({ allMarkets, events, onBought }: {
           <h3 className="text-sm font-semibold text-white">AI Swarm Consensus Markets</h3>
           <span className="text-[10px] text-[#484f58]">{consensusMarkets.length} markets</span>
         </div>
-        {consensusMarkets.length === 0 ? (
-          <p className="text-sm text-[#484f58] text-center py-8">Loading markets...</p>
+        {consensusMarkets.length === 0 || !pricesReady ? (
+          <p className="text-sm text-[#484f58] text-center py-8">Loading live prices...</p>
         ) : (
           consensusMarkets.map((m) => renderMarketRow(m, "AI Pick", consensusResults[m.id]))
         )}
