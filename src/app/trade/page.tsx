@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useEffect } from "react";
+import { useMemo, useState, useEffect, useRef, useCallback } from "react";
 
 function DailyCountdown() {
   const [timeLeft, setTimeLeft] = useState("");
@@ -477,11 +477,20 @@ function PortfolioBar({ onPositionClick }: { onPositionClick?: (marketId: string
 }
 
 /* ─── Main Page ─── */
+const PAGE_SIZE = 30;
+
 export default function TradePage() {
   const { data: events, isLoading } = usePolymarketEvents({ limit: "40" });
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState<MarketCategory>("politics");
   const [selectedMarket, setSelectedMarket] = useState<MarketWithPrices | null>(null);
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+  const loaderRef = useRef<HTMLDivElement>(null);
+
+  // Reset visible count when filters change
+  useEffect(() => {
+    setVisibleCount(PAGE_SIZE);
+  }, [category, search]);
 
   const markets = useMemo(() => {
     if (!events) return [];
@@ -505,8 +514,26 @@ export default function TradePage() {
       all = all.filter((m) => m.question?.toLowerCase().includes(q));
     }
 
-    return all.sort((a, b) => parseFloat(b.volume || "0") - parseFloat(a.volume || "0")).slice(0, 40);
+    return all.sort((a, b) => parseFloat(b.volume || "0") - parseFloat(a.volume || "0"));
   }, [events, search, category]);
+
+  const visibleMarkets = markets.slice(0, visibleCount);
+  const hasMore = visibleCount < markets.length;
+
+  // Infinite scroll observer
+  const handleObserver = useCallback((entries: IntersectionObserverEntry[]) => {
+    if (entries[0].isIntersecting && hasMore) {
+      setVisibleCount((prev) => prev + PAGE_SIZE);
+    }
+  }, [hasMore]);
+
+  useEffect(() => {
+    const el = loaderRef.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(handleObserver, { threshold: 0.1 });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [handleObserver]);
 
   // ALL markets unfiltered (for position click lookup)
   const allMarkets = useMemo(() => {
@@ -577,7 +604,7 @@ export default function TradePage() {
         ) : markets.length === 0 ? (
           <p className="text-sm text-[#484f58] text-center py-16">No markets found</p>
         ) : (
-          markets.map((market) => (
+          visibleMarkets.map((market) => (
             <MarketRow
               key={market.id}
               market={market}
@@ -586,6 +613,19 @@ export default function TradePage() {
           ))
         )}
       </div>
+
+      {/* Infinite scroll trigger */}
+      {hasMore && !isLoading && (
+        <div ref={loaderRef} className="flex justify-center py-6">
+          <p className="text-xs text-[#484f58]">Loading more markets...</p>
+        </div>
+      )}
+
+      {!hasMore && markets.length > PAGE_SIZE && (
+        <p className="text-center text-xs text-[#484f58] py-4">
+          Showing all {markets.length} markets
+        </p>
+      )}
     </div>
   );
 }
