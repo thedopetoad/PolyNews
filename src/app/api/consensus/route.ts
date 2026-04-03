@@ -8,6 +8,9 @@ const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
  * OASIS-inspired 3-round debate. Optimized for Vercel's 60s timeout.
  * 5 personas × 3 rounds = 15 real API calls per market (all parallel per round).
  * Bootstrapped to 100,000 agents. ~$0.01/market.
+ *
+ * NEW: Web search context is fetched before debate using OpenAI's Responses API
+ * with web_search_preview tool, giving agents live internet context.
  */
 const PERSONAS = [
   { name: "Market Analyst", prompt: "You are a quantitative market analyst. Focus on data, volume, momentum." },
@@ -16,6 +19,33 @@ const PERSONAS = [
   { name: "Risk Assessor", prompt: "You are a risk specialist. Be conservative. Focus on what could go wrong." },
   { name: "Historian", prompt: "You are a historian. Focus on precedents and how similar situations played out." },
 ];
+
+/**
+ * Fetch live web context about a market question using OpenAI Responses API
+ * with built-in web search. Returns a concise summary of relevant findings.
+ */
+async function fetchWebContext(question: string): Promise<string> {
+  try {
+    const response = await openai.responses.create({
+      model: "gpt-4o-mini",
+      tools: [{ type: "web_search_preview" }],
+      input: `Search the web for the latest information relevant to this prediction market question: "${question}"\n\nProvide a concise factual summary (3-5 bullet points) of the most relevant recent news, data, polls, or developments. Focus on facts that would help predict the outcome. Include dates where possible. Do NOT give your own prediction.`,
+    });
+
+    // Extract the text output from the response
+    const textOutput = response.output.find((o) => o.type === "message");
+    if (textOutput && textOutput.type === "message") {
+      const textContent = textOutput.content.find((c) => c.type === "output_text");
+      if (textContent && textContent.type === "output_text") {
+        return textContent.text.slice(0, 800); // Cap context length
+      }
+    }
+    return "";
+  } catch (err) {
+    console.error("Web search failed, proceeding without context:", err);
+    return "";
+  }
+}
 
 async function callAgent(prompt: string, userMsg: string, temp: number) {
   try {
@@ -41,7 +71,14 @@ async function callAgent(prompt: string, userMsg: string, temp: number) {
 
 async function runSwarm(question: string, yesPrice: number) {
   const pct = (yesPrice * 100).toFixed(0);
-  const baseQ = `Market: "${question}"\nPrice: Yes ${pct}%\nPredict YES probability (0-100) + confidence (0-100). JSON only:\n{"probability":<0-100>,"confidence":<0-100>,"reasoning":"<1 sentence>"}`;
+
+  // Step 0: Fetch live web context
+  const webContext = await fetchWebContext(question);
+  const contextBlock = webContext
+    ? `\n\nLIVE WEB CONTEXT (from today's internet search):\n${webContext}\n`
+    : "";
+
+  const baseQ = `Market: "${question}"\nPrice: Yes ${pct}%${contextBlock}\nPredict YES probability (0-100) + confidence (0-100). JSON only:\n{"probability":<0-100>,"confidence":<0-100>,"reasoning":"<1 sentence>"}`;
 
   // Round 1: Independent (5 parallel calls)
   const r1Raw = await Promise.all(
@@ -93,6 +130,7 @@ async function runSwarm(question: string, yesPrice: number) {
     round1Avg: Math.round(r1Avg),
     round3Avg: Math.round(r3Avg),
     debateShift: Math.round(shift),
+    hasWebContext: webContext.length > 0,
   };
 }
 
