@@ -64,7 +64,7 @@ export async function GET(request: NextRequest) {
         try {
           const res = await fetch(`${POLYMARKET_GAMMA_API}/events?${tp.toString()}`, {
             headers: { Accept: "application/json" },
-            next: { revalidate: 60 },
+            next: { revalidate: 15 },
           });
           if (!res.ok) return [];
           return res.json();
@@ -76,7 +76,7 @@ export async function GET(request: NextRequest) {
       // Also fetch default (no tag) for trending/popular
       const defaultFetch = fetch(`${POLYMARKET_GAMMA_API}/events?${params.toString()}`, {
         headers: { Accept: "application/json" },
-        next: { revalidate: 60 },
+        next: { revalidate: 15 },
       }).then((r) => (r.ok ? r.json() : [])).catch(() => []);
 
       const [defaultEvents, ...tagResults] = await Promise.all([defaultFetch, ...tagFetches]);
@@ -100,7 +100,7 @@ export async function GET(request: NextRequest) {
         `${POLYMARKET_GAMMA_API}/events?${params.toString()}`,
         {
           headers: { Accept: "application/json" },
-          next: { revalidate: 60 },
+          next: { revalidate: 15 },
         }
       );
 
@@ -134,7 +134,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Collect markets needing CLOB price enrichment
-    const priceFetches: { event: EventData; market: MarketData; tokenId: string }[] = [];
+    const priceFetches: { event: EventData; market: MarketData; tokenId: string; volume: number }[] = [];
     for (const event of events as EventData[]) {
       if (!event.markets) continue;
       for (const market of event.markets) {
@@ -142,15 +142,18 @@ export async function GET(request: NextRequest) {
           try {
             const tokenIds = JSON.parse(market.clobTokenIds as string);
             if (tokenIds[0]) {
-              priceFetches.push({ event, market, tokenId: tokenIds[0] });
+              priceFetches.push({ event, market, tokenId: tokenIds[0], volume: parseFloat((market as Record<string, unknown>).volume as string || "0") });
             }
           } catch {}
         }
       }
     }
 
-    // Fetch CLOB prices in parallel — cap at 80 to avoid Vercel timeout
-    const cappedFetches = priceFetches.slice(0, 80);
+    // Sort by volume descending so the most important markets get CLOB prices first
+    priceFetches.sort((a, b) => b.volume - a.volume);
+
+    // Fetch CLOB prices in parallel — cap at 100 to avoid Vercel timeout
+    const cappedFetches = priceFetches.slice(0, 100);
     const BATCH_SIZE = 20;
     for (let i = 0; i < cappedFetches.length; i += BATCH_SIZE) {
       const batch = cappedFetches.slice(i, i + BATCH_SIZE);

@@ -29,8 +29,8 @@ export function usePolymarketEvents(params?: Record<string, string>) {
   return useQuery({
     queryKey: ["polymarket-events", params],
     queryFn: () => fetchEvents(params),
-    staleTime: 60_000,
-    refetchInterval: 60_000,
+    staleTime: 30_000,
+    refetchInterval: 30_000,
   });
 }
 
