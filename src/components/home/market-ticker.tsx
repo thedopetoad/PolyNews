@@ -34,7 +34,7 @@ function MarketCard({ market }: { market: MarketWithPrices }) {
 
 export function MarketTicker() {
   const { data: events, isLoading } = usePolymarketEvents();
-  const [activeCategory, setActiveCategory] = useState<MarketCategory>("all");
+  const [activeCategory, setActiveCategory] = useState<MarketCategory>("politics");
   const [showAll, setShowAll] = useState(false);
 
   const allMarkets = useMemo(() => {
@@ -70,7 +70,7 @@ export function MarketTicker() {
   return (
     <div className="space-y-3">
       <div className="flex gap-1.5 overflow-x-auto pb-1" style={{ scrollbarWidth: "none" }}>
-        {MARKET_CATEGORIES.map((cat) => (
+        {MARKET_CATEGORIES.filter((cat) => cat.key !== "all" && cat.key !== "trending").map((cat) => (
           <button
             key={cat.key}
             onClick={() => { setActiveCategory(cat.key); setShowAll(false); }}

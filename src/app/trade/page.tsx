@@ -478,7 +478,7 @@ function PortfolioBar({ onPositionClick }: { onPositionClick?: (marketId: string
 export default function TradePage() {
   const { data: events, isLoading } = usePolymarketEvents({ limit: "40" });
   const [search, setSearch] = useState("");
-  const [category, setCategory] = useState<MarketCategory>("all");
+  const [category, setCategory] = useState<MarketCategory>("politics");
   const [selectedMarket, setSelectedMarket] = useState<MarketWithPrices | null>(null);
 
   const markets = useMemo(() => {
@@ -545,7 +545,7 @@ export default function TradePage() {
       {/* Filters */}
       <div className="flex items-center gap-3 mt-6 mb-4">
         <div className="flex gap-1.5 overflow-x-auto flex-1" style={{ scrollbarWidth: "none" }}>
-          {MARKET_CATEGORIES.map((cat) => (
+          {MARKET_CATEGORIES.filter((cat) => cat.key !== "all" && cat.key !== "trending").map((cat) => (
             <button
               key={cat.key}
               onClick={() => setCategory(cat.key)}
