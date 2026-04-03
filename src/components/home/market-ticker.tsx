@@ -35,7 +35,6 @@ function MarketCard({ market }: { market: MarketWithPrices }) {
 export function MarketTicker() {
   const { data: events, isLoading } = usePolymarketEvents();
   const [activeCategory, setActiveCategory] = useState<MarketCategory>("politics");
-  const [showAll, setShowAll] = useState(false);
 
   const allMarkets = useMemo(() => {
     if (!events) return [];
@@ -55,17 +54,15 @@ export function MarketTicker() {
     }
 
     return markets
-      .sort((a, b) => parseFloat(b.volume || "0") - parseFloat(a.volume || "0"));
+      .sort((a, b) => parseFloat(b.volume || "0") - parseFloat(a.volume || "0"))
+      .slice(0, 20);
   }, [allMarkets, activeCategory]);
-
-  const tickerMarkets = filteredMarkets.slice(0, 20);
 
   if (isLoading) return <p className="text-sm text-[#484f58] text-center py-6">Loading markets...</p>;
   if (allMarkets.length === 0) return null;
 
-  // Use scrolling ticker if enough markets and not in grid mode
-  const useScroll = tickerMarkets.length > 4 && !showAll;
-  const tickerItems = useScroll ? [...tickerMarkets, ...tickerMarkets] : [];
+  const useScroll = filteredMarkets.length > 4;
+  const tickerItems = useScroll ? [...filteredMarkets, ...filteredMarkets] : filteredMarkets;
 
   return (
     <div className="space-y-3">
@@ -73,7 +70,7 @@ export function MarketTicker() {
         {MARKET_CATEGORIES.filter((cat) => cat.key !== "all" && cat.key !== "trending").map((cat) => (
           <button
             key={cat.key}
-            onClick={() => { setActiveCategory(cat.key); setShowAll(false); }}
+            onClick={() => setActiveCategory(cat.key)}
             className={cn(
               "px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-colors",
               activeCategory === cat.key
@@ -87,13 +84,7 @@ export function MarketTicker() {
       </div>
 
       {filteredMarkets.length > 0 ? (
-        showAll ? (
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-            {filteredMarkets.map((market) => (
-              <MarketCard key={market.id} market={market} />
-            ))}
-          </div>
-        ) : useScroll ? (
+        useScroll ? (
           <div className="overflow-hidden">
             <div
               className="flex gap-3 pl-4 animate-[ticker_80s_linear_infinite] hover:[animation-play-state:paused]"
@@ -106,24 +97,13 @@ export function MarketTicker() {
           </div>
         ) : (
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-            {tickerMarkets.map((market) => (
+            {filteredMarkets.map((market) => (
               <MarketCard key={market.id} market={market} />
             ))}
           </div>
         )
       ) : (
         <p className="text-sm text-[#484f58] text-center py-6">No markets in this category</p>
-      )}
-
-      {filteredMarkets.length > 0 && (
-        <div className="flex justify-start mt-2">
-          <button
-            onClick={() => setShowAll(!showAll)}
-            className="text-[11px] text-[#58a6ff] hover:underline"
-          >
-            {showAll ? "\u2190 Back to ticker" : "Browse all markets \u2192"}
-          </button>
-        </div>
       )}
     </div>
   );

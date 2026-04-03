@@ -49,10 +49,10 @@ const sections: DocSection[] = [
     content: (
       <div className="space-y-4">
         <p>
-          Imagine you have a really hard question, like &quot;Will it rain tomorrow?&quot; If you ask one person, they might guess wrong. But if you ask many very different experts &mdash; a weather scientist, a farmer, a pilot, a fisherman, and a data nerd &mdash; and combine their answers, you&apos;ll probably get a much better answer.
+          We select the <strong className="text-[#e6edf3]">top 10 prediction markets</strong> ending in 1&ndash;8 weeks, filtered by volume (&ge;$100K), category diversity (max 3 per category), and quality (no joke/meme markets). Then 100,000 AI agents debate each one.
         </p>
         <p>
-          The <a href="https://arxiv.org/abs/2411.11581" target="_blank" className="text-[#58a6ff] hover:underline">OASIS research paper</a> showed this works with up to <strong className="text-[#e6edf3]">1 million AI agents</strong> simulating social interactions to predict outcomes. MiroFish uses hundreds of thousands of agents with 23 different social behaviors (posting, commenting, following, arguing, etc.) to model how real humans would react to events.
+          The <a href="https://arxiv.org/abs/2411.11581" target="_blank" className="text-[#58a6ff] hover:underline">OASIS research paper</a> showed this works with up to <strong className="text-[#e6edf3]">1 million AI agents</strong> simulating social interactions to predict outcomes.
         </p>
         <h4 className="font-semibold text-[#e6edf3] mt-4">Our Implementation: 3-Round Debate System</h4>
         <p>We run a full inter-agent debate across 3 rounds, just like the OASIS model recommends:</p>
@@ -93,13 +93,18 @@ const sections: DocSection[] = [
     title: "Paper Trading",
     content: (
       <div className="space-y-3">
-        <p>Practice prediction market trading without risk. All markets mirror live Polymarket data.</p>
+        <p>Practice prediction market trading without risk using live Polymarket data.</p>
+        <h4 className="font-semibold text-[#e6edf3] mt-2">Two-Tab Design</h4>
         <ul className="list-disc pl-5 space-y-1.5">
-          <li>Browse markets and click Buy Yes or Buy No.</li>
-          <li>Enter shares, review cost, and confirm.</li>
-          <li>Track your positions and P&amp;L in the portfolio tab.</li>
+          <li><strong className="text-[#e6edf3]">Portfolio Tab</strong> &mdash; Shows your PST balance, daily claim, and all open positions with live P&amp;L calculated from current Polymarket odds.</li>
+          <li><strong className="text-[#e6edf3]">Tradable Markets Tab</strong> &mdash; 15 curated markets: 10 from AI Swarm Consensus picks + 5 top sports markets ending soon.</li>
         </ul>
-        <p>PST (PolyStream Tokens) are virtual and have no real value.</p>
+        <h4 className="font-semibold text-[#e6edf3] mt-2">How Trading Works</h4>
+        <ul className="list-disc pl-5 space-y-1.5">
+          <li><strong className="text-[#e6edf3]">Buy:</strong> Select a market, choose Yes or No, enter shares. You buy in at the current live Polymarket odds. Your buy-in price is stored in the database.</li>
+          <li><strong className="text-[#e6edf3]">Close:</strong> In the Portfolio tab, click Close on any position. The system checks the live Polymarket odds and calculates your P&amp;L based on the price change since your buy-in.</li>
+        </ul>
+        <p>PST (PolyStream Tokens) are virtual and have no real value. Prices update every 60 seconds from the Polymarket CLOB API.</p>
       </div>
     ),
   },

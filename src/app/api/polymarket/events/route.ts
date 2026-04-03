@@ -55,7 +55,7 @@ export async function GET(request: NextRequest) {
     if (!params.has("tag")) {
       const tags = ["politics", "sports", "crypto", "finance", "science", "pop-culture"];
       const tagParams = new URLSearchParams(params);
-      tagParams.set("limit", "3");
+      tagParams.set("limit", "5");
 
       const tagFetches = tags.map(async (tag) => {
         const tp = new URLSearchParams(tagParams);

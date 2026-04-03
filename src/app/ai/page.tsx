@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState } from "react";
 import { usePolymarketEvents } from "@/hooks/use-polymarket";
-import { parseMarketPrices, PolymarketEvent, MarketWithPrices, formatPercentage, formatVolume } from "@/types/polymarket";
+import { PolymarketEvent, MarketWithPrices, formatPercentage, formatVolume } from "@/types/polymarket";
+import { getTopConsensusMarkets } from "@/lib/market-filters";
 import { SwarmVisualization } from "@/components/ai/swarm-visualization";
 import { POLYMARKET_BASE_URL } from "@/lib/constants";
 import { cn } from "@/lib/utils";
@@ -40,21 +41,12 @@ interface MarketConsensus {
 }
 
 export default function AIConsensusPage() {
-  const { data: events, isLoading } = usePolymarketEvents({ limit: "30" });
+  const { data: events, isLoading } = usePolymarketEvents({ limit: "50" });
   const [results, setResults] = useState<MarketConsensus[]>([]);
   const [running, setRunning] = useState(false);
-  const [lastRun, setLastRun] = useState<string | null>(null);
   const countdown = useCountdown();
 
-  const topMarkets = (() => {
-    if (!events) return [];
-    return events.flatMap((e: PolymarketEvent) =>
-      (e.markets || []).map((m) => parseMarketPrices(m))
-    )
-      .filter((m) => m.yesPrice > 0.05 && m.yesPrice < 0.95)
-      .sort((a, b) => parseFloat(b.volume || "0") - parseFloat(a.volume || "0"))
-      .slice(0, 5);
-  })();
+  const topMarkets = events ? getTopConsensusMarkets(events as PolymarketEvent[]) : [];
 
   useEffect(() => {
     if (topMarkets.length === 0 || results.length > 0 || running) return;
@@ -78,18 +70,17 @@ export default function AIConsensusPage() {
       );
       setResults(fetched);
       setRunning(false);
-      setLastRun(new Date().toLocaleString());
     };
     run();
   }, [topMarkets.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
-    <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 pt-4 pb-4 relative z-10 min-h-screen">
+    <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 pt-4 pb-4 relative min-h-screen">
       <div className="flex items-start justify-between mb-6 relative z-10">
         <div>
           <h1 className="text-2xl font-bold text-white">AI Swarm Consensus</h1>
           <p className="mt-1 text-sm text-[#768390] max-w-xl">
-            A swarm of 100,000 AI agents debates each market across 3 rounds and reaches consensus.{" "}
+            Top 10 markets ending in 1-8 weeks, filtered by volume and category diversity. 100,000 AI agents debate each across 3 rounds.{" "}
             <Link href="/docs#ai-consensus" className="text-[#58a6ff] hover:underline">Learn how it works</Link>
           </p>
         </div>
@@ -116,9 +107,14 @@ export default function AIConsensusPage() {
             <div className="col-span-2 text-center">Diff</div>
           </div>
 
+          {results.length === 0 && !running && (
+            <p className="text-sm text-[#484f58] text-center py-12">No qualifying markets found</p>
+          )}
+
           {results.map((mc, idx) => {
             const diff = mc.result ? mc.result.consensus - mc.market.yesPrice * 100 : 0;
             const trendColor = diff > 3 ? "text-[#3fb950]" : diff < -3 ? "text-[#f85149]" : "text-[#484f58]";
+            const marketUrl = `${POLYMARKET_BASE_URL}/event/${mc.market.eventSlug || mc.market.slug}`;
 
             return (
               <div key={mc.market.id} className="border-b border-[#21262d] last:border-b-0">
@@ -126,14 +122,16 @@ export default function AIConsensusPage() {
                 <div className="hidden sm:grid grid-cols-12 gap-2 px-4 py-4 items-center">
                   <div className="col-span-5">
                     <a
-                      href={`${POLYMARKET_BASE_URL}/event/${mc.market.eventSlug || mc.market.slug}`}
+                      href={marketUrl}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="text-[13px] text-[#e6edf3] hover:text-[#58a6ff] font-medium leading-snug"
                     >
                       {idx + 1}. {mc.market.question}
                     </a>
-                    <p className="text-[10px] text-[#484f58] mt-0.5">{formatVolume(mc.market.volume)} vol</p>
+                    <p className="text-[10px] text-[#484f58] mt-0.5">
+                      {formatVolume(mc.market.volume)} vol &middot; Ends {new Date(mc.market.endDate).toLocaleDateString()}
+                    </p>
                   </div>
                   <div className="col-span-2 text-center">
                     <span className="text-lg font-bold text-[#e6edf3] tabular-nums">{formatPercentage(mc.market.yesPrice)}</span>
@@ -157,7 +155,12 @@ export default function AIConsensusPage() {
                 </div>
 
                 {/* Mobile */}
-                <div className="sm:hidden px-4 py-3">
+                <a
+                  href={marketUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="sm:hidden block px-4 py-3 hover:bg-[#1c2128] transition-colors"
+                >
                   <p className="text-[13px] text-[#e6edf3] font-medium">{idx + 1}. {mc.market.question}</p>
                   <div className="flex items-center gap-4 mt-2">
                     <div>
@@ -180,7 +183,7 @@ export default function AIConsensusPage() {
                       </span>
                     )}
                   </div>
-                </div>
+                </a>
               </div>
             );
           })}

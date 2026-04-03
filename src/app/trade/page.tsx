@@ -1,7 +1,23 @@
 "use client";
 
-import { useMemo, useState, useEffect, useRef, useCallback } from "react";
+import { useMemo, useState, useEffect } from "react";
+import { usePolymarketEvents } from "@/hooks/use-polymarket";
+import { useUser, DbPosition } from "@/hooks/use-user";
+import {
+  parseMarketPrices,
+  formatPercentage,
+  formatVolume,
+  PolymarketEvent,
+  MarketWithPrices,
+} from "@/types/polymarket";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { cn } from "@/lib/utils";
+import { AIRDROP_AMOUNTS, POLYMARKET_BASE_URL } from "@/lib/constants";
+import { LoginButton } from "@/components/layout/login-modal";
+import { getTopConsensusMarkets, getSportsMarketsEndingSoon } from "@/lib/market-filters";
 
+/* ─── Daily Countdown ─── */
 function DailyCountdown() {
   const [timeLeft, setTimeLeft] = useState("");
   useEffect(() => {
@@ -25,364 +41,28 @@ function DailyCountdown() {
     </span>
   );
 }
-import { usePolymarketEvents } from "@/hooks/use-polymarket";
-import { useUser } from "@/hooks/use-user";
-import {
-  parseMarketPrices,
-  formatPercentage,
-  formatVolume,
-  PolymarketEvent,
-  MarketWithPrices,
-} from "@/types/polymarket";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { cn } from "@/lib/utils";
-import { AIRDROP_AMOUNTS, MARKET_CATEGORIES, MarketCategory } from "@/lib/constants";
-import { LoginButton } from "@/components/layout/login-modal";
 
-/* ─── Market Detail View (Polymarket-style) ─── */
-function MarketDetail({
-  market,
-  onBack,
-}: {
-  market: MarketWithPrices;
-  onBack: () => void;
-}) {
-  const [tab, setTab] = useState<"buy" | "sell">("buy");
-  const [outcome, setOutcome] = useState<"Yes" | "No">("Yes");
-  const [amount, setAmount] = useState("");
-  const { user, isConnected, executeTrade, isTrading, positions } = useUser();
-  const [error, setError] = useState<string | null>(null);
-
-  const price = outcome === "Yes" ? market.yesPrice : market.noPrice;
-  const shares = parseFloat(amount) || 0;
-  const cost = shares * price;
-  const balance = user?.balance || 0;
-  const potentialReturn = shares;
-  const canTrade = isConnected && shares > 0 && (tab === "buy" ? cost <= balance : true);
-
-  const myPosition = positions.find(
-    (p) => p.marketId === market.id && p.outcome === outcome
-  );
-
-  const handleTrade = async () => {
-    if (!canTrade) return;
-    setError(null);
-    try {
-      await executeTrade({
-        marketId: market.id,
-        marketQuestion: market.question,
-        outcome,
-        side: tab,
-        shares,
-        price,
-      });
-      setAmount("");
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Trade failed");
-    }
-  };
-
-  return (
-    <div>
-      {/* Back button */}
-      <button
-        onClick={onBack}
-        className="text-[13px] text-[#768390] hover:text-white mb-4 flex items-center gap-1"
-      >
-        <span>&larr;</span> All markets
-      </button>
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        {/* Left: Market info */}
-        <div className="lg:col-span-2 space-y-4">
-          <div className="rounded-lg border border-[#21262d] bg-[#161b22] p-6">
-            <h2 className="text-lg font-semibold text-white leading-snug">
-              {market.question}
-            </h2>
-            {market.description && (
-              <p className="text-sm text-[#768390] mt-2 line-clamp-3">{market.description}</p>
-            )}
-            <div className="flex items-center gap-4 mt-4 text-sm">
-              <span className="text-[#3fb950] font-semibold">
-                Yes {formatPercentage(market.yesPrice)}
-              </span>
-              <span className="text-[#f85149] font-semibold">
-                No {formatPercentage(market.noPrice)}
-              </span>
-              <span className="text-[#484f58]">{formatVolume(market.volume)} Vol</span>
-              {market.endDate && (
-                <span className="text-[#484f58]">
-                  Ends {new Date(market.endDate).toLocaleDateString()}
-                </span>
-              )}
-            </div>
-          </div>
-
-          {/* Price visualization */}
-          <div className="rounded-lg border border-[#21262d] bg-[#161b22] p-4">
-            <p className="text-xs text-[#484f58] mb-3">Current odds</p>
-            <div className="flex items-center gap-2">
-              <div
-                className="h-8 bg-[#238636]/20 rounded-l-md flex items-center justify-center text-xs font-semibold text-[#3fb950]"
-                style={{ width: `${market.yesPrice * 100}%`, minWidth: 40 }}
-              >
-                Yes {formatPercentage(market.yesPrice)}
-              </div>
-              <div
-                className="h-8 bg-[#f85149]/15 rounded-r-md flex items-center justify-center text-xs font-semibold text-[#f85149]"
-                style={{ width: `${market.noPrice * 100}%`, minWidth: 40 }}
-              >
-                No {formatPercentage(market.noPrice)}
-              </div>
-            </div>
-          </div>
-
-          {/* My position */}
-          {myPosition && (
-            <div className="rounded-lg border border-[#21262d] bg-[#161b22] p-4">
-              <p className="text-xs text-[#484f58] mb-2">Your position</p>
-              <div className="flex items-center gap-3">
-                <span className={cn(
-                  "px-2 py-1 rounded text-xs font-medium",
-                  myPosition.outcome === "Yes" ? "bg-[#238636]/15 text-[#3fb950]" : "bg-[#f85149]/10 text-[#f85149]"
-                )}>
-                  {myPosition.outcome}
-                </span>
-                <span className="text-sm text-[#adbac7]">
-                  {myPosition.shares} shares @ {myPosition.avgPrice.toFixed(2)}
-                </span>
-                <span className="text-sm text-[#768390]">
-                  Value: {(myPosition.shares * myPosition.avgPrice).toFixed(0)} PST
-                </span>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Right: Trading panel */}
-        <div className="rounded-lg border border-[#21262d] bg-[#161b22] overflow-hidden">
-          {!isConnected ? (
-            <div className="p-8 text-center space-y-3">
-              <p className="text-sm text-[#768390]">Log in to trade</p>
-              <LoginButton />
-            </div>
-          ) : (
-            <>
-              {/* Buy/Sell tabs */}
-              <div className="flex border-b border-[#21262d]">
-                <button
-                  onClick={() => setTab("buy")}
-                  className={cn(
-                    "flex-1 py-3 text-sm font-medium text-center transition-colors",
-                    tab === "buy"
-                      ? "text-[#3fb950] border-b-2 border-[#3fb950]"
-                      : "text-[#768390] hover:text-[#adbac7]"
-                  )}
-                >
-                  Buy
-                </button>
-                <button
-                  onClick={() => setTab("sell")}
-                  className={cn(
-                    "flex-1 py-3 text-sm font-medium text-center transition-colors",
-                    tab === "sell"
-                      ? "text-[#f85149] border-b-2 border-[#f85149]"
-                      : "text-[#768390] hover:text-[#adbac7]"
-                  )}
-                >
-                  Sell
-                </button>
-              </div>
-
-              <div className="p-4 space-y-4">
-                {/* Outcome */}
-                <div>
-                  <p className="text-xs text-[#484f58] mb-2">Outcome</p>
-                  <div className="grid grid-cols-2 gap-2">
-                    <button
-                      onClick={() => setOutcome("Yes")}
-                      className={cn(
-                        "py-2.5 rounded-lg text-sm font-medium text-center border transition-all",
-                        outcome === "Yes"
-                          ? "bg-[#238636]/15 border-[#238636] text-[#3fb950]"
-                          : "bg-[#0d1117] border-[#21262d] text-[#768390]"
-                      )}
-                    >
-                      Yes {formatPercentage(market.yesPrice)}
-                    </button>
-                    <button
-                      onClick={() => setOutcome("No")}
-                      className={cn(
-                        "py-2.5 rounded-lg text-sm font-medium text-center border transition-all",
-                        outcome === "No"
-                          ? "bg-[#f85149]/10 border-[#f85149]/50 text-[#f85149]"
-                          : "bg-[#0d1117] border-[#21262d] text-[#768390]"
-                      )}
-                    >
-                      No {formatPercentage(market.noPrice)}
-                    </button>
-                  </div>
-                </div>
-
-                {/* Amount */}
-                <div>
-                  <div className="flex justify-between text-xs text-[#484f58] mb-1.5">
-                    <span>Shares</span>
-                    {tab === "buy" && (
-                      <button
-                        onClick={() => setAmount(String(Math.floor(balance / price)))}
-                        className="text-[#58a6ff] hover:underline"
-                      >
-                        Max
-                      </button>
-                    )}
-                    {tab === "sell" && myPosition && (
-                      <button
-                        onClick={() => setAmount(String(myPosition.shares))}
-                        className="text-[#58a6ff] hover:underline"
-                      >
-                        All ({myPosition.shares})
-                      </button>
-                    )}
-                  </div>
-                  <Input
-                    type="number"
-                    placeholder="0"
-                    value={amount}
-                    onChange={(e) => setAmount(e.target.value)}
-                    className="bg-[#0d1117] border-[#21262d] text-white text-base h-10"
-                  />
-                </div>
-
-                {/* Summary */}
-                {shares > 0 && (
-                  <div className="bg-[#0d1117] rounded-lg p-3 space-y-1.5 text-xs border border-[#21262d]">
-                    <div className="flex justify-between text-[#768390]">
-                      <span>Price per share</span>
-                      <span>{price.toFixed(2)} PST</span>
-                    </div>
-                    <div className="flex justify-between text-[#768390]">
-                      <span>{tab === "buy" ? "Total cost" : "Total proceeds"}</span>
-                      <span className="text-white font-medium">{cost.toFixed(2)} PST</span>
-                    </div>
-                    {tab === "buy" && (
-                      <>
-                        <div className="h-px bg-[#21262d]" />
-                        <div className="flex justify-between text-[#768390]">
-                          <span>Potential return</span>
-                          <span className="text-[#3fb950]">{potentialReturn.toFixed(2)} PST</span>
-                        </div>
-                        <div className="flex justify-between text-[#768390]">
-                          <span>Profit if correct</span>
-                          <span className="text-[#3fb950]">
-                            +{(potentialReturn - cost).toFixed(2)} ({((potentialReturn - cost) / cost * 100).toFixed(0)}%)
-                          </span>
-                        </div>
-                      </>
-                    )}
-                  </div>
-                )}
-
-                {error && <p className="text-xs text-[#f85149]">{error}</p>}
-
-                <Button
-                  onClick={handleTrade}
-                  disabled={!canTrade || isTrading}
-                  className={cn(
-                    "w-full h-10 font-medium",
-                    tab === "buy"
-                      ? "bg-[#238636] hover:bg-[#2ea043] text-white"
-                      : "bg-[#da3633] hover:bg-[#f85149] text-white"
-                  )}
-                >
-                  {isTrading
-                    ? "Processing..."
-                    : shares > 0
-                      ? `${tab === "buy" ? "Buy" : "Sell"} ${outcome} — ${cost.toFixed(2)} PST`
-                      : `${tab === "buy" ? "Buy" : "Sell"} ${outcome}`}
-                </Button>
-
-                {/* Balance */}
-                <div className="text-center text-[11px] text-[#484f58]">
-                  Balance: {balance.toLocaleString(undefined, { maximumFractionDigits: 0 })} PST
-                </div>
-              </div>
-            </>
-          )}
-        </div>
-      </div>
-    </div>
-  );
+/* ─── Consensus Result Type ─── */
+interface ConsensusResult {
+  consensus: number;
+  confidence: number;
+  trend: string;
 }
 
-/* ─── Market Row (Polymarket-style list item) ─── */
-function MarketRow({
-  market,
-  onClick,
-}: {
-  market: MarketWithPrices;
-  onClick: () => void;
-}) {
-  return (
-    <div
-      onClick={onClick}
-      className="flex items-center gap-4 px-4 py-3 hover:bg-[#1c2128] cursor-pointer transition-colors border-b border-[#21262d] last:border-b-0"
-    >
-      {/* Market icon */}
-      {market.image ? (
-        <img
-          src={market.image}
-          alt=""
-          className="w-8 h-8 rounded-full bg-[#21262d] flex-shrink-0 object-cover"
-        />
-      ) : (
-        <div className="w-8 h-8 rounded-full bg-[#21262d] flex-shrink-0" />
-      )}
-
-      {/* Question */}
-      <div className="flex-1 min-w-0">
-        <p className="text-[13px] text-[#e6edf3] font-medium truncate">
-          {market.question || market.groupItemTitle}
-        </p>
-        <p className="text-[11px] text-[#484f58] mt-0.5">{formatVolume(market.volume)} Vol</p>
-      </div>
-
-      {/* Price */}
-      <div className="text-right flex-shrink-0 w-16">
-        <p className="text-sm font-bold text-white tabular-nums">
-          {formatPercentage(market.yesPrice)}
-        </p>
-        <p className="text-[10px] text-[#484f58]">Yes</p>
-      </div>
-
-      {/* Yes/No buttons */}
-      <div className="flex gap-1.5 flex-shrink-0">
-        <button
-          onClick={(e) => { e.stopPropagation(); onClick(); }}
-          className="px-3 py-1.5 rounded text-xs font-semibold bg-[#238636]/15 text-[#3fb950] hover:bg-[#238636]/25 transition-colors"
-        >
-          Yes
-        </button>
-        <button
-          onClick={(e) => { e.stopPropagation(); onClick(); }}
-          className="px-3 py-1.5 rounded text-xs font-semibold bg-[#f85149]/10 text-[#f85149] hover:bg-[#f85149]/20 transition-colors"
-        >
-          No
-        </button>
-      </div>
-    </div>
-  );
-}
-
-/* ─── Portfolio Bar ─── */
-function PortfolioBar({ onPositionClick }: { onPositionClick?: (marketId: string, question: string) => void }) {
+/* ─── Portfolio Tab ─── */
+function PortfolioTab({ allMarkets, onSwitchTab }: { allMarkets: MarketWithPrices[]; onSwitchTab: () => void }) {
   const { user, positions, trades, isConnected, claimAirdrop, isClaimingAirdrop, executeTrade, isTrading } = useUser();
-  const [sellingId, setSellingId] = useState<string | null>(null);
   const [claimError, setClaimError] = useState<string | null>(null);
+  const [closingId, setClosingId] = useState<string | null>(null);
 
-  if (!isConnected || !user) return null;
+  if (!isConnected || !user) {
+    return (
+      <div className="rounded-lg border border-[#21262d] bg-[#161b22] p-12 text-center space-y-4">
+        <p className="text-[#768390]">Log in to start paper trading</p>
+        <LoginButton />
+      </div>
+    );
+  }
 
   const dailyClaimed = user.lastDailyAirdrop === new Date().toDateString();
 
@@ -391,12 +71,26 @@ function PortfolioBar({ onPositionClick }: { onPositionClick?: (marketId: string
     try {
       await claimAirdrop("daily");
     } catch (e: unknown) {
-      setClaimError(e instanceof Error ? e.message : "Claim failed");
+      if (e instanceof Error && e.message === "Already claimed today") {
+        setClaimError(null); // Will show countdown
+      } else {
+        setClaimError(e instanceof Error ? e.message : "Claim failed");
+      }
     }
   };
 
-  const handleQuickSell = async (pos: typeof positions[0]) => {
-    setSellingId(pos.id);
+  const getLivePrice = (pos: DbPosition): number | null => {
+    const market = allMarkets.find((m) => m.id === pos.marketId)
+      || allMarkets.find((m) => m.conditionId === pos.marketId)
+      || allMarkets.find((m) => m.question === pos.marketQuestion);
+    if (!market) return null;
+    return pos.outcome === "Yes" ? market.yesPrice : market.noPrice;
+  };
+
+  const handleClose = async (pos: DbPosition) => {
+    const livePrice = getLivePrice(pos);
+    if (livePrice === null) return;
+    setClosingId(pos.id);
     try {
       await executeTrade({
         marketId: pos.marketId,
@@ -404,72 +98,399 @@ function PortfolioBar({ onPositionClick }: { onPositionClick?: (marketId: string
         outcome: pos.outcome as "Yes" | "No",
         side: "sell",
         shares: pos.shares,
-        price: pos.avgPrice || 0.5,
+        price: livePrice,
       });
     } catch {}
-    setSellingId(null);
+    setClosingId(null);
   };
 
+  // Calculate total portfolio value
+  const positionValues = positions.map((pos) => {
+    const livePrice = getLivePrice(pos);
+    return livePrice !== null ? pos.shares * livePrice : pos.shares * pos.avgPrice;
+  });
+  const totalPortfolioValue = user.balance + positionValues.reduce((sum, v) => sum + v, 0);
+
   return (
-    <div className="rounded-lg border border-[#21262d] bg-[#161b22] p-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <p className="text-[10px] text-[#484f58] uppercase tracking-wider">Balance</p>
-          <p className="text-xl font-bold text-white tabular-nums">
-            {user.balance.toLocaleString(undefined, { maximumFractionDigits: 0 })}
-            <span className="text-xs font-normal text-[#484f58] ml-1">PST</span>
-          </p>
+    <div className="space-y-4">
+      {/* Balance Card */}
+      <div className="rounded-lg border border-[#21262d] bg-[#161b22] p-5">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-[10px] text-[#484f58] uppercase tracking-wider">Cash Balance</p>
+            <p className="text-2xl font-bold text-white tabular-nums">
+              {user.balance.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+              <span className="text-sm font-normal text-[#484f58] ml-1">PST</span>
+            </p>
+          </div>
+          <div className="text-right">
+            <p className="text-[10px] text-[#484f58] uppercase tracking-wider">Total Portfolio</p>
+            <p className="text-lg font-bold text-white tabular-nums">
+              {totalPortfolioValue.toLocaleString(undefined, { maximumFractionDigits: 0 })} PST
+            </p>
+          </div>
         </div>
-        <div className="text-right text-[11px] text-[#484f58]">
-          <p>{positions.length} positions &middot; {trades.length} trades</p>
-          <p className="font-mono">{user.referralCode}</p>
-        </div>
-      </div>
-      <div className="mt-3">
-        {dailyClaimed || claimError === "Already claimed today" ? (
-          <DailyCountdown />
-        ) : (
-          <>
+        <div className="mt-3 flex items-center gap-3">
+          {dailyClaimed || claimError === "Already claimed today" ? (
+            <DailyCountdown />
+          ) : (
             <button
               onClick={handleClaim}
               disabled={isClaimingAirdrop}
               className="px-3 py-1.5 rounded text-[11px] font-medium bg-[#238636] hover:bg-[#2ea043] text-white transition-colors"
             >
-              {isClaimingAirdrop ? "Claiming..." : "Claim 100 PST"}
+              {isClaimingAirdrop ? "Claiming..." : `Claim ${AIRDROP_AMOUNTS.daily} PST`}
             </button>
-            {claimError && <p className="text-[10px] text-[#f85149] mt-1">{claimError}</p>}
-          </>
+          )}
+          {claimError && claimError !== "Already claimed today" && (
+            <span className="text-[10px] text-[#f85149]">{claimError}</span>
+          )}
+          <span className="text-[11px] text-[#484f58] ml-auto">{positions.length} positions &middot; {trades.length} trades</span>
+        </div>
+      </div>
+
+      {/* Open Positions */}
+      <div className="rounded-lg border border-[#21262d] bg-[#161b22] overflow-hidden">
+        <div className="px-4 py-2.5 border-b border-[#21262d]">
+          <h3 className="text-sm font-semibold text-white">Open Positions</h3>
+        </div>
+
+        {positions.length === 0 ? (
+          <div className="px-4 py-12 text-center">
+            <p className="text-sm text-[#484f58]">No open positions</p>
+            <button onClick={onSwitchTab} className="text-xs text-[#58a6ff] hover:underline mt-2">
+              Browse tradable markets
+            </button>
+          </div>
+        ) : (
+          <div className="divide-y divide-[#21262d]">
+            {/* Header */}
+            <div className="hidden sm:grid grid-cols-12 gap-2 px-4 py-2 text-[10px] text-[#484f58] uppercase tracking-wider">
+              <div className="col-span-4">Market</div>
+              <div className="col-span-1 text-center">Side</div>
+              <div className="col-span-1 text-center">Shares</div>
+              <div className="col-span-2 text-center">Buy-in</div>
+              <div className="col-span-2 text-center">Live / P&L</div>
+              <div className="col-span-2 text-center">Action</div>
+            </div>
+
+            {positions.map((pos) => {
+              const livePrice = getLivePrice(pos);
+              const pnl = livePrice !== null ? (livePrice - pos.avgPrice) * pos.shares : null;
+              const pnlPct = livePrice !== null && pos.avgPrice > 0 ? ((livePrice - pos.avgPrice) / pos.avgPrice) * 100 : null;
+
+              return (
+                <div key={pos.id}>
+                  {/* Desktop */}
+                  <div className="hidden sm:grid grid-cols-12 gap-2 px-4 py-3 items-center">
+                    <div className="col-span-4">
+                      <p className="text-[13px] text-[#e6edf3] font-medium truncate">{pos.marketQuestion}</p>
+                    </div>
+                    <div className="col-span-1 text-center">
+                      <span className={cn(
+                        "text-[11px] font-semibold px-2 py-0.5 rounded",
+                        pos.outcome === "Yes" ? "bg-[#238636]/15 text-[#3fb950]" : "bg-[#f85149]/10 text-[#f85149]"
+                      )}>
+                        {pos.outcome}
+                      </span>
+                    </div>
+                    <div className="col-span-1 text-center text-sm text-[#adbac7] tabular-nums">{pos.shares}</div>
+                    <div className="col-span-2 text-center text-sm text-[#adbac7] tabular-nums">{(pos.avgPrice * 100).toFixed(0)}%</div>
+                    <div className="col-span-2 text-center">
+                      {livePrice !== null ? (
+                        <div>
+                          <p className="text-sm text-[#e6edf3] tabular-nums">{(livePrice * 100).toFixed(0)}%</p>
+                          <p className={cn("text-[11px] font-semibold tabular-nums", pnl! >= 0 ? "text-[#3fb950]" : "text-[#f85149]")}>
+                            {pnl! >= 0 ? "+" : ""}{pnl!.toFixed(0)} PST ({pnlPct! >= 0 ? "+" : ""}{pnlPct!.toFixed(0)}%)
+                          </p>
+                        </div>
+                      ) : (
+                        <span className="text-[11px] text-[#484f58]">Price unavailable</span>
+                      )}
+                    </div>
+                    <div className="col-span-2 text-center">
+                      <button
+                        onClick={() => handleClose(pos)}
+                        disabled={(isTrading && closingId === pos.id) || livePrice === null}
+                        className="px-3 py-1.5 rounded text-[11px] font-medium bg-[#f85149]/10 text-[#f85149] hover:bg-[#f85149]/20 transition-colors disabled:opacity-50"
+                      >
+                        {isTrading && closingId === pos.id ? "Closing..." : "Close"}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Mobile */}
+                  <div className="sm:hidden px-4 py-3 space-y-2">
+                    <p className="text-[13px] text-[#e6edf3] font-medium">{pos.marketQuestion}</p>
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <span className={cn(
+                          "text-[11px] font-semibold px-2 py-0.5 rounded",
+                          pos.outcome === "Yes" ? "bg-[#238636]/15 text-[#3fb950]" : "bg-[#f85149]/10 text-[#f85149]"
+                        )}>
+                          {pos.outcome}
+                        </span>
+                        <span className="text-xs text-[#adbac7]">{pos.shares} @ {(pos.avgPrice * 100).toFixed(0)}%</span>
+                        {pnl !== null && (
+                          <span className={cn("text-xs font-semibold", pnl >= 0 ? "text-[#3fb950]" : "text-[#f85149]")}>
+                            {pnl >= 0 ? "+" : ""}{pnl.toFixed(0)} PST
+                          </span>
+                        )}
+                      </div>
+                      <button
+                        onClick={() => handleClose(pos)}
+                        disabled={(isTrading && closingId === pos.id) || livePrice === null}
+                        className="px-3 py-1.5 rounded text-[11px] font-medium bg-[#f85149]/10 text-[#f85149] hover:bg-[#f85149]/20 transition-colors disabled:opacity-50"
+                      >
+                        {isTrading && closingId === pos.id ? "..." : "Close"}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ─── Tradable Markets Tab ─── */
+function TradableMarketsTab({ allMarkets, events, onBought }: {
+  allMarkets: MarketWithPrices[];
+  events: PolymarketEvent[];
+  onBought: () => void;
+}) {
+  const { user, isConnected, executeTrade, isTrading } = useUser();
+  const [selectedMarket, setSelectedMarket] = useState<MarketWithPrices | null>(null);
+  const [outcome, setOutcome] = useState<"Yes" | "No">("Yes");
+  const [amount, setAmount] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [consensusResults, setConsensusResults] = useState<Record<string, ConsensusResult>>({});
+
+  // Get the 10 AI consensus markets + 5 sports markets
+  const consensusMarkets = useMemo(() => getTopConsensusMarkets(events), [events]);
+  const sportsMarkets = useMemo(() => getSportsMarketsEndingSoon(events), [events]);
+
+  // Fetch consensus results for the AI markets
+  useEffect(() => {
+    if (consensusMarkets.length === 0) return;
+    consensusMarkets.forEach(async (market) => {
+      if (consensusResults[market.id]) return;
+      try {
+        const res = await fetch("/api/consensus", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ marketQuestion: market.question, currentYesPrice: market.yesPrice }),
+        });
+        if (res.ok) {
+          const result = await res.json();
+          setConsensusResults((prev) => ({ ...prev, [market.id]: result }));
+        }
+      } catch {}
+    });
+  }, [consensusMarkets.length]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const price = selectedMarket ? (outcome === "Yes" ? selectedMarket.yesPrice : selectedMarket.noPrice) : 0;
+  const shares = parseFloat(amount) || 0;
+  const cost = shares * price;
+  const balance = user?.balance || 0;
+  const canTrade = isConnected && shares > 0 && cost <= balance;
+
+  const handleBuy = async () => {
+    if (!selectedMarket || !canTrade) return;
+    setError(null);
+    try {
+      await executeTrade({
+        marketId: selectedMarket.id,
+        marketQuestion: selectedMarket.question,
+        outcome,
+        side: "buy",
+        shares,
+        price,
+      });
+      setSelectedMarket(null);
+      setAmount("");
+      onBought();
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Trade failed");
+    }
+  };
+
+  const renderMarketRow = (market: MarketWithPrices, label: string, consensus?: ConsensusResult) => (
+    <div
+      key={market.id}
+      className={cn(
+        "flex items-center gap-3 px-4 py-3 border-b border-[#21262d] last:border-b-0 transition-colors",
+        selectedMarket?.id === market.id ? "bg-[#1c2128]" : "hover:bg-[#1c2128]/50"
+      )}
+    >
+      {/* Market info */}
+      <div className="flex-1 min-w-0">
+        <a
+          href={`${POLYMARKET_BASE_URL}/event/${market.eventSlug || market.slug}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-[13px] text-[#e6edf3] hover:text-[#58a6ff] font-medium leading-snug line-clamp-1"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {market.question}
+        </a>
+        <div className="flex items-center gap-2 mt-0.5">
+          <span className="text-[10px] text-[#484f58]">{formatVolume(market.volume)}</span>
+          <span className="text-[10px] text-[#484f58]">{label}</span>
+          {consensus && (
+            <span className="text-[10px] text-[#58a6ff]">AI: {consensus.consensus.toFixed(0)}%</span>
+          )}
+        </div>
+      </div>
+
+      {/* Live odds */}
+      <div className="flex gap-2 flex-shrink-0">
+        <span className="text-xs font-semibold text-[#3fb950] tabular-nums">Yes {formatPercentage(market.yesPrice)}</span>
+        <span className="text-xs font-semibold text-[#f85149] tabular-nums">No {formatPercentage(market.noPrice)}</span>
+      </div>
+
+      {/* Trade button */}
+      <button
+        onClick={() => { setSelectedMarket(selectedMarket?.id === market.id ? null : market); setOutcome("Yes"); setAmount(""); setError(null); }}
+        className={cn(
+          "flex-shrink-0 px-3 py-1.5 rounded text-[11px] font-medium transition-colors",
+          selectedMarket?.id === market.id
+            ? "bg-[#21262d] text-[#768390]"
+            : "bg-[#238636]/15 text-[#3fb950] hover:bg-[#238636]/25"
+        )}
+      >
+        {selectedMarket?.id === market.id ? "Cancel" : "Trade"}
+      </button>
+    </div>
+  );
+
+  return (
+    <div className="space-y-4">
+      {/* AI Consensus Markets */}
+      <div className="rounded-lg border border-[#21262d] bg-[#161b22] overflow-hidden">
+        <div className="px-4 py-2.5 border-b border-[#21262d] flex items-center justify-between">
+          <h3 className="text-sm font-semibold text-white">AI Swarm Consensus Markets</h3>
+          <span className="text-[10px] text-[#484f58]">{consensusMarkets.length} markets</span>
+        </div>
+        {consensusMarkets.length === 0 ? (
+          <p className="text-sm text-[#484f58] text-center py-8">Loading markets...</p>
+        ) : (
+          consensusMarkets.map((m) => renderMarketRow(m, "AI Pick", consensusResults[m.id]))
         )}
       </div>
 
-      {/* Positions with sell buttons */}
-      {positions.length > 0 && (
-        <div className="mt-3 pt-3 border-t border-[#21262d]">
-          <p className="text-[10px] text-[#484f58] uppercase tracking-wider mb-2">Open Positions</p>
-          {positions.map((pos) => (
-            <div
-              key={pos.id}
-              className="flex items-center justify-between py-2 text-[12px] border-b border-[#21262d] last:border-b-0 cursor-pointer hover:bg-[#1c2128] -mx-4 px-4 transition-colors"
-              onClick={() => onPositionClick?.(pos.marketId, pos.marketQuestion)}
-            >
-              <div className="flex-1 min-w-0 mr-2">
-                <span className="text-[#adbac7] truncate block hover:text-[#58a6ff]">{pos.marketQuestion}</span>
-                <span className={cn(
-                  "text-[11px] font-medium",
-                  pos.outcome === "Yes" ? "text-[#3fb950]" : "text-[#f85149]"
-                )}>
-                  {pos.shares} {pos.outcome} @ {pos.avgPrice.toFixed(2)}
-                </span>
-              </div>
-              <button
-                onClick={() => handleQuickSell(pos)}
-                disabled={isTrading && sellingId === pos.id}
-                className="flex-shrink-0 px-2.5 py-1 rounded text-[10px] font-medium bg-[#f85149]/10 text-[#f85149] hover:bg-[#f85149]/20 transition-colors"
-              >
-                {isTrading && sellingId === pos.id ? "..." : "Close"}
-              </button>
+      {/* Sports Markets */}
+      <div className="rounded-lg border border-[#21262d] bg-[#161b22] overflow-hidden">
+        <div className="px-4 py-2.5 border-b border-[#21262d] flex items-center justify-between">
+          <h3 className="text-sm font-semibold text-white">Sports Markets</h3>
+          <span className="text-[10px] text-[#484f58]">{sportsMarkets.length} markets</span>
+        </div>
+        {sportsMarkets.length === 0 ? (
+          <p className="text-sm text-[#484f58] text-center py-8">No sports markets available</p>
+        ) : (
+          sportsMarkets.map((m) => renderMarketRow(m, "Sports"))
+        )}
+      </div>
+
+      {/* Inline Buy Panel */}
+      {selectedMarket && (
+        <div className="rounded-lg border border-[#30363d] bg-[#161b22] p-5 sticky bottom-4 shadow-2xl">
+          <div className="flex items-start justify-between mb-3">
+            <div>
+              <p className="text-sm font-semibold text-white">{selectedMarket.question}</p>
+              <p className="text-[11px] text-[#484f58] mt-0.5">Buy at live Polymarket odds</p>
             </div>
-          ))}
+            <button onClick={() => setSelectedMarket(null)} className="text-[#484f58] hover:text-white text-lg leading-none">&times;</button>
+          </div>
+
+          {!isConnected ? (
+            <div className="text-center py-4 space-y-2">
+              <p className="text-sm text-[#768390]">Log in to trade</p>
+              <LoginButton />
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {/* Outcome */}
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  onClick={() => setOutcome("Yes")}
+                  className={cn(
+                    "py-2.5 rounded-lg text-sm font-medium text-center border transition-all",
+                    outcome === "Yes"
+                      ? "bg-[#238636]/15 border-[#238636] text-[#3fb950]"
+                      : "bg-[#0d1117] border-[#21262d] text-[#768390]"
+                  )}
+                >
+                  Yes {formatPercentage(selectedMarket.yesPrice)}
+                </button>
+                <button
+                  onClick={() => setOutcome("No")}
+                  className={cn(
+                    "py-2.5 rounded-lg text-sm font-medium text-center border transition-all",
+                    outcome === "No"
+                      ? "bg-[#f85149]/10 border-[#f85149]/50 text-[#f85149]"
+                      : "bg-[#0d1117] border-[#21262d] text-[#768390]"
+                  )}
+                >
+                  No {formatPercentage(selectedMarket.noPrice)}
+                </button>
+              </div>
+
+              {/* Shares */}
+              <div>
+                <div className="flex justify-between text-xs text-[#484f58] mb-1.5">
+                  <span>Shares</span>
+                  <button
+                    onClick={() => setAmount(String(Math.floor(balance / price)))}
+                    className="text-[#58a6ff] hover:underline"
+                  >
+                    Max
+                  </button>
+                </div>
+                <Input
+                  type="number"
+                  placeholder="0"
+                  value={amount}
+                  onChange={(e) => setAmount(e.target.value)}
+                  className="bg-[#0d1117] border-[#21262d] text-white text-base h-10"
+                />
+              </div>
+
+              {/* Summary */}
+              {shares > 0 && (
+                <div className="bg-[#0d1117] rounded-lg p-3 space-y-1.5 text-xs border border-[#21262d]">
+                  <div className="flex justify-between text-[#768390]">
+                    <span>Price per share</span>
+                    <span>{(price * 100).toFixed(0)}% ({price.toFixed(3)} PST)</span>
+                  </div>
+                  <div className="flex justify-between text-[#768390]">
+                    <span>Total cost</span>
+                    <span className="text-white font-medium">{cost.toFixed(2)} PST</span>
+                  </div>
+                  <div className="h-px bg-[#21262d]" />
+                  <div className="flex justify-between text-[#768390]">
+                    <span>Potential return (if correct)</span>
+                    <span className="text-[#3fb950]">{shares.toFixed(0)} PST (+{(shares - cost).toFixed(0)})</span>
+                  </div>
+                </div>
+              )}
+
+              {error && <p className="text-xs text-[#f85149]">{error}</p>}
+
+              <Button
+                onClick={handleBuy}
+                disabled={!canTrade || isTrading}
+                className="w-full h-10 font-medium bg-[#238636] hover:bg-[#2ea043] text-white"
+              >
+                {isTrading ? "Processing..." : shares > 0 ? `Buy ${outcome} — ${cost.toFixed(2)} PST` : `Buy ${outcome}`}
+              </Button>
+
+              <p className="text-center text-[11px] text-[#484f58]">Balance: {balance.toLocaleString(undefined, { maximumFractionDigits: 0 })} PST</p>
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -477,154 +498,63 @@ function PortfolioBar({ onPositionClick }: { onPositionClick?: (marketId: string
 }
 
 /* ─── Main Page ─── */
-const PAGE_SIZE = 30;
-
 export default function TradePage() {
-  const { data: events, isLoading } = usePolymarketEvents({ limit: "40" });
-  const [search, setSearch] = useState("");
-  const [category, setCategory] = useState<MarketCategory>("politics");
-  const [selectedMarket, setSelectedMarket] = useState<MarketWithPrices | null>(null);
-  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
-  const loaderRef = useRef<HTMLDivElement>(null);
+  const { data: events, isLoading } = usePolymarketEvents({ limit: "50" });
+  const [tab, setTab] = useState<"portfolio" | "markets">("portfolio");
 
-  // Reset visible count when filters change
-  useEffect(() => {
-    setVisibleCount(PAGE_SIZE);
-  }, [category, search]);
-
-  const markets = useMemo(() => {
-    if (!events) return [];
-    let all = events.flatMap((e: PolymarketEvent) =>
-      (e.markets || []).map((m) => parseMarketPrices(m))
-    );
-
-    // Hide resolved
-    all = all.filter((m) => m.yesPrice > 0.01 && m.yesPrice < 0.99);
-
-    // Category filter
-    if (category !== "all" && category !== "trending") {
-      const catLabel = MARKET_CATEGORIES.find((c) => c.key === category)?.label;
-      if (catLabel) {
-        all = all.filter((m) => m.category === catLabel);
-      }
-    }
-
-    if (search) {
-      const q = search.toLowerCase();
-      all = all.filter((m) => m.question?.toLowerCase().includes(q));
-    }
-
-    return all.sort((a, b) => parseFloat(b.volume || "0") - parseFloat(a.volume || "0"));
-  }, [events, search, category]);
-
-  const visibleMarkets = markets.slice(0, visibleCount);
-  const hasMore = visibleCount < markets.length;
-
-  // Infinite scroll observer
-  const handleObserver = useCallback((entries: IntersectionObserverEntry[]) => {
-    if (entries[0].isIntersecting && hasMore) {
-      setVisibleCount((prev) => prev + PAGE_SIZE);
-    }
-  }, [hasMore]);
-
-  useEffect(() => {
-    const el = loaderRef.current;
-    if (!el) return;
-    const observer = new IntersectionObserver(handleObserver, { threshold: 0.1 });
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [handleObserver]);
-
-  // ALL markets unfiltered (for position click lookup)
   const allMarkets = useMemo(() => {
     if (!events) return [];
-    return events.flatMap((e: PolymarketEvent) =>
+    return (events as PolymarketEvent[]).flatMap((e) =>
       (e.markets || []).map((m) => parseMarketPrices(m))
     ).filter((m) => m.yesPrice > 0.01 && m.yesPrice < 0.99);
   }, [events]);
 
-  // Detail view
-  if (selectedMarket) {
-    return (
-      <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <MarketDetail market={selectedMarket} onBack={() => setSelectedMarket(null)} />
-      </div>
-    );
-  }
-
-  // List view
   return (
     <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold text-white">Paper Trade</h1>
-          <p className="text-sm text-[#768390] mt-0.5">Practice on real Polymarket data</p>
+          <p className="text-sm text-[#768390] mt-0.5">Practice with live Polymarket data</p>
         </div>
         <LoginButton />
       </div>
 
-      <PortfolioBar onPositionClick={(marketId, question) => {
-        const market = allMarkets.find((m) => m.id === marketId)
-          || allMarkets.find((m) => m.conditionId === marketId)
-          || allMarkets.find((m) => m.question === question)
-          || markets.find((m) => m.id === marketId);
-        if (market) setSelectedMarket(market);
-      }} />
+      {/* Tabs */}
+      <div className="flex border-b border-[#21262d] mb-6">
+        <button
+          onClick={() => setTab("portfolio")}
+          className={cn(
+            "px-4 py-2.5 text-sm font-medium transition-colors",
+            tab === "portfolio"
+              ? "text-white border-b-2 border-[#58a6ff]"
+              : "text-[#768390] hover:text-[#adbac7]"
+          )}
+        >
+          Portfolio
+        </button>
+        <button
+          onClick={() => setTab("markets")}
+          className={cn(
+            "px-4 py-2.5 text-sm font-medium transition-colors",
+            tab === "markets"
+              ? "text-white border-b-2 border-[#58a6ff]"
+              : "text-[#768390] hover:text-[#adbac7]"
+          )}
+        >
+          Tradable Markets
+        </button>
+      </div>
 
-      {/* Filters */}
-      <div className="flex items-center gap-3 mt-6 mb-4">
-        <div className="flex gap-1.5 overflow-x-auto flex-1" style={{ scrollbarWidth: "none" }}>
-          {MARKET_CATEGORIES.filter((cat) => cat.key !== "all" && cat.key !== "trending").map((cat) => (
-            <button
-              key={cat.key}
-              onClick={() => setCategory(cat.key)}
-              className={cn(
-                "px-2.5 py-1 rounded-full text-[11px] font-medium whitespace-nowrap transition-colors",
-                category === cat.key
-                  ? "bg-[#58a6ff] text-white"
-                  : "text-[#768390] hover:text-[#adbac7]"
-              )}
-            >
-              {cat.label}
-            </button>
-          ))}
-        </div>
-        <Input
-          placeholder="Search..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="h-8 text-xs bg-[#0d1117] border-[#21262d] text-[#e6edf3] placeholder:text-[#484f58] w-48"
+      {isLoading ? (
+        <p className="text-sm text-[#484f58] text-center py-16">Loading markets...</p>
+      ) : tab === "portfolio" ? (
+        <PortfolioTab allMarkets={allMarkets} onSwitchTab={() => setTab("markets")} />
+      ) : (
+        <TradableMarketsTab
+          allMarkets={allMarkets}
+          events={(events || []) as PolymarketEvent[]}
+          onBought={() => setTab("portfolio")}
         />
-      </div>
-
-      {/* Market list */}
-      <div className="rounded-lg border border-[#21262d] bg-[#161b22] overflow-hidden">
-        {isLoading ? (
-          <p className="text-sm text-[#484f58] text-center py-16">Loading markets...</p>
-        ) : markets.length === 0 ? (
-          <p className="text-sm text-[#484f58] text-center py-16">No markets found</p>
-        ) : (
-          visibleMarkets.map((market) => (
-            <MarketRow
-              key={market.id}
-              market={market}
-              onClick={() => setSelectedMarket(market)}
-            />
-          ))
-        )}
-      </div>
-
-      {/* Infinite scroll trigger */}
-      {hasMore && !isLoading && (
-        <div ref={loaderRef} className="flex justify-center py-6">
-          <p className="text-xs text-[#484f58]">Loading more markets...</p>
-        </div>
-      )}
-
-      {!hasMore && markets.length > PAGE_SIZE && (
-        <p className="text-center text-xs text-[#484f58] py-4">
-          Showing all {markets.length} markets
-        </p>
       )}
     </div>
   );
