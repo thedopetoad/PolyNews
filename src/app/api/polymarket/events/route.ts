@@ -54,9 +54,9 @@ export async function GET(request: NextRequest) {
 
     // If no tag specified, fetch from multiple tags for diversity
     if (!params.has("tag")) {
-      const tags = ["politics", "sports", "crypto", "finance", "science", "pop-culture"];
+      const tags = ["politics", "sports", "crypto", "finance", "science", "pop-culture", "us-economics", "world", "entertainment"];
       const tagParams = new URLSearchParams(params);
-      tagParams.set("limit", "5");
+      tagParams.set("limit", "8");
 
       const tagFetches = tags.map(async (tag) => {
         const tp = new URLSearchParams(tagParams);
