@@ -669,19 +669,6 @@ function TradableMarketsTab({ allMarkets, events, onBought }: {
         )}
       </div>
 
-      {/* Sports Markets */}
-      <div className="rounded-lg border border-[#21262d] bg-[#161b22] overflow-hidden">
-        <div className="px-4 py-2.5 border-b border-[#21262d] flex items-center justify-between">
-          <h3 className="text-sm font-semibold text-white">Sports Markets</h3>
-          <span className="text-[10px] text-[#484f58]">{sportsMarkets.length} markets</span>
-        </div>
-        {sportsMarkets.length === 0 ? (
-          <p className="text-sm text-[#484f58] text-center py-8">No sports markets available</p>
-        ) : (
-          sportsMarkets.map((m) => renderMarketRow(m, "Sports"))
-        )}
-      </div>
-
       {/* Inline Buy Panel */}
       {selectedMarket && (
         <div className="rounded-lg border border-[#30363d] bg-[#161b22] p-5 sticky bottom-4 shadow-2xl">
