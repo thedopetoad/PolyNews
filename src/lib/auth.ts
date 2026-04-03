@@ -71,8 +71,8 @@ export function validateTradeParams(params: {
   if (side !== "buy" && side !== "sell") {
     return "Side must be 'buy' or 'sell'";
   }
-  if (outcome !== "Yes" && outcome !== "No") {
-    return "Outcome must be 'Yes' or 'No'";
+  if (outcome !== "Yes" && outcome !== "No" && outcome !== "Up" && outcome !== "Down") {
+    return "Outcome must be 'Yes', 'No', 'Up', or 'Down'";
   }
   return null;
 }

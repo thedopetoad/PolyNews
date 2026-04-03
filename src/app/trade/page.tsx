@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useEffect } from "react";
+import { useMemo, useState, useEffect, useCallback, useRef } from "react";
 import { usePolymarketEvents } from "@/hooks/use-polymarket";
 import { useUser, DbPosition } from "@/hooks/use-user";
 import {
@@ -10,6 +10,7 @@ import {
   PolymarketEvent,
   MarketWithPrices,
 } from "@/types/polymarket";
+import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
@@ -49,11 +50,130 @@ interface ConsensusResult {
   trend: string;
 }
 
+/* ─── BTC 5-Min Market Types ─── */
+interface Btc5mActive {
+  id: string;
+  question: string;
+  slug: string;
+  endDate: string;
+  marketId: string;
+  conditionId: string;
+  upPrice: number;
+  downPrice: number;
+  volume: string;
+  windowStart: number;
+  windowEnd: number;
+  secondsRemaining: number;
+}
+
+interface Btc5mPrevious {
+  id: string;
+  marketId: string;
+  question: string;
+  closed: boolean;
+  resolved: boolean;
+  outcome: string | null;
+}
+
+interface Btc5mData {
+  active: Btc5mActive | null;
+  previous: Btc5mPrevious | null;
+}
+
+/* ─── BTC 5-Min Hook ─── */
+function useBtc5m() {
+  const [data, setData] = useState<Btc5mData | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  const fetchData = useCallback(async () => {
+    try {
+      const res = await fetch("/api/polymarket/btc5m");
+      if (res.ok) setData(await res.json());
+    } catch {}
+    setLoading(false);
+  }, []);
+
+  useEffect(() => {
+    fetchData();
+    const interval = setInterval(fetchData, 10000); // Poll every 10 seconds
+    return () => clearInterval(interval);
+  }, [fetchData]);
+
+  return { data, loading, refetch: fetchData };
+}
+
+/* ─── BTC 5-Min Countdown ─── */
+function Btc5mCountdown({ windowEnd }: { windowEnd: number }) {
+  const [timeLeft, setTimeLeft] = useState("");
+  const [expired, setExpired] = useState(false);
+
+  useEffect(() => {
+    const update = () => {
+      const remaining = windowEnd - Math.floor(Date.now() / 1000);
+      if (remaining <= 0) {
+        setTimeLeft("0:00");
+        setExpired(true);
+      } else {
+        const m = Math.floor(remaining / 60);
+        const s = remaining % 60;
+        setTimeLeft(`${m}:${s.toString().padStart(2, "0")}`);
+        setExpired(false);
+      }
+    };
+    update();
+    const interval = setInterval(update, 1000);
+    return () => clearInterval(interval);
+  }, [windowEnd]);
+
+  return (
+    <span className={cn(
+      "text-lg font-bold tabular-nums",
+      expired ? "text-[#d29922] animate-pulse" : "text-[#e6edf3]"
+    )}>
+      {expired ? "Resolving..." : timeLeft}
+    </span>
+  );
+}
+
 /* ─── Portfolio Tab ─── */
 function PortfolioTab({ allMarkets, onSwitchTab }: { allMarkets: MarketWithPrices[]; onSwitchTab: () => void }) {
-  const { user, positions, trades, isConnected, claimAirdrop, isClaimingAirdrop, executeTrade, isTrading } = useUser();
+  const { user, positions, trades, isConnected, claimAirdrop, isClaimingAirdrop, executeTrade, isTrading, address } = useUser();
+  const queryClient = useQueryClient();
   const [claimError, setClaimError] = useState<string | null>(null);
   const [closingId, setClosingId] = useState<string | null>(null);
+  const [autoCloseMsg, setAutoCloseMsg] = useState<string | null>(null);
+  const autoCloseRef = useRef<Set<string>>(new Set());
+  const { data: btcData } = useBtc5m();
+
+  // Auto-close BTC 5-min positions when market resolves
+  useEffect(() => {
+    if (!btcData?.previous?.resolved || !btcData.previous.outcome) return;
+    const prevId = btcData.previous.marketId;
+    if (autoCloseRef.current.has(prevId)) return; // Already processed
+
+    const btcPositions = positions.filter((p) => p.marketId === prevId);
+    if (btcPositions.length === 0) return;
+
+    autoCloseRef.current.add(prevId);
+    const slug = `btc-updown-5m-${Math.floor(Math.floor(Date.now() / 1000) / 300) * 300 - 300}`;
+
+    fetch("/api/trade/auto-close", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ marketId: prevId, marketSlug: slug }),
+    })
+      .then((r) => r.json())
+      .then((result) => {
+        if (result.closed > 0) {
+          setAutoCloseMsg(`BTC 5-min settled: ${btcData.previous!.outcome} won! ${result.closed} position(s) closed.`);
+          queryClient.invalidateQueries({ queryKey: ["user", address] });
+          queryClient.invalidateQueries({ queryKey: ["positions", address] });
+          queryClient.invalidateQueries({ queryKey: ["trades", address] });
+          setTimeout(() => setAutoCloseMsg(null), 8000);
+        }
+      })
+      .catch(() => {});
+  }, [btcData?.previous?.resolved, btcData?.previous?.marketId, positions, address, queryClient]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!isConnected || !user) {
     return (
@@ -80,6 +200,17 @@ function PortfolioTab({ allMarkets, onSwitchTab }: { allMarkets: MarketWithPrice
   };
 
   const getLivePrice = (pos: DbPosition): number | null => {
+    // Check if it's a BTC 5-min position
+    const isBtc5m = pos.marketQuestion.toLowerCase().includes("bitcoin up or down");
+    if (isBtc5m && btcData?.active) {
+      // If position is for the current active market, use live CLOB price
+      if (pos.marketId === btcData.active.marketId) {
+        return pos.outcome === "Up" ? btcData.active.upPrice : btcData.active.downPrice;
+      }
+      // If position is for a resolved previous market, return null (will be auto-closed)
+      return null;
+    }
+
     const market = allMarkets.find((m) => m.id === pos.marketId)
       || allMarkets.find((m) => m.conditionId === pos.marketId)
       || allMarkets.find((m) => m.question === pos.marketQuestion);
@@ -95,7 +226,7 @@ function PortfolioTab({ allMarkets, onSwitchTab }: { allMarkets: MarketWithPrice
       await executeTrade({
         marketId: pos.marketId,
         marketQuestion: pos.marketQuestion,
-        outcome: pos.outcome as "Yes" | "No",
+        outcome: pos.outcome as "Yes" | "No" | "Up" | "Down",
         side: "sell",
         shares: pos.shares,
         price: livePrice,
@@ -148,6 +279,13 @@ function PortfolioTab({ allMarkets, onSwitchTab }: { allMarkets: MarketWithPrice
           <span className="text-[11px] text-[#484f58] ml-auto">{positions.length} positions &middot; {trades.length} trades</span>
         </div>
       </div>
+
+      {/* Auto-close notification */}
+      {autoCloseMsg && (
+        <div className="rounded-lg border border-[#d29922]/30 bg-[#d29922]/10 px-4 py-3 text-sm text-[#d29922] font-medium">
+          {autoCloseMsg}
+        </div>
+      )}
 
       {/* Open Positions */}
       <div className="rounded-lg border border-[#21262d] bg-[#161b22] overflow-hidden">
@@ -251,6 +389,132 @@ function PortfolioTab({ allMarkets, onSwitchTab }: { allMarkets: MarketWithPrice
             })}
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+/* ─── BTC 5-Min Trading Card ─── */
+function Btc5mCard({ onBought }: { onBought: () => void }) {
+  const { user, isConnected, executeTrade, isTrading } = useUser();
+  const { data: btcData, loading } = useBtc5m();
+  const [outcome, setOutcome] = useState<"Up" | "Down">("Up");
+  const [amount, setAmount] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  const active = btcData?.active;
+  const price = active ? (outcome === "Up" ? active.upPrice : active.downPrice) : 0;
+  const shares = parseFloat(amount) || 0;
+  const cost = shares * price;
+  const balance = user?.balance || 0;
+  const canTrade = isConnected && shares > 0 && cost <= balance && active;
+
+  const handleBuy = async () => {
+    if (!active || !canTrade) return;
+    setError(null);
+    try {
+      await executeTrade({
+        marketId: active.marketId,
+        marketQuestion: active.question,
+        outcome,
+        side: "buy",
+        shares,
+        price,
+      });
+      setAmount("");
+      onBought();
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Trade failed");
+    }
+  };
+
+  if (loading) return <div className="rounded-lg border border-[#d29922]/30 bg-[#161b22] p-6 text-center text-sm text-[#484f58]">Loading BTC market...</div>;
+  if (!active) return <div className="rounded-lg border border-[#d29922]/30 bg-[#161b22] p-6 text-center text-sm text-[#484f58]">No active BTC 5-min market</div>;
+
+  return (
+    <div className="rounded-lg border border-[#d29922]/30 bg-[#161b22] overflow-hidden">
+      <div className="px-4 py-3 border-b border-[#21262d] flex items-center justify-between bg-[#d29922]/5">
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-bold text-[#d29922]">BTC</span>
+          <span className="text-sm font-semibold text-white">Bitcoin 5-Min Up or Down</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-[10px] text-[#484f58] uppercase">Ends in</span>
+          <Btc5mCountdown windowEnd={active.windowEnd} />
+        </div>
+      </div>
+
+      <div className="p-4 space-y-3">
+        <div className="flex items-center justify-between">
+          <a
+            href={`${POLYMARKET_BASE_URL}/event/${active.slug}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-[13px] text-[#e6edf3] hover:text-[#58a6ff] font-medium"
+          >
+            {active.question}
+          </a>
+          <div className="flex gap-3 flex-shrink-0 ml-4">
+            <span className="text-sm font-bold text-[#3fb950] tabular-nums">Up {(active.upPrice * 100).toFixed(0)}%</span>
+            <span className="text-sm font-bold text-[#f85149] tabular-nums">Down {(active.downPrice * 100).toFixed(0)}%</span>
+          </div>
+        </div>
+
+        {btcData?.previous?.resolved && (
+          <p className="text-[11px] text-[#484f58]">
+            Last result: <span className={btcData.previous.outcome === "Up" ? "text-[#3fb950]" : "text-[#f85149]"}>{btcData.previous.outcome}</span>
+          </p>
+        )}
+
+        {isConnected ? (
+          <div className="flex items-center gap-3">
+            <div className="grid grid-cols-2 gap-2 flex-shrink-0">
+              <button
+                onClick={() => setOutcome("Up")}
+                className={cn(
+                  "px-4 py-2 rounded-lg text-sm font-medium border transition-all",
+                  outcome === "Up"
+                    ? "bg-[#238636]/15 border-[#238636] text-[#3fb950]"
+                    : "bg-[#0d1117] border-[#21262d] text-[#768390]"
+                )}
+              >
+                Up {(active.upPrice * 100).toFixed(0)}%
+              </button>
+              <button
+                onClick={() => setOutcome("Down")}
+                className={cn(
+                  "px-4 py-2 rounded-lg text-sm font-medium border transition-all",
+                  outcome === "Down"
+                    ? "bg-[#f85149]/10 border-[#f85149]/50 text-[#f85149]"
+                    : "bg-[#0d1117] border-[#21262d] text-[#768390]"
+                )}
+              >
+                Down {(active.downPrice * 100).toFixed(0)}%
+              </button>
+            </div>
+            <Input
+              type="number"
+              placeholder="Shares"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              className="bg-[#0d1117] border-[#21262d] text-white h-10 w-28"
+            />
+            <Button
+              onClick={handleBuy}
+              disabled={!canTrade || isTrading}
+              className="h-10 bg-[#d29922] hover:bg-[#d29922]/80 text-black font-medium"
+            >
+              {isTrading ? "..." : shares > 0 ? `Buy ${outcome} — ${cost.toFixed(0)} PST` : `Buy ${outcome}`}
+            </Button>
+          </div>
+        ) : (
+          <div className="flex items-center gap-2">
+            <p className="text-sm text-[#768390]">Log in to trade</p>
+            <LoginButton />
+          </div>
+        )}
+        {error && <p className="text-xs text-[#f85149]">{error}</p>}
+        <p className="text-[10px] text-[#484f58]">Positions auto-close when the 5-minute window ends. Correct prediction pays 1 PST/share.</p>
       </div>
     </div>
   );
@@ -369,6 +633,9 @@ function TradableMarketsTab({ allMarkets, events, onBought }: {
 
   return (
     <div className="space-y-4">
+      {/* BTC 5-Min Market */}
+      <Btc5mCard onBought={onBought} />
+
       {/* AI Consensus Markets */}
       <div className="rounded-lg border border-[#21262d] bg-[#161b22] overflow-hidden">
         <div className="px-4 py-2.5 border-b border-[#21262d] flex items-center justify-between">
