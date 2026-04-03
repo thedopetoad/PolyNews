@@ -3,6 +3,7 @@ import { POLYMARKET_GAMMA_API } from "@/lib/constants";
 
 const ALLOWED_PARAMS = ["active", "closed", "limit", "offset", "slug", "id", "tag"];
 const MAX_LIMIT = 50;
+const MIN_VOLUME = 10000; // $10K minimum to filter junk markets
 
 interface MarketData {
   clobTokenIds?: string;
@@ -113,20 +114,30 @@ export async function GET(request: NextRequest) {
       events = await response.json();
     }
 
-    // Enrich each market with real-time CLOB prices
-    const priceFetches: { event: EventData; market: MarketData; tokenId: string }[] = [];
-
+    // Attach event metadata to each market + filter junk sub-markets
     for (const event of events as EventData[]) {
       if (!event.markets) continue;
-      // Attach event slug to each market so links work correctly
       const eventSlug = event.slug as string || "";
       const eventImage = event.image as string || "";
       for (const market of event.markets) {
         (market as Record<string, unknown>).eventSlug = eventSlug;
-        // Use event image as fallback if market has no image
         if (!market.image && eventImage) {
           (market as Record<string, unknown>).image = eventImage;
         }
+      }
+
+      // Remove low-volume junk sub-markets (keeps events cleaner)
+      event.markets = event.markets.filter((m) => {
+        const vol = parseFloat((m as Record<string, unknown>).volume as string || "0");
+        return vol >= MIN_VOLUME;
+      });
+    }
+
+    // Collect markets needing CLOB price enrichment
+    const priceFetches: { event: EventData; market: MarketData; tokenId: string }[] = [];
+    for (const event of events as EventData[]) {
+      if (!event.markets) continue;
+      for (const market of event.markets) {
         if (market.clobTokenIds) {
           try {
             const tokenIds = JSON.parse(market.clobTokenIds as string);
@@ -150,7 +161,6 @@ export async function GET(request: NextRequest) {
         const price = prices[j];
         if (price !== null && price > 0 && price < 1) {
           const market = batch[j].market;
-          // Override the stale outcomePrices with real CLOB data
           market.outcomePrices = JSON.stringify([
             price.toFixed(6),
             (1 - price).toFixed(6),
@@ -165,13 +175,13 @@ export async function GET(request: NextRequest) {
     // Categorize each market based on its question text
     // Order matters! More specific categories first to prevent misclassification
     const categoryKeywords: [string, string[]][] = [
-      ["Sports", ["nba", "nfl", "mlb", "nhl", "ufc", "championship", "finals", "stanley cup", "super bowl", "world cup", "premier league", "serie a", "la liga", "bundesliga", "oilers", "golden knights", "bulls", "spurs", "thunder", "avalanche", "wild", "lakers", "celtics", "panthers", "rangers", "hurricanes", "stars", "lightning", "maple leafs", "bruins", "jets", "flames", "senators", "canucks", "kraken", "predators", "blue jackets", "red wings", "blackhawks", "islanders", "devils", "flyers", "penguins", "capitals", "canadiens", "sabres", "ducks", "sharks", "coyotes", "warriors", "nuggets", "heat", "knicks", "nets", "clippers", "bucks", "76ers", "cavaliers", "pacers", "hawks", "magic", "raptors", "pistons", "hornets", "wizards", "grizzlies", "pelicans", "trail blazers", "timberwolves", "mavericks", "rockets", "suns", "kings"]],
-      ["Culture", ["oscar", "grammy", "album", "movie", "gta vi", "gta 6", "before gta", "rihanna", "taylor swift", "playboi", "jesus", "pregnant", "bachelor"]],
-      ["Geopolitics", ["ukraine", "russia", "china", "iran", "israel", "gaza", "nato", "war", "ceasefire", "military", "troops", "sanctions", "macron", "starmer"]],
-      ["Crypto", ["bitcoin", "ethereum", "crypto", "btc", "eth", "defi", "nft", "solana", "coinbase", "microstrategy", "stablecoin"]],
-      ["Tech", ["ai ", "openai", "google", "apple", "meta", "tesla", "nvidia", "tiktok", "spacex", "gpt", "starship"]],
-      ["Politics", ["president", "election", "democrat", "republican", "senate", "congress", "nomination", "governor", "mayor", "vote", "ballot", "primary"]],
-      ["Finance", ["fed ", "interest rate", "inflation", "gdp", "recession", "stock", "oil", "gold", "tariff", "ipo", "s&p", "nasdaq"]],
+      ["Sports", ["nba", "nfl", "mlb", "nhl", "ufc", "championship", "finals", "stanley cup", "super bowl", "world cup", "premier league", "serie a", "la liga", "bundesliga", "champions league", "europa league", "oilers", "golden knights", "bulls", "spurs", "thunder", "avalanche", "wild", "lakers", "celtics", "panthers", "rangers", "hurricanes", "stars", "lightning", "maple leafs", "bruins", "jets", "flames", "senators", "canucks", "predators", "blue jackets", "red wings", "blackhawks", "islanders", "devils", "flyers", "penguins", "capitals", "canadiens", "sabres", "ducks", "sharks", "coyotes", "warriors", "nuggets", "heat", "knicks", "nets", "clippers", "bucks", "76ers", "cavaliers", "pacers", "hawks", "magic", "raptors", "pistons", "hornets", "wizards", "grizzlies", "pelicans", "trail blazers", "timberwolves", "mavericks", "rockets", "suns", "kings", "manchester city", "manchester united", "liverpool", "arsenal", "chelsea", "tottenham", "barcelona", "real madrid", "bayern munich", "atletico madrid", "psg", "sporting", "club brugge", "inter milan", "ac milan", "juventus", "borussia dortmund"]],
+      ["Culture", ["oscar", "grammy", "album", "movie", "gta vi", "gta 6", "before gta", "rihanna", "taylor swift", "playboi", "jesus", "pregnant", "bachelor", "weinstein", "epstein"]],
+      ["Geopolitics", ["ukraine", "russia", "china", "iran", "israel", "gaza", "nato", "war", "ceasefire", "military", "troops", "sanctions", "macron", "starmer", "xi jinping"]],
+      ["Crypto", ["bitcoin", "ethereum", "crypto", "btc", "eth", "defi", "nft", "solana", "coinbase", "microstrategy", "stablecoin", "airdrop", "token", "market cap", "pump.fun", "hyperliquid", "megaeth"]],
+      ["Tech", ["artificial intelligence", " ai", "ai ", "openai", "google", "apple", "meta ", "tesla", "nvidia", "tiktok", "spacex", "gpt", "starship", "deepseek", "anthropic", "microsoft", "amazon", "robot", "semiconductor", "chip"]],
+      ["Finance", ["federal reserve", "the fed", "fed cut", "fed hike", "fed rate", "interest rate", "inflation", "gdp", "recession", "stock market", "oil price", "gold price", "tariff", "ipo", "s&p 500", "s&p500", "nasdaq", "dow jones", "treasury", "bond", "yield", "cpi", "jobs report", "unemployment", "housing", "kraken ipo"]],
+      ["Politics", ["president", "election", "democrat", "republican", "senate", "congress", "nomination", "governor", "mayor", "vote", "ballot", "primary", "trump", "biden", "harris", "desantis", "newsom", "balance of power", "scotus", "supreme court"]],
     ];
     for (const event of events as EventData[]) {
       if (!event.markets) continue;
@@ -185,7 +195,7 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // Filter out closed/resolved sub-markets from each event
+    // Filter out closed/resolved sub-markets
     for (const event of events as EventData[]) {
       if (event.markets) {
         event.markets = event.markets.filter(
