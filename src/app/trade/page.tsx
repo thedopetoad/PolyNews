@@ -498,8 +498,8 @@ function Btc5mCard({ onBought }: { onBought: () => void }) {
             <div className="flex items-end gap-3">
               <div className="flex-1">
                 <div className="flex justify-between text-xs text-[#484f58] mb-1.5">
-                  <span>Amount (PST)</span>
-                  <button onClick={() => setAmount(String(Math.floor(balance)))} className="text-[#58a6ff] hover:underline">Max</button>
+                  <span>Shares</span>
+                  <button onClick={() => setAmount(String(Math.floor(balance / price)))} className="text-[#58a6ff] hover:underline">Max</button>
                 </div>
                 <Input
                   type="number"
