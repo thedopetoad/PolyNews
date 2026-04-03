@@ -70,6 +70,35 @@ export const consensusCache = pgTable("consensus_cache", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
+// Swarm prediction runs (advanced AI engine)
+export const swarmPredictions = pgTable("swarm_predictions", {
+  id: text("id").primaryKey(),
+  marketId: text("market_id").notNull(),
+  marketQuestion: text("market_question").notNull(),
+  marketPrice: real("market_price").notNull(),
+  consensus: real("consensus").notNull(),
+  edge: real("edge").notNull(),
+  confidence: real("confidence").notNull(),
+  kellyScore: real("kelly_score"),
+  recommendation: text("recommendation"),
+  agentCount: integer("agent_count"),
+  rounds: integer("rounds"),
+  fullResult: text("full_result").notNull(), // JSON blob
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+// Individual agent predictions per round (for calibration)
+export const swarmAgentLogs = pgTable("swarm_agent_logs", {
+  id: text("id").primaryKey(),
+  predictionId: text("prediction_id").notNull().references(() => swarmPredictions.id),
+  agentArchetype: text("agent_archetype"),
+  round: integer("round"),
+  probability: real("probability"),
+  confidence: real("confidence"),
+  reasoning: text("reasoning"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
 // Referral tracking
 export const referrals = pgTable(
   "referrals",

@@ -47,6 +47,7 @@ export const STARTING_BALANCE = 10000;
 export const NAV_LINKS = [
   { href: "/", label: "News" },
   { href: "/ai", label: "AI Consensus" },
+  { href: "/ai-beta", label: "Super Swarm" },
   { href: "/trade", label: "Paper Trade" },
   { href: "/docs", label: "Docs" },
 ] as const;
