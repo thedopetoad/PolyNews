@@ -1,5 +1,7 @@
 import OpenAI from "openai";
 import { calibrateSwarmPrediction } from "./calibration";
+import { getDb, swarmAgentMemory } from "@/db";
+import { eq, and, isNotNull, desc } from "drizzle-orm";
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
@@ -106,7 +108,112 @@ async function gatherKnowledge(question: string): Promise<string> {
   );
 
   const combined = results.filter(Boolean).join("\n\n---\n\n");
-  return combined.slice(0, 4000); // Cap total context
+  if (!combined) return "";
+
+  // Phase 1b: Build GraphRAG knowledge graph from raw search results
+  // Extract entities and relationships for structured reasoning
+  try {
+    const graphResponse = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      max_tokens: 1000,
+      temperature: 0.3,
+      messages: [
+        {
+          role: "system",
+          content: `You are a knowledge graph builder. Extract entities and relationships from the text below. Output a structured knowledge brief with:
+
+1. KEY ENTITIES: List the main people, organizations, events with a one-line description each
+2. RELATIONSHIPS: List entity→relationship→entity triples (e.g., "Paxton→impeached by→Texas House")
+3. KEY FACTS: The 5 most important data points (numbers, dates, percentages)
+4. BULL FACTORS: 3 reasons the outcome might be YES
+5. BEAR FACTORS: 3 reasons the outcome might be NO
+6. BASE RATE: What historically happens in similar situations?
+
+Be concise. Use arrows (→) for relationships.`,
+        },
+        {
+          role: "user",
+          content: `Build a knowledge graph for the prediction market: "${question}"\n\nRaw research:\n${combined.slice(0, 3000)}`,
+        },
+      ],
+    });
+
+    const graph = graphResponse.choices[0]?.message?.content || "";
+    return `KNOWLEDGE GRAPH:\n${graph}\n\nRAW RESEARCH:\n${combined.slice(0, 2000)}`;
+  } catch {
+    return combined.slice(0, 4000);
+  }
+}
+
+// ─── Agent Memory System ───
+
+/**
+ * Fetch past predictions for an archetype to build memory context.
+ * Agents learn from their track record — if they've been consistently
+ * wrong in one direction, the memory tells them to adjust.
+ */
+async function getAgentMemory(archetype: string): Promise<string> {
+  try {
+    const db = getDb();
+    const memories = await db
+      .select()
+      .from(swarmAgentMemory)
+      .where(
+        and(
+          eq(swarmAgentMemory.agentArchetype, archetype),
+          isNotNull(swarmAgentMemory.actualOutcome)
+        )
+      )
+      .orderBy(desc(swarmAgentMemory.createdAt))
+      .limit(5);
+
+    if (memories.length === 0) return "";
+
+    const correct = memories.filter((m) => m.wasCorrect).length;
+    const total = memories.length;
+    const avgError = memories.reduce((s, m) => {
+      return s + ((m.prediction || 50) - (m.actualOutcome || 50));
+    }, 0) / total;
+
+    let memoryContext = `\nYOUR TRACK RECORD (${total} past predictions, ${correct} correct):`;
+    if (avgError > 5) memoryContext += `\nWARNING: You tend to OVERESTIMATE by ~${Math.round(avgError)}%. Adjust down.`;
+    else if (avgError < -5) memoryContext += `\nWARNING: You tend to UNDERESTIMATE by ~${Math.round(Math.abs(avgError))}%. Adjust up.`;
+    else memoryContext += `\nYour predictions have been well-calibrated (avg error: ${Math.round(avgError)}%).`;
+
+    memories.slice(0, 3).forEach((m) => {
+      memoryContext += `\n- Predicted ${m.prediction?.toFixed(0)}%, actual was ${m.actualOutcome?.toFixed(0)}% (${m.wasCorrect ? "CORRECT" : "WRONG"})`;
+    });
+
+    return memoryContext;
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * Save agent predictions to memory for future learning.
+ */
+async function saveAgentMemory(
+  predictions: { archetype: string; probability: number; reasoning: string }[],
+  marketId: string,
+): Promise<void> {
+  try {
+    const db = getDb();
+    const crypto = await import("crypto");
+    // Save one memory per archetype (use the archetype's final-round prediction)
+    const seen = new Set<string>();
+    for (const pred of predictions) {
+      if (seen.has(pred.archetype)) continue;
+      seen.add(pred.archetype);
+      await db.insert(swarmAgentMemory).values({
+        id: crypto.randomUUID(),
+        agentArchetype: pred.archetype,
+        marketId,
+        prediction: pred.probability,
+        reasoning: pred.reasoning?.slice(0, 300) || "",
+      });
+    }
+  } catch {}
 }
 
 // ─── Phase 2: Generate Agent Profiles ───
@@ -219,9 +326,27 @@ export async function runSwarmPrediction(
   console.log("[Swarm] Phase 1: Gathering knowledge...");
   const webContext = await gatherKnowledge(question);
 
-  // Phase 2: Generate agents
-  console.log(`[Swarm] Phase 2: Generating ${agentCount} agents...`);
+  // Phase 2: Generate agents + load memory
+  console.log(`[Swarm] Phase 2: Generating ${agentCount} agents + loading memory...`);
   const agents = generateAgents(agentCount);
+
+  // Load persistent memory for each archetype (parallel)
+  const uniqueArchetypes = [...new Set(agents.map((a) => a.archetype))];
+  const memoryMap = new Map<string, string>();
+  await Promise.all(
+    uniqueArchetypes.map(async (arch) => {
+      const memory = await getAgentMemory(arch);
+      if (memory) memoryMap.set(arch, memory);
+    })
+  );
+
+  // Inject memory into agent system prompts
+  for (const agent of agents) {
+    const memory = memoryMap.get(agent.archetype);
+    if (memory) {
+      agent.prompt += memory;
+    }
+  }
 
   const baseQ = `Market: "${question}"\nCurrent Polymarket Price: Yes ${pct}%\n\nLIVE RESEARCH CONTEXT:\n${webContext}\n\nPredict the TRUE probability of YES (0-100), your confidence (0-100), and reasoning. JSON only:\n{"probability":<0-100>,"confidence":<0-100>,"reasoning":"<1-2 sentences>"}`;
 
@@ -251,18 +376,36 @@ export async function runSwarmPrediction(
     agentHistory.get(key)?.push(p.probability);
   });
 
-  // ─── Rounds 3-5: Information Sharing ───
-  console.log("[Swarm] Rounds 3-5: Information sharing...");
+  // ─── Rounds 3-5: Social Feed (follow, repost, argue) ───
+  console.log("[Swarm] Rounds 3-5: Social feed simulation...");
   const allR12 = [...r1, ...r2];
   const stdDev = Math.sqrt(allR12.reduce((s, p) => s + (p.probability - r2Avg) ** 2, 0) / (allR12.length || 1));
-  const topBull = allR12.sort((a, b) => b.probability - a.probability).slice(0, 5);
-  const topBear = allR12.sort((a, b) => a.probability - b.probability).slice(0, 5);
-  const sharedReasons = [...topBull.slice(0, 3), ...topBear.slice(0, 3)].map((p) => `[${p.archetype}]: ${p.reasoning}`).join("\n");
 
+  // Social behaviors: agents "follow" similar thinkers, "repost" compelling arguments
+  // Simulate by showing each agent a curated feed based on proximity to their own prediction
   for (let round = 3; round <= 5; round++) {
-    const infoQ = `${baseQ}\n\nSOCIAL CONTEXT (Round ${round}):\nPrevious rounds average: ${roundAvgs[roundAvgs.length - 1]}% (std dev: ${stdDev.toFixed(0)}%)\nHighest prediction: ${topBull[0]?.probability}%, Lowest: ${topBear[0]?.probability}%\n\nPeer reasoning shared on the forum:\n${sharedReasons}\n\nUpdate your prediction considering this information.`;
+    // Build social feed: mix of popular posts, contrarian posts, and nearby-opinion posts
+    const sorted = [...allR12].sort((a, b) => b.confidence - a.confidence);
+    const topPosts = sorted.slice(0, 5).map((p) => `[${p.archetype}] (${p.probability}%, conf ${p.confidence}): "${p.reasoning}"`);
+    const contrarian = sorted.filter((p) => Math.abs(p.probability - roundAvgs[roundAvgs.length - 1]) > 20).slice(0, 3);
+    const contrarianPosts = contrarian.map((p) => `[CONTRARIAN ${p.archetype}] (${p.probability}%): "${p.reasoning}"`);
 
-    const rN = await runAgentBatch(agents, infoQ);
+    // Agents who shifted most between r1→r2 get highlighted (social signal)
+    const shifters = allR12.filter((_, i) => i < r1.length).map((p, i) => {
+      const r2p = r2[i];
+      return r2p ? { archetype: p.archetype, shift: r2p.probability - p.probability, reasoning: r2p.reasoning } : null;
+    }).filter(Boolean).sort((a, b) => Math.abs(b!.shift) - Math.abs(a!.shift)).slice(0, 3);
+    const shiftPosts = shifters.map((s) => `[OPINION SHIFT ${s!.archetype}] changed by ${s!.shift > 0 ? "+" : ""}${s!.shift.toFixed(0)}%: "${s!.reasoning}"`);
+
+    const socialFeed = [
+      `TRENDING POSTS (most confident):`, ...topPosts,
+      `\nCONTRARIAN VOICES:`, ...contrarianPosts,
+      `\nOPINION SHIFTS (agents who changed their mind):`, ...shiftPosts,
+    ].join("\n");
+
+    const socialQ = `${baseQ}\n\nSOCIAL FEED (Round ${round}):\nConsensus: ${roundAvgs[roundAvgs.length - 1]}% (std dev: ${stdDev.toFixed(0)}%)\n\n${socialFeed}\n\nYou've read these posts on the prediction forum. You can FOLLOW compelling arguments, MUTE bad reasoning, or CHALLENGE takes you disagree with. Update your prediction.`;
+
+    const rN = await runAgentBatch(agents, socialQ);
     const rNAvg = rN.reduce((s, p) => s + p.probability, 0) / (rN.length || 1);
     roundAvgs.push(Math.round(rNAvg));
     rN.forEach((p, i) => {
@@ -270,17 +413,24 @@ export async function runSwarmPrediction(
       const key = `${p.archetype}-${i % 10}`;
       agentHistory.get(key)?.push(p.probability);
     });
+
+    // Update allR12 for next round's social feed
+    allR12.push(...rN);
   }
 
-  // ─── Rounds 6-8: Cluster Formation ───
-  console.log("[Swarm] Rounds 6-8: Cluster formation...");
+  // ─── Rounds 6-8: Cluster Formation + Debate ───
+  console.log("[Swarm] Rounds 6-8: Cluster debate...");
   const latestPredictions = allLogs.filter((l) => l.round === 5);
   const clusters = analyzeClusters(latestPredictions.map((l) => ({ probability: l.probability, confidence: l.confidence, reasoning: l.reasoning })));
 
-  for (let round = 6; round <= 8; round++) {
-    const clusterQ = `${baseQ}\n\nCLUSTER ANALYSIS (Round ${round}):\nCurrent consensus: ${roundAvgs[roundAvgs.length - 1]}%\n\nBULL CLUSTER (${clusters.bullCluster.size} agents, avg ${clusters.bullCluster.avgPrediction}%): "${clusters.bullCluster.topArgument}"\nBEAR CLUSTER (${clusters.bearCluster.size} agents, avg ${clusters.bearCluster.avgPrediction}%): "${clusters.bearCluster.topArgument}"\nUNDECIDED (${clusters.undecided.size} agents)\n\nConsider which cluster's argument is stronger. Give your final prediction.`;
+  // Build debate threads: bull vs bear cluster leaders argue
+  const bullLeader = latestPredictions.sort((a, b) => b.probability - a.probability)[0];
+  const bearLeader = latestPredictions.sort((a, b) => a.probability - b.probability)[0];
 
-    const rN = await runAgentBatch(agents, clusterQ);
+  for (let round = 6; round <= 8; round++) {
+    const debateQ = `${baseQ}\n\nCLUSTER DEBATE (Round ${round}):\n\nBULL CLUSTER (${clusters.bullCluster.size} agents, avg ${clusters.bullCluster.avgPrediction}%):\nLeader [${bullLeader?.archetype}]: "${clusters.bullCluster.topArgument}"\n${clusters.bullCluster.size} agents REPOSTED this argument.\n\nBEAR CLUSTER (${clusters.bearCluster.size} agents, avg ${clusters.bearCluster.avgPrediction}%):\nLeader [${bearLeader?.archetype}]: "${clusters.bearCluster.topArgument}"\n${clusters.bearCluster.size} agents REPOSTED this argument.\n\nUNDECIDED: ${clusters.undecided.size} agents MUTED both sides.\n\nThe debate is heating up. Which side has the stronger evidence? You can FOLLOW one cluster's reasoning or stake out your own position.`;
+
+    const rN = await runAgentBatch(agents, debateQ);
     const rNAvg = rN.reduce((s, p) => s + p.probability, 0) / (rN.length || 1);
     roundAvgs.push(Math.round(rNAvg));
     rN.forEach((p, i) => {
@@ -288,6 +438,13 @@ export async function runSwarmPrediction(
       const key = `${p.archetype}-${i % 10}`;
       agentHistory.get(key)?.push(p.probability);
     });
+
+    // Update clusters for next round
+    const roundPreds = allLogs.filter((l) => l.round === round);
+    const newClusters = analyzeClusters(roundPreds.map((l) => ({ probability: l.probability, confidence: l.confidence, reasoning: l.reasoning })));
+    clusters.bullCluster = newClusters.bullCluster;
+    clusters.bearCluster = newClusters.bearCluster;
+    clusters.undecided = newClusters.undecided;
   }
 
   // ─── Rounds 9-10: Final Calibration ───
@@ -371,6 +528,13 @@ export async function runSwarmPrediction(
   // Final cluster analysis from last round
   const finalPreds = allLogs.filter((l) => l.round === 10);
   const finalClusters = analyzeClusters(finalPreds.map((l) => ({ probability: l.probability, confidence: l.confidence, reasoning: l.reasoning })));
+
+  // Save agent memories for future learning
+  console.log("[Swarm] Saving agent memories...");
+  await saveAgentMemory(
+    finalPreds.map((l) => ({ archetype: l.archetype, probability: l.probability, reasoning: l.reasoning })),
+    question.slice(0, 100)
+  );
 
   // Apply historical calibration (13,868 resolved markets)
   const cal = calibrateSwarmPrediction(consensus, marketPrice);

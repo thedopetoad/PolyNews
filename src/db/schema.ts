@@ -99,6 +99,26 @@ export const swarmAgentLogs = pgTable("swarm_agent_logs", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
+// YouTube live stream cache (persists across serverless cold starts)
+export const youtubeStreamCache = pgTable("youtube_stream_cache", {
+  channelId: text("channel_id").primaryKey(),
+  channelName: text("channel_name").notNull(),
+  streams: text("streams").notNull(), // JSON array of { videoId, title }
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+// Swarm agent memory (persistent across runs)
+export const swarmAgentMemory = pgTable("swarm_agent_memory", {
+  id: text("id").primaryKey(),
+  agentArchetype: text("agent_archetype").notNull(),
+  marketId: text("market_id").notNull(),
+  prediction: real("prediction").notNull(),
+  actualOutcome: real("actual_outcome"), // null until market resolves
+  wasCorrect: boolean("was_correct"),    // null until market resolves
+  reasoning: text("reasoning"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
 // Referral tracking
 export const referrals = pgTable(
   "referrals",
