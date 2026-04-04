@@ -279,17 +279,18 @@ function generateAgents(count: number): AgentProfile[] {
   return agents;
 }
 
-// ─── Call a single agent ───
+// ─── Call a single agent with retry ───
 
-async function callAgent(systemPrompt: string, userMsg: string, temp: number): Promise<AgentPrediction | null> {
-  try {
-    const res = await getOpenAI().chat.completions.create({
-      model: "gpt-4o-mini",
-      max_tokens: 150,
-      temperature: temp,
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userMsg },
+async function callAgent(systemPrompt: string, userMsg: string, temp: number, retries: number = 3): Promise<AgentPrediction | null> {
+  for (let attempt = 0; attempt < retries; attempt++) {
+    try {
+      const res = await getOpenAI().chat.completions.create({
+        model: "gpt-4o-mini",
+        max_tokens: 150,
+        temperature: temp,
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userMsg },
       ],
     });
     const raw = res.choices[0]?.message?.content?.trim() || "{}";
@@ -303,16 +304,26 @@ async function callAgent(systemPrompt: string, userMsg: string, temp: number): P
       reasoning: String(parsed.reasoning || "").slice(0, 200),
     };
   } catch {
+    if (attempt < retries - 1) {
+      await new Promise((r) => setTimeout(r, 1000 * (attempt + 1))); // Exponential backoff
+      continue;
+    }
     return null;
   }
+  }
+  return null;
 }
 
-// ─── Run agents in batches to avoid rate limits ───
+// ─── Progress callback type ───
+export type SwarmProgressCallback = (phase: string, round: number, totalRounds: number, agentsComplete: number, totalAgents: number) => void;
+
+// ─── Run agents in batches with throttling + retries ───
 
 async function runAgentBatch(
   agents: AgentProfile[],
   userMsg: string,
-  batchSize: number = 100
+  batchSize: number = 50,
+  onProgress?: (done: number, total: number) => void,
 ): Promise<(AgentPrediction & { archetype: string })[]> {
   const results: (AgentPrediction & { archetype: string })[] = [];
 
@@ -326,6 +337,11 @@ async function runAgentBatch(
     );
     for (const r of batchResults) {
       if (r) results.push(r);
+    }
+    if (onProgress) onProgress(Math.min(i + batchSize, agents.length), agents.length);
+    // Throttle: 500ms between batches to avoid rate limits
+    if (i + batchSize < agents.length) {
+      await new Promise((r) => setTimeout(r, 500));
     }
   }
 
@@ -356,7 +372,8 @@ function analyzeClusters(predictions: AgentPrediction[]): { bullCluster: Cluster
 export async function runSwarmPrediction(
   question: string,
   marketPrice: number,
-  agentCount: number = 4096
+  agentCount: number = 4096,
+  onProgress?: SwarmProgressCallback,
 ): Promise<SwarmResult> {
   const pct = (marketPrice * 100).toFixed(0);
 
@@ -396,7 +413,11 @@ export async function runSwarmPrediction(
 
   // ─── Rounds 1-2: Independent Analysis ───
   console.log("[Swarm] Rounds 1-2: Independent analysis...");
-  const r1 = await runAgentBatch(agents, baseQ);
+  const makeProgress = (phase: string, round: number) => (done: number, total: number) => {
+    if (onProgress) onProgress(phase, round, 10, done, total);
+  };
+
+  const r1 = await runAgentBatch(agents, baseQ, 50, makeProgress("Independent Analysis", 1));
   const r1Avg = r1.reduce((s, p) => s + p.probability, 0) / (r1.length || 1);
   roundAvgs.push(Math.round(r1Avg));
   r1.forEach((p, i) => {
@@ -405,7 +426,7 @@ export async function runSwarmPrediction(
     agentHistory.set(key, [p.probability]);
   });
 
-  const r2 = await runAgentBatch(agents, baseQ);
+  const r2 = await runAgentBatch(agents, baseQ, 50, makeProgress("Independent Analysis", 2));
   const r2Avg = r2.reduce((s, p) => s + p.probability, 0) / (r2.length || 1);
   roundAvgs.push(Math.round(r2Avg));
   r2.forEach((p, i) => {
@@ -443,7 +464,7 @@ export async function runSwarmPrediction(
 
     const socialQ = `${baseQ}\n\nSOCIAL FEED (Round ${round}):\nConsensus: ${roundAvgs[roundAvgs.length - 1]}% (std dev: ${stdDev.toFixed(0)}%)\n\n${socialFeed}\n\nYou've read these posts on the prediction forum. You can FOLLOW compelling arguments, MUTE bad reasoning, or CHALLENGE takes you disagree with. Update your prediction.`;
 
-    const rN = await runAgentBatch(agents, socialQ);
+    const rN = await runAgentBatch(agents, socialQ, 50, makeProgress("Social Feed", round));
     const rNAvg = rN.reduce((s, p) => s + p.probability, 0) / (rN.length || 1);
     roundAvgs.push(Math.round(rNAvg));
     rN.forEach((p, i) => {
@@ -468,7 +489,7 @@ export async function runSwarmPrediction(
   for (let round = 6; round <= 8; round++) {
     const debateQ = `${baseQ}\n\nCLUSTER DEBATE (Round ${round}):\n\nBULL CLUSTER (${clusters.bullCluster.size} agents, avg ${clusters.bullCluster.avgPrediction}%):\nLeader [${bullLeader?.archetype}]: "${clusters.bullCluster.topArgument}"\n${clusters.bullCluster.size} agents REPOSTED this argument.\n\nBEAR CLUSTER (${clusters.bearCluster.size} agents, avg ${clusters.bearCluster.avgPrediction}%):\nLeader [${bearLeader?.archetype}]: "${clusters.bearCluster.topArgument}"\n${clusters.bearCluster.size} agents REPOSTED this argument.\n\nUNDECIDED: ${clusters.undecided.size} agents MUTED both sides.\n\nThe debate is heating up. Which side has the stronger evidence? You can FOLLOW one cluster's reasoning or stake out your own position.`;
 
-    const rN = await runAgentBatch(agents, debateQ);
+    const rN = await runAgentBatch(agents, debateQ, 50, makeProgress("Cluster Debate", round));
     const rNAvg = rN.reduce((s, p) => s + p.probability, 0) / (rN.length || 1);
     roundAvgs.push(Math.round(rNAvg));
     rN.forEach((p, i) => {
@@ -494,7 +515,7 @@ export async function runSwarmPrediction(
 
     // Lower temperature for final rounds
     const finalAgents = agents.map((a) => ({ ...a, temperature: Math.min(a.temperature, 0.5) }));
-    const rN = await runAgentBatch(finalAgents, finalQ);
+    const rN = await runAgentBatch(finalAgents, finalQ, 50, makeProgress("Final Calibration", round));
     const rNAvg = rN.reduce((s, p) => s + p.probability, 0) / (rN.length || 1);
     roundAvgs.push(Math.round(rNAvg));
     rN.forEach((p, i) => {
