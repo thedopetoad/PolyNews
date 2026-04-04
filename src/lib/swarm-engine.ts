@@ -355,7 +355,7 @@ export type SwarmProgressCallback = (phase: string, round: number, totalRounds: 
 async function runAgentBatch(
   agents: AgentProfile[],
   userMsg: string,
-  batchSize: number = 25,
+  batchSize: number = 10,
   onProgress?: (done: number, total: number) => void,
 ): Promise<(AgentPrediction & { archetype: string })[]> {
   const results: (AgentPrediction & { archetype: string })[] = [];
@@ -372,9 +372,9 @@ async function runAgentBatch(
       if (r) results.push(r);
     }
     if (onProgress) onProgress(Math.min(i + batchSize, agents.length), agents.length);
-    // Throttle: 500ms between batches to avoid rate limits
+    // Throttle: 1.5s between batches to stay within Tier 1 rate limits
     if (i + batchSize < agents.length) {
-      await new Promise((r) => setTimeout(r, 500));
+      await new Promise((r) => setTimeout(r, 1500));
     }
   }
 
