@@ -76,14 +76,49 @@ const ARCHETYPES = [
 
 // ─── Phase 1: Deep Knowledge Gathering ───
 
-async function gatherKnowledge(question: string): Promise<string> {
-  const searches = [
-    `Latest polls and predictions for: ${question}`,
-    `Legal issues, scandals, or controversies related to: ${question}`,
-    `Endorsements, fundraising, and campaign strength for: ${question}`,
-    `Historical precedents and base rates for similar elections to: ${question}`,
-    `Voter demographics, turnout expectations, and ground game for: ${question}`,
+function getSearchQueries(question: string): string[] {
+  const q = question.toLowerCase();
+  const isFinancial = q.includes("s&p") || q.includes("oil") || q.includes("wti") || q.includes("nasdaq") || q.includes("dow") || q.includes("stock") || q.includes("crude") || q.includes("gold") || q.includes("bitcoin price") || q.includes("opens up or down");
+  const isGeopolitical = q.includes("war") || q.includes("forces") || q.includes("iran") || q.includes("invade") || q.includes("military") || q.includes("sanctions");
+
+  if (isFinancial) {
+    return [
+      `${question} latest price action, recent trading data, current level`,
+      `${question} technical analysis, support resistance levels, moving averages, RSI`,
+      `${question} futures, pre-market, overnight trading data today`,
+      `macroeconomic factors affecting ${question}: Fed policy, interest rates, inflation data CPI`,
+      `${question} analyst predictions forecasts this week`,
+      `geopolitical risks tariffs trade war impact on ${question}`,
+      `${question} historical pattern: what usually happens in similar conditions`,
+      `market sentiment VIX fear greed index put call ratio related to ${question}`,
+    ];
+  }
+
+  if (isGeopolitical) {
+    return [
+      `Latest news and developments: ${question}`,
+      `Military movements, troop deployments, intelligence reports related to: ${question}`,
+      `Diplomatic negotiations, sanctions, UN resolutions related to: ${question}`,
+      `Historical precedents for similar geopolitical situations to: ${question}`,
+      `Expert analysis and think tank assessments of: ${question}`,
+      `Economic and oil market implications of: ${question}`,
+      `Public statements from government officials about: ${question}`,
+    ];
+  }
+
+  // Default: political/general
+  return [
+    `Latest news, polls, and predictions for: ${question}`,
+    `Key controversies, legal issues, or scandals related to: ${question}`,
+    `Endorsements, fundraising, and institutional support for: ${question}`,
+    `Historical precedents and base rates for similar situations to: ${question}`,
+    `Expert analysis and forecasts for: ${question}`,
+    `Public opinion, sentiment, and social media trends for: ${question}`,
   ];
+}
+
+async function gatherKnowledge(question: string): Promise<string> {
+  const searches = getSearchQueries(question);
 
   const results = await Promise.all(
     searches.map(async (query) => {
@@ -91,7 +126,7 @@ async function gatherKnowledge(question: string): Promise<string> {
         const response = await openai.responses.create({
           model: "gpt-4o-mini",
           tools: [{ type: "web_search_preview" }],
-          input: `Search the web and provide a concise factual summary (4-6 bullet points) of the most relevant recent information for: "${query}"\n\nFocus on FACTS and DATA only — polling numbers, endorsement names, dollar amounts, dates, legal rulings. No opinions or predictions. Include dates where possible.`,
+          input: `Search the web and provide a concise factual summary (5-8 bullet points) of the most relevant recent information for: "${query}"\n\nFocus on HARD DATA only — exact prices, percentages, dollar amounts, dates, specific numbers. No vague opinions. Include timestamps where possible.`,
         });
         const textOutput = response.output.find((o) => o.type === "message");
         if (textOutput && textOutput.type === "message") {
@@ -120,16 +155,17 @@ async function gatherKnowledge(question: string): Promise<string> {
       messages: [
         {
           role: "system",
-          content: `You are a knowledge graph builder. Extract entities and relationships from the text below. Output a structured knowledge brief with:
+          content: `You are a knowledge graph builder for prediction markets. Extract entities and relationships from the research below. Output a structured brief:
 
-1. KEY ENTITIES: List the main people, organizations, events with a one-line description each
-2. RELATIONSHIPS: List entity→relationship→entity triples (e.g., "Paxton→impeached by→Texas House")
-3. KEY FACTS: The 5 most important data points (numbers, dates, percentages)
-4. BULL FACTORS: 3 reasons the outcome might be YES
-5. BEAR FACTORS: 3 reasons the outcome might be NO
-6. BASE RATE: What historically happens in similar situations?
+1. KEY ENTITIES: Main actors, instruments, events (with current values/levels if financial)
+2. RELATIONSHIPS: entity→relationship→entity triples (e.g., "Fed→raised→rates", "S&P→testing→support at 5200")
+3. CRITICAL DATA POINTS: The 8 most important numbers (exact prices, dates, percentages, levels)
+4. BULL FACTORS: 4 strongest reasons for YES/UP outcome, with supporting data
+5. BEAR FACTORS: 4 strongest reasons for NO/DOWN outcome, with supporting data
+6. BASE RATE: What historically happens in similar conditions? Include specific percentages.
+7. CATALYSTS: Upcoming events that could move this market (with dates)
 
-Be concise. Use arrows (→) for relationships.`,
+Be data-dense. Every claim should have a number attached.`,
         },
         {
           role: "user",
@@ -139,7 +175,7 @@ Be concise. Use arrows (→) for relationships.`,
     });
 
     const graph = graphResponse.choices[0]?.message?.content || "";
-    return `KNOWLEDGE GRAPH:\n${graph}\n\nRAW RESEARCH:\n${combined.slice(0, 2000)}`;
+    return `KNOWLEDGE GRAPH:\n${graph}\n\nRAW RESEARCH:\n${combined.slice(0, 3000)}`;
   } catch {
     return combined.slice(0, 4000);
   }
