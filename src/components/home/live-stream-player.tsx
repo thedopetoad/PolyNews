@@ -26,18 +26,18 @@ export function LiveStreamPlayer() {
   const [multiSelections, setMultiSelections] = useState<number[]>([]);
 
   const fetchAllStreams = useCallback(async () => {
-    const results = await Promise.all(
-      STREAM_CHANNELS.map(async (ch) => {
-        try {
-          const res = await fetch(`/api/youtube/live?channelId=${ch.channelId}`);
-          if (!res.ok) return { channelId: ch.channelId, name: ch.name, streams: [], loading: false };
-          const data = await res.json();
-          return { channelId: ch.channelId, name: ch.name, streams: data.streams || [], loading: false };
-        } catch {
-          return { channelId: ch.channelId, name: ch.name, streams: [], loading: false };
-        }
-      })
-    );
+    let results: ChannelStreams[];
+    try {
+      const res = await fetch("/api/youtube/live");
+      if (!res.ok) throw new Error();
+      const data = await res.json();
+      results = STREAM_CHANNELS.map((ch) => {
+        const match = (data.results || []).find((r: { channelId: string }) => r.channelId === ch.channelId);
+        return { channelId: ch.channelId, name: ch.name, streams: match?.streams || [], loading: false };
+      });
+    } catch {
+      results = STREAM_CHANNELS.map((c) => ({ channelId: c.channelId, name: c.name, streams: [], loading: false }));
+    }
     setChannels(results);
 
     setActiveIdx((prev) => {
@@ -47,7 +47,6 @@ export function LiveStreamPlayer() {
     });
     setActiveStreamIdx(0);
 
-    // Auto-select first 4 live channels for multi-view
     setMultiSelections((prev) => {
       if (prev.length > 0) return prev;
       const live = results.map((c, i) => ({ i, live: c.streams.length > 0 })).filter((c) => c.live).map((c) => c.i);
@@ -57,7 +56,7 @@ export function LiveStreamPlayer() {
 
   useEffect(() => {
     fetchAllStreams();
-    const interval = setInterval(fetchAllStreams, 5 * 60 * 1000);
+    const interval = setInterval(fetchAllStreams, 30 * 60 * 1000); // Refresh every 30 min
     return () => clearInterval(interval);
   }, [fetchAllStreams]);
 
