@@ -3,7 +3,9 @@ import { calibrateSwarmPrediction } from "./calibration";
 import { getDb, swarmAgentMemory } from "@/db";
 import { eq, and, isNotNull, desc } from "drizzle-orm";
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+function getOpenAI() {
+  return new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+}
 
 // ─── Types ───
 
@@ -123,7 +125,7 @@ async function gatherKnowledge(question: string): Promise<string> {
   const results = await Promise.all(
     searches.map(async (query) => {
       try {
-        const response = await openai.responses.create({
+        const response = await getOpenAI().responses.create({
           model: "gpt-4o-mini",
           tools: [{ type: "web_search_preview" }],
           input: `Search the web and provide a concise factual summary (5-8 bullet points) of the most relevant recent information for: "${query}"\n\nFocus on HARD DATA only — exact prices, percentages, dollar amounts, dates, specific numbers. No vague opinions. Include timestamps where possible.`,
@@ -148,7 +150,7 @@ async function gatherKnowledge(question: string): Promise<string> {
   // Phase 1b: Build GraphRAG knowledge graph from raw search results
   // Extract entities and relationships for structured reasoning
   try {
-    const graphResponse = await openai.chat.completions.create({
+    const graphResponse = await getOpenAI().chat.completions.create({
       model: "gpt-4o-mini",
       max_tokens: 1000,
       temperature: 0.3,
@@ -281,7 +283,7 @@ function generateAgents(count: number): AgentProfile[] {
 
 async function callAgent(systemPrompt: string, userMsg: string, temp: number): Promise<AgentPrediction | null> {
   try {
-    const res = await openai.chat.completions.create({
+    const res = await getOpenAI().chat.completions.create({
       model: "gpt-4o-mini",
       max_tokens: 150,
       temperature: temp,
