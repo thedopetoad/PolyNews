@@ -44,3 +44,7 @@ next-env.d.ts
 .env*.local
 data/
 mirofish/
+miroshark/
+neo4j-community-*/
+neo4j.zip
+java17.msi
