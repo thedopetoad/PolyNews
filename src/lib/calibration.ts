@@ -1,93 +1,109 @@
 /**
- * Polymarket calibration data built from 13,868 resolved markets.
- * Source: Kaggle dataset (100K+ markets, Dec 2025 snapshot)
- *
- * Each bin shows: when Polymarket prices a market at X%,
- * the actual outcome is Yes Y% of the time.
- *
- * calibrationError = actualWinRate - avgMarketPrice
- * Positive = market underestimates (edge: buy YES)
- * Negative = market overestimates (edge: buy NO)
+ * Pure live calibration — learns exclusively from our own swarm predictions
+ * vs actual market outcomes. No historical baseline. Starts from zero and
+ * improves as more markets resolve.
  */
-const CALIBRATION_BINS = [
-  { lower: 0.00, upper: 0.05, actual: 0.085, error: 0.045, n: 59 },
-  { lower: 0.05, upper: 0.10, actual: 0.089, error: 0.019, n: 768 },
-  { lower: 0.10, upper: 0.15, actual: 0.103, error: -0.018, n: 645 },
-  { lower: 0.15, upper: 0.20, actual: 0.160, error: -0.009, n: 616 },
-  { lower: 0.20, upper: 0.25, actual: 0.201, error: -0.022, n: 690 },
-  { lower: 0.25, upper: 0.30, actual: 0.283, error: 0.013, n: 646 },
-  { lower: 0.30, upper: 0.35, actual: 0.293, error: -0.026, n: 715 },
-  { lower: 0.35, upper: 0.40, actual: 0.362, error: -0.011, n: 722 },
-  { lower: 0.40, upper: 0.45, actual: 0.398, error: -0.017, n: 785 },
-  { lower: 0.45, upper: 0.50, actual: 0.441, error: -0.032, n: 988 },
-  { lower: 0.50, upper: 0.55, actual: 0.514, error: -0.007, n: 1520 },
-  { lower: 0.55, upper: 0.60, actual: 0.551, error: -0.022, n: 768 },
-  { lower: 0.60, upper: 0.65, actual: 0.623, error: 0.003, n: 682 },
-  { lower: 0.65, upper: 0.70, actual: 0.723, error: 0.053, n: 661 },
-  { lower: 0.70, upper: 0.75, actual: 0.714, error: -0.010, n: 664 },
-  { lower: 0.75, upper: 0.80, actual: 0.763, error: -0.005, n: 601 },
-  { lower: 0.80, upper: 0.85, actual: 0.824, error: 0.004, n: 612 },
-  { lower: 0.85, upper: 0.90, actual: 0.872, error: 0.002, n: 612 },
-  { lower: 0.90, upper: 0.95, actual: 0.926, error: 0.006, n: 782 },
-  { lower: 0.95, upper: 1.00, actual: 0.976, error: 0.022, n: 332 },
-];
 
-/**
- * Get the historical calibration error for a given market price.
- * Returns the systematic bias: positive means market underestimates.
- */
-export function getCalibrationError(marketPrice: number): number {
-  const bin = CALIBRATION_BINS.find(
-    (b) => marketPrice >= b.lower && marketPrice < b.upper
-  );
-  return bin?.error || 0;
+import { getDb, swarmPredictions } from "@/db";
+import { isNotNull } from "drizzle-orm";
+
+interface CalibrationBin {
+  range: string;
+  predicted: number;
+  actual: number;
+  count: number;
+  error: number;
 }
 
 /**
- * Get the historically accurate probability for a given market price.
- * Adjusts for Polymarket's systematic biases.
+ * Build live calibration from resolved swarm predictions.
+ * Returns calibration bins showing how accurate the swarm has been
+ * at various prediction levels.
  */
-export function getCalibratedProbability(marketPrice: number): number {
-  const bin = CALIBRATION_BINS.find(
-    (b) => marketPrice >= b.lower && marketPrice < b.upper
-  );
-  if (!bin) return marketPrice;
-  return bin.actual;
+export async function getLiveCalibration(): Promise<{
+  bins: CalibrationBin[];
+  totalPredictions: number;
+  resolvedPredictions: number;
+  accuracy: number;
+}> {
+  try {
+    const db = getDb();
+    const resolved = await db
+      .select()
+      .from(swarmPredictions)
+      .where(isNotNull(swarmPredictions.resolvedOutcome));
+
+    if (resolved.length === 0) {
+      return { bins: [], totalPredictions: 0, resolvedPredictions: 0, accuracy: 0 };
+    }
+
+    // Build bins (10% increments)
+    const bins: Record<string, { predicted: number; actuals: number[]; count: number }> = {};
+    for (let i = 0; i < 10; i++) {
+      const label = `${i * 10}-${(i + 1) * 10}%`;
+      bins[label] = { predicted: 0, actuals: [], count: 0 };
+    }
+
+    let correct = 0;
+    for (const pred of resolved) {
+      const consensus = pred.consensus;
+      const actual = pred.resolvedOutcome!;
+      const binIdx = Math.min(9, Math.floor(consensus / 10));
+      const label = `${binIdx * 10}-${(binIdx + 1) * 10}%`;
+
+      bins[label].predicted += consensus;
+      bins[label].actuals.push(actual);
+      bins[label].count++;
+
+      // Correct if prediction direction matches outcome
+      const predictedYes = consensus > 50;
+      const actualYes = actual > 50;
+      if (predictedYes === actualYes) correct++;
+    }
+
+    const calibrationBins: CalibrationBin[] = Object.entries(bins)
+      .filter(([, b]) => b.count > 0)
+      .map(([range, b]) => {
+        const avgPredicted = b.predicted / b.count;
+        const avgActual = b.actuals.reduce((s, v) => s + v, 0) / b.count;
+        return {
+          range,
+          predicted: Math.round(avgPredicted * 10) / 10,
+          actual: Math.round(avgActual * 10) / 10,
+          count: b.count,
+          error: Math.round((avgActual - avgPredicted) * 10) / 10,
+        };
+      });
+
+    const allPreds = await db.select().from(swarmPredictions);
+
+    return {
+      bins: calibrationBins,
+      totalPredictions: allPreds.length,
+      resolvedPredictions: resolved.length,
+      accuracy: Math.round((correct / resolved.length) * 1000) / 10,
+    };
+  } catch {
+    return { bins: [], totalPredictions: 0, resolvedPredictions: 0, accuracy: 0 };
+  }
 }
 
 /**
- * Apply calibration adjustment to a swarm prediction.
- * Blends the raw swarm consensus with historical calibration data.
- *
- * The calibration tells us where Polymarket systematically misprices.
- * If the swarm agrees with the calibration direction, confidence goes up.
- * If the swarm disagrees, we dampen the prediction.
+ * Simple calibration pass-through — no adjustment until we have live data.
+ * As live predictions resolve, this can be enhanced with learned biases.
  */
 export function calibrateSwarmPrediction(
-  swarmConsensus: number, // 0-100
-  marketPrice: number,    // 0-1
+  swarmConsensus: number,
+  _marketPrice: number,
 ): {
   calibrated: number;
   calibrationAdjustment: number;
   historicalBias: string;
 } {
-  const consensusFrac = swarmConsensus / 100;
-  const calError = getCalibrationError(marketPrice);
-  const historicalActual = getCalibratedProbability(marketPrice);
-
-  // Blend: 70% swarm prediction + 30% historical calibration
-  const blended = consensusFrac * 0.7 + historicalActual * 0.3;
-  const calibrated = Math.round(blended * 1000) / 10; // Back to 0-100
-
-  const adjustment = calibrated - swarmConsensus;
-
-  let historicalBias = "neutral";
-  if (calError > 0.02) historicalBias = "market historically underestimates this range";
-  else if (calError < -0.02) historicalBias = "market historically overestimates this range";
-
+  // Pure pass-through: no adjustment until live data accumulates
   return {
-    calibrated,
-    calibrationAdjustment: Math.round(adjustment * 10) / 10,
-    historicalBias,
+    calibrated: swarmConsensus,
+    calibrationAdjustment: 0,
+    historicalBias: "building calibration from live data",
   };
 }

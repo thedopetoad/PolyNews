@@ -274,7 +274,7 @@ async function callAgent(systemPrompt: string, userMsg: string, temp: number): P
 async function runAgentBatch(
   agents: AgentProfile[],
   userMsg: string,
-  batchSize: number = 40
+  batchSize: number = 100
 ): Promise<(AgentPrediction & { archetype: string })[]> {
   const results: (AgentPrediction & { archetype: string })[] = [];
 
@@ -318,7 +318,7 @@ function analyzeClusters(predictions: AgentPrediction[]): { bullCluster: Cluster
 export async function runSwarmPrediction(
   question: string,
   marketPrice: number,
-  agentCount: number = 200
+  agentCount: number = 4096
 ): Promise<SwarmResult> {
   const pct = (marketPrice * 100).toFixed(0);
 

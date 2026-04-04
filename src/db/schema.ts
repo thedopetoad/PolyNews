@@ -84,6 +84,8 @@ export const swarmPredictions = pgTable("swarm_predictions", {
   agentCount: integer("agent_count"),
   rounds: integer("rounds"),
   fullResult: text("full_result").notNull(), // JSON blob
+  resolvedOutcome: real("resolved_outcome"), // null until market resolves, then 0-100
+  resolvedAt: timestamp("resolved_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
