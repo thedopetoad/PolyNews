@@ -2,6 +2,7 @@ import OpenAI from "openai";
 import { calibrateSwarmPrediction } from "./calibration";
 import { getDb, swarmAgentMemory } from "@/db";
 import { eq, and, isNotNull, desc } from "drizzle-orm";
+import { updateProgress, resetProgress } from "./swarm-progress";
 
 function getOpenAI() {
   return new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -378,10 +379,14 @@ export async function runSwarmPrediction(
   const pct = (marketPrice * 100).toFixed(0);
 
   // Phase 1: Deep knowledge gathering
+  resetProgress();
+  updateProgress({ running: true, startedAt: Date.now(), totalAgents: agentCount, totalRounds: 10 });
+  updateProgress({ phase: "knowledge", status: "Searching the web (8 searches + GraphRAG)...", lastLog: "Phase 1: Knowledge gathering started" });
   console.log("[Swarm] Phase 1: Gathering knowledge...");
   const webContext = await gatherKnowledge(question);
 
   // Phase 2: Generate agents + load memory
+  updateProgress({ phase: "knowledge", status: "Knowledge graph built. Generating agents...", lastLog: "Phase 1 complete. GraphRAG built." });
   console.log(`[Swarm] Phase 2: Generating ${agentCount} agents + loading memory...`);
   const agents = generateAgents(agentCount);
 
@@ -412,14 +417,17 @@ export async function runSwarmPrediction(
   const agentHistory: Map<string, number[]> = new Map();
 
   // ─── Rounds 1-2: Independent Analysis ───
+  updateProgress({ phase: "independent", status: "Round 1: Independent analysis...", round: 1, agentsDone: 0, lastLog: `${agentCount} agents generated. Starting Round 1.` });
   console.log("[Swarm] Rounds 1-2: Independent analysis...");
   const makeProgress = (phase: string, round: number) => (done: number, total: number) => {
     if (onProgress) onProgress(phase, round, 10, done, total);
+    updateProgress({ round, agentsDone: done, roundPct: Math.round((done / total) * 100), status: `Round ${round}: ${done}/${total} agents (${Math.round((done / total) * 100)}%)` });
   };
 
   const r1 = await runAgentBatch(agents, baseQ, 50, makeProgress("Independent Analysis", 1));
   const r1Avg = r1.reduce((s, p) => s + p.probability, 0) / (r1.length || 1);
   roundAvgs.push(Math.round(r1Avg));
+  updateProgress({ roundAvg: Math.round(r1Avg), roundAvgs: [...roundAvgs], lastLog: `R1 done: ${r1.length} agents responded, avg ${Math.round(r1Avg)}%` });
   r1.forEach((p, i) => {
     allLogs.push({ archetype: p.archetype, round: 1, probability: p.probability, confidence: p.confidence, reasoning: p.reasoning });
     const key = `${p.archetype}-${i % 10}`;
@@ -429,6 +437,7 @@ export async function runSwarmPrediction(
   const r2 = await runAgentBatch(agents, baseQ, 50, makeProgress("Independent Analysis", 2));
   const r2Avg = r2.reduce((s, p) => s + p.probability, 0) / (r2.length || 1);
   roundAvgs.push(Math.round(r2Avg));
+  updateProgress({ phase: "social", roundAvg: Math.round(r2Avg), roundAvgs: [...roundAvgs], lastLog: `R2 done: ${r2.length} agents, avg ${Math.round(r2Avg)}%. Starting social simulation.` });
   r2.forEach((p, i) => {
     allLogs.push({ archetype: p.archetype, round: 2, probability: p.probability, confidence: p.confidence, reasoning: p.reasoning });
     const key = `${p.archetype}-${i % 10}`;
@@ -467,13 +476,13 @@ export async function runSwarmPrediction(
     const rN = await runAgentBatch(agents, socialQ, 50, makeProgress("Social Feed", round));
     const rNAvg = rN.reduce((s, p) => s + p.probability, 0) / (rN.length || 1);
     roundAvgs.push(Math.round(rNAvg));
+    updateProgress({ roundAvg: Math.round(rNAvg), roundAvgs: [...roundAvgs], lastLog: `R${round} done: ${rN.length} agents, avg ${Math.round(rNAvg)}%`, phase: round >= 5 ? "cluster" : "social" });
     rN.forEach((p, i) => {
       allLogs.push({ archetype: p.archetype, round, probability: p.probability, confidence: p.confidence, reasoning: p.reasoning });
       const key = `${p.archetype}-${i % 10}`;
       agentHistory.get(key)?.push(p.probability);
     });
 
-    // Update allR12 for next round's social feed
     allR12.push(...rN);
   }
 
@@ -492,6 +501,7 @@ export async function runSwarmPrediction(
     const rN = await runAgentBatch(agents, debateQ, 50, makeProgress("Cluster Debate", round));
     const rNAvg = rN.reduce((s, p) => s + p.probability, 0) / (rN.length || 1);
     roundAvgs.push(Math.round(rNAvg));
+    updateProgress({ roundAvg: Math.round(rNAvg), roundAvgs: [...roundAvgs], lastLog: `R${round} debate: ${rN.length} agents, avg ${Math.round(rNAvg)}%. Bull: ${clusters.bullCluster.size}, Bear: ${clusters.bearCluster.size}`, phase: round >= 8 ? "final" : "cluster" });
     rN.forEach((p, i) => {
       allLogs.push({ archetype: p.archetype, round, probability: p.probability, confidence: p.confidence, reasoning: p.reasoning });
       const key = `${p.archetype}-${i % 10}`;
@@ -518,6 +528,7 @@ export async function runSwarmPrediction(
     const rN = await runAgentBatch(finalAgents, finalQ, 50, makeProgress("Final Calibration", round));
     const rNAvg = rN.reduce((s, p) => s + p.probability, 0) / (rN.length || 1);
     roundAvgs.push(Math.round(rNAvg));
+    updateProgress({ roundAvg: Math.round(rNAvg), roundAvgs: [...roundAvgs], lastLog: `R${round} final: ${rN.length} agents, avg ${Math.round(rNAvg)}%` });
     rN.forEach((p, i) => {
       allLogs.push({ archetype: p.archetype, round, probability: p.probability, confidence: p.confidence, reasoning: p.reasoning });
       const key = `${p.archetype}-${i % 10}`;
@@ -526,6 +537,7 @@ export async function runSwarmPrediction(
   }
 
   // ─── Aggregation ───
+  updateProgress({ phase: "aggregate", status: "Aggregating results + calculating edge...", lastLog: "All 10 rounds complete. Aggregating..." });
   console.log("[Swarm] Aggregating results...");
 
   // Round weights: later rounds count more

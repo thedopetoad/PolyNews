@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Super Swarm Dashboard</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #0d1117; color: #e6edf3; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; padding: 40px; }
+    .container { max-width: 700px; margin: 0 auto; }
+    h1 { font-size: 24px; margin-bottom: 4px; }
+    .subtitle { color: #768390; font-size: 14px; margin-bottom: 30px; }
+    .badge { background: #d29922; color: black; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: bold; margin-right: 8px; }
+    .card { background: #161b22; border: 1px solid #21262d; border-radius: 8px; padding: 20px; margin-bottom: 16px; }
+    .stat-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+    .stat-label { font-size: 10px; color: #484f58; text-transform: uppercase; letter-spacing: 0.5px; }
+    .stat-value { font-size: 28px; font-weight: bold; margin-top: 4px; }
+    .cyan { color: #58a6ff; }
+    .green { color: #3fb950; }
+    .red { color: #f85149; }
+    .yellow { color: #d29922; }
+    .dim { color: #484f58; }
+    .progress-bar { background: #21262d; border-radius: 6px; height: 24px; overflow: hidden; margin: 8px 0; position: relative; }
+    .progress-fill { background: #d29922; height: 100%; border-radius: 6px; transition: width 0.3s ease; }
+    .progress-text { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 11px; font-weight: bold; }
+    .phases { margin: 16px 0; }
+    .phase { display: flex; align-items: center; gap: 10px; padding: 6px 0; font-size: 13px; }
+    .phase-icon { width: 20px; text-align: center; font-size: 14px; }
+    .phase-done { color: #3fb950; }
+    .phase-active { color: #d29922; font-weight: bold; }
+    .phase-pending { color: #484f58; }
+    .trajectory { display: flex; align-items: flex-end; gap: 4px; height: 100px; margin-top: 12px; }
+    .traj-bar { flex: 1; background: #58a6ff; border-radius: 3px 3px 0 0; min-height: 4px; transition: height 0.5s ease; position: relative; }
+    .traj-label { font-size: 9px; color: #484f58; text-align: center; margin-top: 4px; }
+    .traj-value { position: absolute; top: -16px; left: 50%; transform: translateX(-50%); font-size: 9px; color: #768390; white-space: nowrap; }
+    .log { background: #0d1117; border: 1px solid #21262d; border-radius: 6px; padding: 12px; max-height: 200px; overflow-y: auto; font-family: monospace; font-size: 11px; color: #768390; line-height: 1.6; }
+    .cluster { padding: 10px; border-radius: 6px; margin-top: 8px; }
+    .bull { background: rgba(35,134,54,0.1); border: 1px solid rgba(35,134,54,0.2); }
+    .bear { background: rgba(248,81,73,0.1); border: 1px solid rgba(248,81,73,0.2); }
+    #status { font-size: 13px; color: #d29922; margin-bottom: 16px; min-height: 20px; }
+    .results-header { font-size: 18px; font-weight: bold; margin-bottom: 16px; }
+    .hidden { display: none; }
+    button { background: #d29922; color: black; border: none; padding: 10px 24px; border-radius: 6px; font-weight: 600; font-size: 14px; cursor: pointer; }
+    button:hover { background: #b8860b; }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div><span class="badge">BETA</span><h1 style="display:inline">Super Swarm Dashboard</h1></div>
+    <p class="subtitle">S&P 500 Opens Up or Down — April 6 | 4,096 agents × 10 rounds</p>
+
+    <div id="pre-run">
+      <button id="startBtn" onclick="startSwarm()">Run Super Swarm</button>
+      <p style="margin-top:8px;font-size:11px;color:#484f58;">This will take ~30-45 minutes and cost ~$15-25 in OpenAI credits.</p>
+    </div>
+
+    <div id="running" class="hidden">
+      <div class="card">
+        <div class="stat-grid">
+          <div>
+            <div class="stat-label">Elapsed</div>
+            <div class="stat-value cyan" id="elapsed">0:00</div>
+          </div>
+          <div>
+            <div class="stat-label">Round</div>
+            <div class="stat-value" id="round">0/10</div>
+          </div>
+          <div>
+            <div class="stat-label">Agents Done</div>
+            <div class="stat-value" id="agentsDone">0</div>
+          </div>
+        </div>
+
+        <div class="stat-label">Current Phase</div>
+        <div id="status">Initializing...</div>
+
+        <div class="progress-bar">
+          <div class="progress-fill" id="progressFill" style="width:0%"></div>
+          <div class="progress-text" id="progressText">0%</div>
+        </div>
+
+        <div class="phases" id="phases">
+          <div class="phase phase-pending" id="phase-knowledge"><span class="phase-icon">○</span> Knowledge Gathering (8 web searches + GraphRAG)</div>
+          <div class="phase phase-pending" id="phase-independent"><span class="phase-icon">○</span> Independent Analysis (Rounds 1-2)</div>
+          <div class="phase phase-pending" id="phase-social"><span class="phase-icon">○</span> Social Feed Simulation (Rounds 3-5)</div>
+          <div class="phase phase-pending" id="phase-cluster"><span class="phase-icon">○</span> Cluster Debate (Rounds 6-8)</div>
+          <div class="phase phase-pending" id="phase-final"><span class="phase-icon">○</span> Final Calibration (Rounds 9-10)</div>
+          <div class="phase phase-pending" id="phase-aggregate"><span class="phase-icon">○</span> Aggregation + Edge Detection</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="stat-label">Consensus Trajectory</div>
+        <div class="trajectory" id="trajectory"></div>
+      </div>
+
+      <div class="card">
+        <div class="stat-label">Live Log</div>
+        <div class="log" id="log"></div>
+      </div>
+    </div>
+
+    <div id="results" class="hidden">
+      <div class="card">
+        <div class="results-header green">Swarm Complete!</div>
+        <div class="stat-grid">
+          <div>
+            <div class="stat-label">Swarm Consensus</div>
+            <div class="stat-value cyan" id="r-consensus">—</div>
+          </div>
+          <div>
+            <div class="stat-label">Edge</div>
+            <div class="stat-value" id="r-edge">—</div>
+          </div>
+          <div>
+            <div class="stat-label">Signal</div>
+            <div class="stat-value" id="r-signal">—</div>
+          </div>
+        </div>
+        <div style="margin-top:12px">
+          <div class="stat-label">Cluster Analysis</div>
+          <div class="cluster bull" id="r-bull"></div>
+          <div class="cluster bear" id="r-bear"></div>
+        </div>
+        <p style="margin-top:16px;font-size:12px;color:#484f58;" id="r-meta"></p>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let startTime;
+    let elapsedTimer;
+    const logEl = document.getElementById('log');
+
+    function log(msg) {
+      const time = new Date().toLocaleTimeString();
+      logEl.innerHTML += `<div>[${time}] ${msg}</div>`;
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+
+    function updateElapsed() {
+      const s = Math.floor((Date.now() - startTime) / 1000);
+      const m = Math.floor(s / 60);
+      const sec = s % 60;
+      document.getElementById('elapsed').textContent = `${m}:${sec.toString().padStart(2, '0')}`;
+    }
+
+    function setPhase(phaseId) {
+      const phaseMap = { knowledge: 'phase-knowledge', independent: 'phase-independent', social: 'phase-social', cluster: 'phase-cluster', final: 'phase-final', aggregate: 'phase-aggregate' };
+      const order = ['knowledge', 'independent', 'social', 'cluster', 'final', 'aggregate'];
+      const idx = order.indexOf(phaseId);
+      for (let i = 0; i < order.length; i++) {
+        const el = document.getElementById(phaseMap[order[i]]);
+        if (i < idx) { el.className = 'phase phase-done'; el.querySelector('.phase-icon').textContent = '✓'; }
+        else if (i === idx) { el.className = 'phase phase-active'; el.querySelector('.phase-icon').textContent = '▶'; }
+        else { el.className = 'phase phase-pending'; el.querySelector('.phase-icon').textContent = '○'; }
+      }
+    }
+
+    function updateProgress(round, pct, agentsDone) {
+      document.getElementById('round').textContent = `${round}/10`;
+      document.getElementById('progressFill').style.width = pct + '%';
+      document.getElementById('progressText').textContent = pct + '%';
+      document.getElementById('agentsDone').textContent = agentsDone.toLocaleString();
+    }
+
+    function addTrajectoryBar(round, value) {
+      const container = document.getElementById('trajectory');
+      const wrapper = document.createElement('div');
+      wrapper.style.flex = '1';
+      wrapper.style.display = 'flex';
+      wrapper.style.flexDirection = 'column';
+      wrapper.style.alignItems = 'center';
+      const bar = document.createElement('div');
+      bar.className = 'traj-bar';
+      bar.style.height = Math.max(5, value) + '%';
+      if (round >= 9) bar.style.background = '#58a6ff';
+      else if (round >= 6) bar.style.opacity = '0.7';
+      else if (round >= 3) bar.style.opacity = '0.5';
+      else bar.style.opacity = '0.3';
+      const valEl = document.createElement('div');
+      valEl.className = 'traj-value';
+      valEl.textContent = value + '%';
+      bar.appendChild(valEl);
+      wrapper.appendChild(bar);
+      const label = document.createElement('div');
+      label.className = 'traj-label';
+      label.textContent = 'R' + round;
+      wrapper.appendChild(label);
+      container.appendChild(wrapper);
+    }
+
+    async function startSwarm() {
+      document.getElementById('pre-run').classList.add('hidden');
+      document.getElementById('running').classList.remove('hidden');
+      startTime = Date.now();
+      elapsedTimer = setInterval(updateElapsed, 1000);
+
+      log('Starting Super Swarm...');
+
+      // Poll the progress endpoint
+      const pollProgress = setInterval(async () => {
+        try {
+          const res = await fetch('/api/swarm/progress');
+          if (!res.ok) return;
+          const data = await res.json();
+          if (data.phase) {
+            document.getElementById('status').textContent = data.status;
+            setPhase(data.phase);
+            updateProgress(data.round, data.roundPct, data.agentsDone);
+            if (data.lastLog) log(data.lastLog);
+            if (data.roundAvg && data.round > 0) {
+              // Update trajectory
+              const container = document.getElementById('trajectory');
+              if (container.children.length < data.round) {
+                addTrajectoryBar(data.round, data.roundAvg);
+              }
+            }
+          }
+        } catch {}
+      }, 2000);
+
+      try {
+        log('Calling /api/swarm...');
+        const res = await fetch('/api/swarm', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            marketQuestion: 'S&P 500 Opens Up or Down on April 6?',
+            marketPrice: 0.50,
+            marketId: 'sp500-opens-up-down-april-6',
+            agentCount: 4096,
+          }),
+        });
+
+        clearInterval(pollProgress);
+        clearInterval(elapsedTimer);
+
+        if (!res.ok) {
+          log('ERROR: ' + (await res.text()));
+          return;
+        }
+
+        const result = await res.json();
+        log('Swarm complete! Showing results...');
+
+        // Show results
+        document.getElementById('running').classList.add('hidden');
+        document.getElementById('results').classList.remove('hidden');
+        document.getElementById('r-consensus').textContent = result.consensus?.toFixed(1) + '%';
+        const edgeEl = document.getElementById('r-edge');
+        edgeEl.textContent = (result.edge > 0 ? '+' : '') + result.edge?.toFixed(1) + '%';
+        edgeEl.className = 'stat-value ' + (result.edge > 3 ? 'green' : result.edge < -3 ? 'red' : 'yellow');
+        const sigEl = document.getElementById('r-signal');
+        sigEl.textContent = result.recommendation;
+        sigEl.className = 'stat-value ' + (result.recommendation?.includes('BUY YES') ? 'green' : result.recommendation?.includes('BUY NO') ? 'red' : 'dim');
+
+        if (result.clusterAnalysis) {
+          document.getElementById('r-bull').innerHTML = `<span class="green" style="font-weight:600">BULL (${result.clusterAnalysis.bullCluster?.size} agents, avg ${result.clusterAnalysis.bullCluster?.avgPrediction}%)</span><p style="font-size:12px;color:#768390;margin-top:4px">${result.clusterAnalysis.bullCluster?.topArgument}</p>`;
+          document.getElementById('r-bear').innerHTML = `<span class="red" style="font-weight:600">BEAR (${result.clusterAnalysis.bearCluster?.size} agents, avg ${result.clusterAnalysis.bearCluster?.avgPrediction}%)</span><p style="font-size:12px;color:#768390;margin-top:4px">${result.clusterAnalysis.bearCluster?.topArgument}</p>`;
+        }
+
+        document.getElementById('r-meta').textContent = `${result.agentCount?.toLocaleString()} agents | ${result.rounds} rounds | Kelly: ${result.kellyScore?.toFixed(3)} | Stability: ${(result.consensusStability * 100)?.toFixed(0)}% | Saved to database`;
+
+      } catch (err) {
+        clearInterval(pollProgress);
+        clearInterval(elapsedTimer);
+        log('FATAL ERROR: ' + err.message);
+      }
+    }
+  </script>
+</body>
+</html>
