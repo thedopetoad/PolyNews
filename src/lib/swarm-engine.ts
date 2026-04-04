@@ -86,37 +86,69 @@ function getSearchQueries(question: string): string[] {
 
   if (isFinancial) {
     return [
-      `${question} latest price action, recent trading data, current level`,
-      `${question} technical analysis, support resistance levels, moving averages, RSI`,
-      `${question} futures, pre-market, overnight trading data today`,
-      `macroeconomic factors affecting ${question}: Fed policy, interest rates, inflation data CPI`,
-      `${question} analyst predictions forecasts this week`,
-      `geopolitical risks tariffs trade war impact on ${question}`,
-      `${question} historical pattern: what usually happens in similar conditions`,
-      `market sentiment VIX fear greed index put call ratio related to ${question}`,
+      // Current state
+      `${question} current price level today, last close, after hours movement`,
+      `${question} latest trading session recap: what happened, key levels, volume`,
+      // Technical
+      `${question} technical analysis chart: 50 day moving average, 200 day moving average, RSI, MACD, Bollinger bands`,
+      `${question} key support and resistance levels, pivot points, Fibonacci retracement`,
+      // Futures & pre-market
+      `${question} futures right now, pre-market data, overnight session, Asian and European session`,
+      `S&P 500 futures ES contract current level and direction today`,
+      // Macro
+      `Federal Reserve latest statement, interest rate decision, dot plot, quantitative tightening 2026`,
+      `latest CPI PPI inflation data, jobs report NFP, unemployment rate, GDP growth 2026`,
+      `US Treasury yields 10 year 2 year spread, yield curve inversion status today`,
+      // Geopolitical
+      `Trump tariffs trade war latest news impact on stock market April 2026`,
+      `major geopolitical risks affecting markets today: wars, sanctions, oil supply`,
+      // Sentiment
+      `VIX volatility index current level, fear and greed index, put call ratio today`,
+      `Wall Street analyst consensus, Goldman Sachs JP Morgan market outlook this week`,
+      // Historical
+      `S&P 500 historical pattern: what happens on Mondays, day of week effect, seasonal patterns April`,
+      `stock market performance after tariff announcements historically`,
     ];
   }
 
   if (isGeopolitical) {
     return [
-      `Latest news and developments: ${question}`,
-      `Military movements, troop deployments, intelligence reports related to: ${question}`,
-      `Diplomatic negotiations, sanctions, UN resolutions related to: ${question}`,
-      `Historical precedents for similar geopolitical situations to: ${question}`,
-      `Expert analysis and think tank assessments of: ${question}`,
-      `Economic and oil market implications of: ${question}`,
-      `Public statements from government officials about: ${question}`,
+      // Breaking news
+      `${question} latest breaking news today`,
+      `${question} latest developments past 48 hours`,
+      // Military
+      `US military deployments Middle East, aircraft carriers, troop movements near Iran 2026`,
+      `Iran military capabilities, nuclear program status, IRGC activities 2026`,
+      // Diplomatic
+      `US Iran diplomatic channels, negotiations, back channel communications 2026`,
+      `UN Security Council resolutions sanctions Iran latest`,
+      `allied nations positions on ${question}: UK, France, Israel, Saudi Arabia`,
+      // Intelligence
+      `intelligence assessments threat level Iran conflict probability 2026`,
+      `think tank analysis RAND Brookings CSIS on US Iran conflict probability`,
+      // Economic
+      `oil price impact if US strikes Iran, Strait of Hormuz shipping risk`,
+      `defense stocks military industrial complex stocks movement related to Iran tensions`,
+      // Historical
+      `historical US military operations Middle East: Iraq, Syria, Libya — what preceded them`,
+      `US Iran near-miss conflicts: 2020 Soleimani, tanker wars — how close to war`,
+      // Prediction markets
+      `prediction market odds US Iran conflict, Polymarket Metaculus forecasts`,
     ];
   }
 
   // Default: political/general
   return [
-    `Latest news, polls, and predictions for: ${question}`,
-    `Key controversies, legal issues, or scandals related to: ${question}`,
-    `Endorsements, fundraising, and institutional support for: ${question}`,
-    `Historical precedents and base rates for similar situations to: ${question}`,
-    `Expert analysis and forecasts for: ${question}`,
-    `Public opinion, sentiment, and social media trends for: ${question}`,
+    `${question} latest news and developments today`,
+    `${question} latest polls, surveys, prediction market odds`,
+    `${question} key players, endorsements, institutional positions`,
+    `${question} controversies, legal issues, potential disqualifiers`,
+    `${question} fundraising data, campaign finance, spending`,
+    `${question} demographic analysis, voter turnout expectations`,
+    `${question} expert analysis, political scientist assessments`,
+    `${question} historical precedents, base rates for similar situations`,
+    `${question} social media sentiment, public opinion trends`,
+    `${question} upcoming catalysts, scheduled events, deadlines`,
   ];
 }
 
@@ -129,13 +161,13 @@ async function gatherKnowledge(question: string): Promise<string> {
         const response = await getOpenAI().responses.create({
           model: "gpt-4o-mini",
           tools: [{ type: "web_search_preview" }],
-          input: `Search the web and provide a concise factual summary (5-8 bullet points) of the most relevant recent information for: "${query}"\n\nFocus on HARD DATA only — exact prices, percentages, dollar amounts, dates, specific numbers. No vague opinions. Include timestamps where possible.`,
+          input: `Search the web thoroughly and provide a detailed factual summary (8-12 bullet points) of the most relevant recent information for: "${query}"\n\nFocus on HARD DATA only — exact prices, percentages, dollar amounts, dates, specific numbers, named sources. No vague opinions. Include exact timestamps and sources where possible. Be thorough — more data is better.`,
         });
         const textOutput = response.output.find((o) => o.type === "message");
         if (textOutput && textOutput.type === "message") {
           const textContent = textOutput.content.find((c) => c.type === "output_text");
           if (textContent && textContent.type === "output_text") {
-            return textContent.text.slice(0, 800);
+            return textContent.text.slice(0, 1200);
           }
         }
         return "";
@@ -153,7 +185,7 @@ async function gatherKnowledge(question: string): Promise<string> {
   try {
     const graphResponse = await getOpenAI().chat.completions.create({
       model: "gpt-4o-mini",
-      max_tokens: 1000,
+      max_tokens: 2000,
       temperature: 0.3,
       messages: [
         {
@@ -172,15 +204,15 @@ Be data-dense. Every claim should have a number attached.`,
         },
         {
           role: "user",
-          content: `Build a knowledge graph for the prediction market: "${question}"\n\nRaw research:\n${combined.slice(0, 3000)}`,
+          content: `Build a comprehensive knowledge graph for the prediction market: "${question}"\n\nRaw research:\n${combined.slice(0, 6000)}`,
         },
       ],
     });
 
     const graph = graphResponse.choices[0]?.message?.content || "";
-    return `KNOWLEDGE GRAPH:\n${graph}\n\nRAW RESEARCH:\n${combined.slice(0, 3000)}`;
+    return `KNOWLEDGE GRAPH:\n${graph}\n\nRAW RESEARCH:\n${combined.slice(0, 5000)}`;
   } catch {
-    return combined.slice(0, 4000);
+    return combined.slice(0, 8000);
   }
 }
 
