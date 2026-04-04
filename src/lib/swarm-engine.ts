@@ -323,7 +323,7 @@ export type SwarmProgressCallback = (phase: string, round: number, totalRounds: 
 async function runAgentBatch(
   agents: AgentProfile[],
   userMsg: string,
-  batchSize: number = 50,
+  batchSize: number = 25,
   onProgress?: (done: number, total: number) => void,
 ): Promise<(AgentPrediction & { archetype: string })[]> {
   const results: (AgentPrediction & { archetype: string })[] = [];
@@ -373,7 +373,7 @@ function analyzeClusters(predictions: AgentPrediction[]): { bullCluster: Cluster
 export async function runSwarmPrediction(
   question: string,
   marketPrice: number,
-  agentCount: number = 4096,
+  agentCount: number = 500,
   onProgress?: SwarmProgressCallback,
 ): Promise<SwarmResult> {
   const pct = (marketPrice * 100).toFixed(0);

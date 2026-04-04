@@ -82,7 +82,7 @@ export default function SwarmDashboard() {
           marketQuestion: "S&P 500 Opens Up or Down on April 6?",
           marketPrice: 0.50,
           marketId: "sp500-opens-up-down-april-6",
-          agentCount: 4096,
+          agentCount: 500,
         }),
       });
 
@@ -110,7 +110,7 @@ export default function SwarmDashboard() {
           <span className="text-[10px] font-bold text-black bg-[#d29922] px-2 py-0.5 rounded">LIVE</span>
           <h1 className="text-2xl font-bold">Super Swarm Dashboard</h1>
         </div>
-        <p className="text-sm text-[#768390] mb-6">S&P 500 Opens Up or Down — April 6 | 4,096 agents x 10 rounds</p>
+        <p className="text-sm text-[#768390] mb-6">S&P 500 Opens Up or Down — April 6 | 500 agents x 10 rounds</p>
 
         {/* Start button */}
         {!running && !result && (

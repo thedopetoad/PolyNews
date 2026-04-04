@@ -173,7 +173,7 @@ export default function SuperSwarmPage() {
           <h1 className="text-2xl font-bold text-white">Super Swarm Prediction</h1>
         </div>
         <p className="text-sm text-[#768390]">
-          4,096 AI agents with 20 archetypes debate across 10 rounds of social simulation.
+          500 AI agents with 20 archetypes debate across 10 rounds of social simulation.
           GraphRAG knowledge graphs, persistent agent memory, and live calibration.
         </p>
       </div>
