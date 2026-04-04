@@ -1,4 +1,5 @@
 import OpenAI from "openai";
+import { calibrateSwarmPrediction } from "./calibration";
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
@@ -39,6 +40,9 @@ export interface SwarmResult {
   };
   roundProgression: number[];
   consensusStability: number;
+  calibratedConsensus: number;
+  calibrationAdjustment: number;
+  historicalBias: string;
   webContext: string;
   agentLogs: { archetype: string; round: number; probability: number; confidence: number; reasoning: string }[];
 }
@@ -368,14 +372,32 @@ export async function runSwarmPrediction(
   const finalPreds = allLogs.filter((l) => l.round === 10);
   const finalClusters = analyzeClusters(finalPreds.map((l) => ({ probability: l.probability, confidence: l.confidence, reasoning: l.reasoning })));
 
+  // Apply historical calibration (13,868 resolved markets)
+  const cal = calibrateSwarmPrediction(consensus, marketPrice);
+
+  // Recalculate edge using calibrated consensus
+  const calEdge = cal.calibrated - marketPricePct;
+  const calAbsEdge = Math.abs(calEdge);
+  const calDirection = calEdge > 2 ? "undervalued" : calEdge < -2 ? "overvalued" : "neutral";
+  const calImplied = cal.calibrated / 100;
+  const calKelly = calAbsEdge > 2 ? (calImplied * (1 / marketPrice - 1) - (1 - calImplied)) / (1 / marketPrice - 1) : 0;
+
+  let calRecommendation = "NO EDGE";
+  if (calKelly > 0.05 && calEdge > 3) calRecommendation = "BUY YES";
+  else if (calKelly > 0.05 && calEdge < -3) calRecommendation = "BUY NO";
+  else if (calAbsEdge > 2) calRecommendation = "SLIGHT EDGE";
+
   return {
     consensus: Math.round(consensus * 10) / 10,
+    calibratedConsensus: cal.calibrated,
+    calibrationAdjustment: cal.calibrationAdjustment,
+    historicalBias: cal.historicalBias,
     marketPrice: marketPricePct,
-    edge: Math.round(edge * 10) / 10,
-    edgeDirection,
+    edge: Math.round(calEdge * 10) / 10,
+    edgeDirection: calDirection,
     confidence: Math.round(avgConfidence),
-    kellyScore: Math.round(kellyScore * 1000) / 1000,
-    recommendation,
+    kellyScore: Math.round(calKelly * 1000) / 1000,
+    recommendation: calRecommendation,
     agentCount: agents.length,
     rounds: 10,
     clusterAnalysis: finalClusters,

@@ -35,6 +35,9 @@ interface SwarmResult {
     bearCluster: ClusterInfo;
     undecided: ClusterInfo;
   };
+  calibratedConsensus: number;
+  calibrationAdjustment: number;
+  historicalBias: string;
   roundProgression: number[];
   consensusStability: number;
   webContext: string;
@@ -208,19 +211,24 @@ export default function AIBetaPage() {
           <div className="rounded-lg border border-[#30363d] bg-[#161b22] p-6">
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-6">
               <div>
-                <p className="text-[10px] text-[#484f58] uppercase">Swarm Consensus</p>
-                <p className="text-3xl font-bold text-[#58a6ff] tabular-nums">{result.consensus.toFixed(1)}%</p>
+                <p className="text-[10px] text-[#484f58] uppercase">Raw Swarm</p>
+                <p className="text-xl font-bold text-[#768390] tabular-nums">{result.consensus.toFixed(1)}%</p>
+                <p className="text-[10px] text-[#484f58] uppercase mt-2">Calibrated</p>
+                <p className="text-3xl font-bold text-[#58a6ff] tabular-nums">{result.calibratedConsensus.toFixed(1)}%</p>
+                <p className="text-[10px] text-[#484f58]">{result.calibrationAdjustment > 0 ? "+" : ""}{result.calibrationAdjustment.toFixed(1)}% adj</p>
               </div>
               <div>
-                <p className="text-[10px] text-[#484f58] uppercase">Edge</p>
+                <p className="text-[10px] text-[#484f58] uppercase">Edge vs Market</p>
                 <p className={cn("text-3xl font-bold tabular-nums", edgeColor)}>
                   {result.edge > 0 ? "+" : ""}{result.edge.toFixed(1)}%
                 </p>
                 <p className="text-[11px] text-[#484f58]">{result.edgeDirection}</p>
+                <p className="text-[10px] text-[#484f58] mt-1">{result.historicalBias}</p>
               </div>
               <div>
                 <p className="text-[10px] text-[#484f58] uppercase">Kelly Score</p>
                 <p className="text-2xl font-bold text-white tabular-nums">{result.kellyScore.toFixed(3)}</p>
+                <p className="text-[10px] text-[#484f58] mt-1">Confidence: {result.confidence}%</p>
               </div>
               <div>
                 <p className="text-[10px] text-[#484f58] uppercase">Recommendation</p>
@@ -232,6 +240,7 @@ export default function AIBetaPage() {
                 )}>
                   {result.recommendation}
                 </p>
+                <p className="text-[10px] text-[#484f58] mt-1">Based on 13,868 historical markets</p>
               </div>
             </div>
           </div>
