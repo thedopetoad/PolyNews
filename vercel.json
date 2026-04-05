@@ -1,8 +1,3 @@
 {
-  "crons": [
-    {
-      "path": "/api/swarm/resolve",
-      "schedule": "0 0 * * *"
-    }
-  ]
+  "crons": []
 }

@@ -37,6 +37,9 @@ export async function POST(request: NextRequest) {
 
     let amount = 0;
 
+    // Use UTC date to avoid timezone mismatches between server and client
+    const todayUTC = new Date().toISOString().slice(0, 10); // "YYYY-MM-DD"
+
     if (type === "signup") {
       if (user.hasSignupAirdrop) {
         return NextResponse.json(
@@ -65,8 +68,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: "Already claimed" }, { status: 400 });
       }
     } else if (type === "daily") {
-      const today = new Date().toDateString();
-      if (user.lastDailyAirdrop === today) {
+      if (user.lastDailyAirdrop === todayUTC) {
         return NextResponse.json({ error: "Already claimed today" }, { status: 400 });
       }
       amount = AIRDROP_AMOUNTS.daily;
@@ -76,12 +78,12 @@ export async function POST(request: NextRequest) {
         .update(users)
         .set({
           balance: sql`${users.balance} + ${amount}`,
-          lastDailyAirdrop: today,
+          lastDailyAirdrop: todayUTC,
         })
         .where(
           and(
             eq(users.id, normalizedUserId),
-            sql`${users.lastDailyAirdrop} IS DISTINCT FROM ${today}`
+            sql`${users.lastDailyAirdrop} IS DISTINCT FROM ${todayUTC}`
           )
         )
         .returning();

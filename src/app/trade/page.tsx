@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useEffect, useCallback, useRef } from "react";
+import { useMemo, useState, useEffect, useCallback } from "react";
 import { usePolymarketEvents } from "@/hooks/use-polymarket";
 import { useUser, DbPosition } from "@/hooks/use-user";
 import {
@@ -10,7 +10,6 @@ import {
   PolymarketEvent,
   MarketWithPrices,
 } from "@/types/polymarket";
-import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
@@ -18,6 +17,14 @@ import { AIRDROP_AMOUNTS, POLYMARKET_BASE_URL } from "@/lib/constants";
 import { LoginButton } from "@/components/layout/login-modal";
 import { getTopConsensusMarkets } from "@/lib/market-filters";
 import { useLivePrices, usePositionLivePrices } from "@/hooks/use-live-prices";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+  DialogClose,
+} from "@/components/ui/dialog";
 
 /* ─── Daily Countdown ─── */
 function DailyCountdown() {
@@ -51,103 +58,218 @@ interface ConsensusResult {
   trend: string;
 }
 
-/* ─── BTC 5-Min Market Types ─── */
-interface Btc5mActive {
-  id: string;
-  question: string;
-  slug: string;
-  endDate: string;
-  marketId: string;
-  conditionId: string;
-  upPrice: number;
-  downPrice: number;
-  volume: string;
-  windowStart: number;
-  windowEnd: number;
-  secondsRemaining: number;
+/* ─── Trade Confirmation Dialog ─── */
+interface PendingTrade {
+  marketQuestion: string;
+  outcome: string;
+  shares: number;
+  price: number;
+  cost: number;
+  side: "buy" | "sell";
+  potentialWin?: number;
+  pnl?: number;
 }
 
-interface Btc5mPrevious {
-  id: string;
-  marketId: string;
-  question: string;
-  closed: boolean;
-  resolved: boolean;
-  outcome: string | null;
-}
-
-interface Btc5mData {
-  active: Btc5mActive | null;
-  previous: Btc5mPrevious | null;
-}
-
-/* ─── BTC 5-Min Hook ─── */
-function useBtc5m() {
-  const [data, setData] = useState<Btc5mData | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  const fetchData = useCallback(async () => {
-    try {
-      const res = await fetch("/api/polymarket/btc5m");
-      if (res.ok) setData(await res.json());
-    } catch {}
-    setLoading(false);
-  }, []);
-
-  useEffect(() => {
-    fetchData();
-    const interval = setInterval(fetchData, 10000); // Poll every 10 seconds
-    return () => clearInterval(interval);
-  }, [fetchData]);
-
-  return { data, loading, refetch: fetchData };
-}
-
-/* ─── BTC 5-Min Countdown ─── */
-function Btc5mCountdown({ windowEnd }: { windowEnd: number }) {
-  const [timeLeft, setTimeLeft] = useState("");
-  const [expired, setExpired] = useState(false);
-
-  useEffect(() => {
-    const update = () => {
-      const remaining = windowEnd - Math.floor(Date.now() / 1000);
-      if (remaining <= 0) {
-        setTimeLeft("0:00");
-        setExpired(true);
-      } else {
-        const m = Math.floor(remaining / 60);
-        const s = remaining % 60;
-        setTimeLeft(`${m}:${s.toString().padStart(2, "0")}`);
-        setExpired(false);
-      }
-    };
-    update();
-    const interval = setInterval(update, 1000);
-    return () => clearInterval(interval);
-  }, [windowEnd]);
+function TradeConfirmDialog({
+  pending,
+  onClose,
+  onConfirm,
+  isLoading,
+}: {
+  pending: PendingTrade | null;
+  onClose: () => void;
+  onConfirm: () => void;
+  isLoading: boolean;
+}) {
+  if (!pending) return null;
+  const isBuy = pending.side === "buy";
 
   return (
-    <span className={cn(
-      "text-lg font-bold tabular-nums",
-      expired ? "text-[#d29922] animate-pulse" : "text-[#e6edf3]"
-    )}>
-      {expired ? "Resolving..." : timeLeft}
-    </span>
+    <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
+      <DialogContent className="bg-[#161b22] border-[#30363d] text-white">
+        <DialogHeader>
+          <DialogTitle className="text-white">
+            {isBuy ? "Confirm Buy" : "Confirm Close Position"}
+          </DialogTitle>
+        </DialogHeader>
+
+        <div className="space-y-3 py-2">
+          <p className="text-[13px] text-[#e6edf3] font-medium leading-snug">{pending.marketQuestion}</p>
+
+          <div className="grid grid-cols-2 gap-3 bg-[#0d1117] rounded-lg p-3 border border-[#21262d]">
+            <div>
+              <p className="text-[10px] text-[#484f58] uppercase">Side</p>
+              <span className={cn(
+                "text-sm font-semibold",
+                pending.outcome === "Yes" ? "text-[#3fb950]" : "text-[#f85149]"
+              )}>
+                {pending.outcome}
+              </span>
+            </div>
+            <div>
+              <p className="text-[10px] text-[#484f58] uppercase">Shares</p>
+              <p className="text-sm text-[#e6edf3] tabular-nums">{pending.shares}</p>
+            </div>
+            <div>
+              <p className="text-[10px] text-[#484f58] uppercase">Price</p>
+              <p className="text-sm text-[#e6edf3] tabular-nums">{(pending.price * 100).toFixed(0)}%</p>
+            </div>
+            <div>
+              <p className="text-[10px] text-[#484f58] uppercase">{isBuy ? "Cost" : "Proceeds"}</p>
+              <p className="text-sm text-[#e6edf3] tabular-nums">{pending.cost.toFixed(2)} PST</p>
+            </div>
+          </div>
+
+          {isBuy && pending.potentialWin !== undefined && pending.potentialWin > 0 && (
+            <div className="flex items-center justify-between bg-[#238636]/10 rounded-lg px-3 py-2 border border-[#238636]/20">
+              <span className="text-xs text-[#768390]">Potential win</span>
+              <span className="text-lg font-bold text-[#3fb950] tabular-nums">{pending.potentialWin.toFixed(0)} PST</span>
+            </div>
+          )}
+
+          {!isBuy && pending.pnl !== undefined && (
+            <div className={cn(
+              "flex items-center justify-between rounded-lg px-3 py-2 border",
+              pending.pnl >= 0
+                ? "bg-[#238636]/10 border-[#238636]/20"
+                : "bg-[#f85149]/10 border-[#f85149]/20"
+            )}>
+              <span className="text-xs text-[#768390]">P&L</span>
+              <span className={cn("text-lg font-bold tabular-nums", pending.pnl >= 0 ? "text-[#3fb950]" : "text-[#f85149]")}>
+                {pending.pnl >= 0 ? "+" : ""}{pending.pnl.toFixed(0)} PST
+              </span>
+            </div>
+          )}
+        </div>
+
+        <DialogFooter>
+          <DialogClose render={<Button variant="outline" className="border-[#30363d] text-[#768390] hover:text-white" />}>
+            Cancel
+          </DialogClose>
+          <Button
+            onClick={onConfirm}
+            disabled={isLoading}
+            className={cn(
+              "font-medium",
+              isBuy
+                ? "bg-[#238636] hover:bg-[#2ea043] text-white"
+                : "bg-[#f85149] hover:bg-[#f85149]/80 text-white"
+            )}
+          >
+            {isLoading ? "Processing..." : isBuy ? "Confirm Buy" : "Confirm Close"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/* ─── Mini Price Chart (pure SVG, no dependencies) ─── */
+function MiniPriceChart({ tokenId }: { tokenId: string }) {
+  const [history, setHistory] = useState<{ t: number; p: number }[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`/api/polymarket/price-history?token_id=${tokenId}`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (!cancelled && data.history?.length) setHistory(data.history);
+      })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [tokenId]);
+
+  if (loading) return <div className="h-[80px] flex items-center justify-center text-[11px] text-[#484f58]">Loading chart...</div>;
+  if (history.length < 2) return <div className="h-[80px] flex items-center justify-center text-[11px] text-[#484f58]">No price history</div>;
+
+  const W = 400;
+  const H = 80;
+  const prices = history.map((h) => h.p);
+  const min = Math.min(...prices);
+  const max = Math.max(...prices);
+  const range = max - min || 0.01;
+
+  const points = prices.map((p, i) => {
+    const x = (i / (prices.length - 1)) * W;
+    const y = H - 4 - ((p - min) / range) * (H - 8);
+    return `${x},${y}`;
+  });
+
+  const linePath = `M${points.join(" L")}`;
+  const areaPath = `${linePath} L${W},${H} L0,${H} Z`;
+  const isUp = prices[prices.length - 1] >= prices[0];
+  const color = isUp ? "#3fb950" : "#f85149";
+  const gradientId = `grad-${tokenId.slice(0, 8)}`;
+
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-[80px]" preserveAspectRatio="none">
+      <defs>
+        <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={color} stopOpacity={0.3} />
+          <stop offset="100%" stopColor={color} stopOpacity={0} />
+        </linearGradient>
+      </defs>
+      <path d={areaPath} fill={`url(#${gradientId})`} />
+      <path d={linePath} fill="none" stroke={color} strokeWidth={2} vectorEffect="non-scaling-stroke" />
+    </svg>
+  );
+}
+
+/* ─── Expandable Position Detail ─── */
+function PositionDetail({ pos, livePrice }: { pos: DbPosition; livePrice: number | null }) {
+  return (
+    <div className="px-4 py-3 bg-[#0d1117] border-t border-[#21262d] space-y-3">
+      {pos.clobTokenId && (
+        <MiniPriceChart tokenId={pos.clobTokenId} />
+      )}
+
+      <div className="grid grid-cols-3 gap-3 text-xs">
+        <div>
+          <p className="text-[#484f58]">Avg. Buy Price</p>
+          <p className="text-[#e6edf3] tabular-nums">{(pos.avgPrice * 100).toFixed(1)}%</p>
+        </div>
+        <div>
+          <p className="text-[#484f58]">Current Price</p>
+          <p className="text-[#e6edf3] tabular-nums">
+            {livePrice !== null ? `${(livePrice * 100).toFixed(1)}%` : "N/A"}
+          </p>
+        </div>
+        <div>
+          <p className="text-[#484f58]">End Date</p>
+          <p className="text-[#e6edf3]">
+            {pos.marketEndDate ? new Date(pos.marketEndDate).toLocaleDateString() : "N/A"}
+          </p>
+        </div>
+      </div>
+
+      {pos.eventSlug && (
+        <a
+          href={`${POLYMARKET_BASE_URL}/event/${pos.eventSlug}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-1.5 text-xs text-[#58a6ff] hover:underline"
+        >
+          View on Polymarket
+          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
+        </a>
+      )}
+    </div>
   );
 }
 
 /* ─── Portfolio Tab ─── */
 function PortfolioTab({ allMarkets, onSwitchTab }: { allMarkets: MarketWithPrices[]; onSwitchTab: () => void }) {
   const { user, positions, trades, isConnected, claimAirdrop, isClaimingAirdrop, executeTrade, isTrading, address } = useUser();
-  const queryClient = useQueryClient();
   const [claimError, setClaimError] = useState<string | null>(null);
+  const [claimedToday, setClaimedToday] = useState(false);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
 
   // Build price targets from stored clobTokenIds on positions
   const priceTargets = useMemo(() => {
     return positions
-      .filter((pos) => !pos.marketQuestion.toLowerCase().includes("bitcoin up or down")) // BTC handled separately
       .map((pos) => {
-        // Use stored clobTokenId if available, otherwise try to find from allMarkets
         let tokenId = pos.clobTokenId || "";
         if (!tokenId) {
           const market = allMarkets.find((m) => m.id === pos.marketId)
@@ -162,39 +284,7 @@ function PortfolioTab({ allMarkets, onSwitchTab }: { allMarkets: MarketWithPrice
   }, [positions, allMarkets]);
   const { getPrice: getPositionLivePrice } = usePositionLivePrices(priceTargets);
   const [closingId, setClosingId] = useState<string | null>(null);
-  const [autoCloseMsg, setAutoCloseMsg] = useState<string | null>(null);
-  const autoCloseRef = useRef<Set<string>>(new Set());
-  const { data: btcData } = useBtc5m();
-
-  // Auto-close BTC 5-min positions when market resolves
-  useEffect(() => {
-    if (!btcData?.previous?.resolved || !btcData.previous.outcome) return;
-    const prevId = btcData.previous.marketId;
-    if (autoCloseRef.current.has(prevId)) return; // Already processed
-
-    const btcPositions = positions.filter((p) => p.marketId === prevId);
-    if (btcPositions.length === 0) return;
-
-    autoCloseRef.current.add(prevId);
-    const slug = `btc-updown-5m-${Math.floor(Math.floor(Date.now() / 1000) / 300) * 300 - 300}`;
-
-    fetch("/api/trade/auto-close", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ marketId: prevId, marketSlug: slug }),
-    })
-      .then((r) => r.json())
-      .then((result) => {
-        if (result.closed > 0) {
-          setAutoCloseMsg(`BTC 5-min settled: ${btcData.previous!.outcome} won! ${result.closed} position(s) closed.`);
-          queryClient.invalidateQueries({ queryKey: ["user", address] });
-          queryClient.invalidateQueries({ queryKey: ["positions", address] });
-          queryClient.invalidateQueries({ queryKey: ["trades", address] });
-          setTimeout(() => setAutoCloseMsg(null), 8000);
-        }
-      })
-      .catch(() => {});
-  }, [btcData?.previous?.resolved, btcData?.previous?.marketId, positions, address, queryClient]); // eslint-disable-line react-hooks/exhaustive-deps
+  const [pendingClose, setPendingClose] = useState<{ pos: DbPosition; livePrice: number } | null>(null);
 
   if (!isConnected || !user) {
     return (
@@ -205,15 +295,17 @@ function PortfolioTab({ allMarkets, onSwitchTab }: { allMarkets: MarketWithPrice
     );
   }
 
-  const dailyClaimed = user.lastDailyAirdrop === new Date().toDateString();
+  const todayUTC = new Date().toISOString().slice(0, 10);
+  const dailyClaimed = claimedToday || user.lastDailyAirdrop === todayUTC;
 
   const handleClaim = async () => {
     setClaimError(null);
     try {
       await claimAirdrop("daily");
+      setClaimedToday(true);
     } catch (e: unknown) {
       if (e instanceof Error && e.message === "Already claimed today") {
-        setClaimError(null); // Will show countdown
+        setClaimedToday(true); // Server says already claimed — show countdown
       } else {
         setClaimError(e instanceof Error ? e.message : "Claim failed");
       }
@@ -221,23 +313,19 @@ function PortfolioTab({ allMarkets, onSwitchTab }: { allMarkets: MarketWithPrice
   };
 
   const getLivePrice = (pos: DbPosition): number | null => {
-    // BTC 5-min positions use dedicated polling
-    const isBtc5m = pos.marketQuestion.toLowerCase().includes("bitcoin up or down");
-    if (isBtc5m && btcData?.active) {
-      if (pos.marketId === btcData.active.marketId) {
-        return pos.outcome === "Up" ? btcData.active.upPrice : btcData.active.downPrice;
-      }
-      return null;
-    }
-
-    // Use direct CLOB price from stored clobTokenId (works even if market left events API)
     const live = getPositionLivePrice(pos.marketId, pos.avgPrice, 1 - pos.avgPrice);
     return pos.outcome === "Yes" || pos.outcome === "Up" ? live.yesPrice : live.noPrice;
   };
 
-  const handleClose = async (pos: DbPosition) => {
+  const handleClose = (pos: DbPosition) => {
     const livePrice = getLivePrice(pos);
     if (livePrice === null) return;
+    setPendingClose({ pos, livePrice });
+  };
+
+  const confirmClose = async () => {
+    if (!pendingClose) return;
+    const { pos, livePrice } = pendingClose;
     setClosingId(pos.id);
     try {
       await executeTrade({
@@ -250,6 +338,7 @@ function PortfolioTab({ allMarkets, onSwitchTab }: { allMarkets: MarketWithPrice
       });
     } catch {}
     setClosingId(null);
+    setPendingClose(null);
   };
 
   // Calculate total portfolio value
@@ -261,6 +350,22 @@ function PortfolioTab({ allMarkets, onSwitchTab }: { allMarkets: MarketWithPrice
 
   return (
     <div className="space-y-4">
+      {/* Confirmation Dialog */}
+      <TradeConfirmDialog
+        pending={pendingClose ? {
+          marketQuestion: pendingClose.pos.marketQuestion,
+          outcome: pendingClose.pos.outcome,
+          shares: pendingClose.pos.shares,
+          price: pendingClose.livePrice,
+          cost: pendingClose.pos.shares * pendingClose.livePrice,
+          side: "sell",
+          pnl: (pendingClose.livePrice - pendingClose.pos.avgPrice) * pendingClose.pos.shares,
+        } : null}
+        onClose={() => setPendingClose(null)}
+        onConfirm={confirmClose}
+        isLoading={isTrading && closingId !== null}
+      />
+
       {/* Balance Card */}
       <div className="rounded-lg border border-[#21262d] bg-[#161b22] p-5">
         <div className="flex items-center justify-between">
@@ -297,13 +402,6 @@ function PortfolioTab({ allMarkets, onSwitchTab }: { allMarkets: MarketWithPrice
         </div>
       </div>
 
-      {/* Auto-close notification */}
-      {autoCloseMsg && (
-        <div className="rounded-lg border border-[#d29922]/30 bg-[#d29922]/10 px-4 py-3 text-sm text-[#d29922] font-medium">
-          {autoCloseMsg}
-        </div>
-      )}
-
       {/* Open Positions */}
       <div className="rounded-lg border border-[#21262d] bg-[#161b22] overflow-hidden">
         <div className="px-4 py-2.5 border-b border-[#21262d]">
@@ -333,12 +431,17 @@ function PortfolioTab({ allMarkets, onSwitchTab }: { allMarkets: MarketWithPrice
               const livePrice = getLivePrice(pos);
               const pnl = livePrice !== null ? (livePrice - pos.avgPrice) * pos.shares : null;
               const pnlPct = livePrice !== null && pos.avgPrice > 0 ? ((livePrice - pos.avgPrice) / pos.avgPrice) * 100 : null;
+              const isExpanded = expandedId === pos.id;
 
               return (
                 <div key={pos.id}>
                   {/* Desktop */}
-                  <div className="hidden sm:grid grid-cols-12 gap-2 px-4 py-3 items-center">
-                    <div className="col-span-4">
+                  <div
+                    className="hidden sm:grid grid-cols-12 gap-2 px-4 py-3 items-center cursor-pointer hover:bg-[#1c2128]/50 transition-colors"
+                    onClick={() => setExpandedId(isExpanded ? null : pos.id)}
+                  >
+                    <div className="col-span-4 flex items-center gap-2">
+                      <svg className={cn("w-3 h-3 text-[#484f58] transition-transform flex-shrink-0", isExpanded && "rotate-90")} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
                       <p className="text-[13px] text-[#e6edf3] font-medium truncate">{pos.marketQuestion}</p>
                     </div>
                     <div className="col-span-1 text-center">
@@ -365,7 +468,7 @@ function PortfolioTab({ allMarkets, onSwitchTab }: { allMarkets: MarketWithPrice
                     </div>
                     <div className="col-span-2 text-center">
                       <button
-                        onClick={() => handleClose(pos)}
+                        onClick={(e) => { e.stopPropagation(); handleClose(pos); }}
                         disabled={(isTrading && closingId === pos.id) || livePrice === null}
                         className="px-3 py-1.5 rounded text-[11px] font-medium bg-[#f85149]/10 text-[#f85149] hover:bg-[#f85149]/20 transition-colors disabled:opacity-50"
                       >
@@ -375,8 +478,14 @@ function PortfolioTab({ allMarkets, onSwitchTab }: { allMarkets: MarketWithPrice
                   </div>
 
                   {/* Mobile */}
-                  <div className="sm:hidden px-4 py-3 space-y-2">
-                    <p className="text-[13px] text-[#e6edf3] font-medium">{pos.marketQuestion}</p>
+                  <div
+                    className="sm:hidden px-4 py-3 space-y-2 cursor-pointer"
+                    onClick={() => setExpandedId(isExpanded ? null : pos.id)}
+                  >
+                    <div className="flex items-start gap-2">
+                      <svg className={cn("w-3 h-3 text-[#484f58] transition-transform flex-shrink-0 mt-0.5", isExpanded && "rotate-90")} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+                      <p className="text-[13px] text-[#e6edf3] font-medium">{pos.marketQuestion}</p>
+                    </div>
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-3">
                         <span className={cn(
@@ -393,7 +502,7 @@ function PortfolioTab({ allMarkets, onSwitchTab }: { allMarkets: MarketWithPrice
                         )}
                       </div>
                       <button
-                        onClick={() => handleClose(pos)}
+                        onClick={(e) => { e.stopPropagation(); handleClose(pos); }}
                         disabled={(isTrading && closingId === pos.id) || livePrice === null}
                         className="px-3 py-1.5 rounded text-[11px] font-medium bg-[#f85149]/10 text-[#f85149] hover:bg-[#f85149]/20 transition-colors disabled:opacity-50"
                       >
@@ -401,162 +510,14 @@ function PortfolioTab({ allMarkets, onSwitchTab }: { allMarkets: MarketWithPrice
                       </button>
                     </div>
                   </div>
+
+                  {/* Expandable Detail */}
+                  {isExpanded && <PositionDetail pos={pos} livePrice={livePrice} />}
                 </div>
               );
             })}
           </div>
         )}
-      </div>
-    </div>
-  );
-}
-
-/* ─── BTC 5-Min Trading Card ─── */
-function Btc5mCard({ onBought }: { onBought: () => void }) {
-  const { user, isConnected, executeTrade, isTrading } = useUser();
-  const { data: btcData, loading } = useBtc5m();
-  const [outcome, setOutcome] = useState<"Up" | "Down">("Up");
-  const [amount, setAmount] = useState("");
-  const [error, setError] = useState<string | null>(null);
-
-  const active = btcData?.active;
-  const price = active ? (outcome === "Up" ? active.upPrice : active.downPrice) : 0;
-  const shares = parseFloat(amount) || 0;
-  const cost = shares * price;
-  const balance = user?.balance || 0;
-  const canTrade = isConnected && shares > 0 && cost <= balance && active;
-
-  const handleBuy = async () => {
-    if (!active || !canTrade) return;
-    setError(null);
-    try {
-      let tokenId = "";
-      try { const ids = JSON.parse(active.conditionId || "[]"); tokenId = ids[0] || ""; } catch {}
-      await executeTrade({
-        marketId: active.marketId,
-        marketQuestion: active.question,
-        outcome,
-        side: "buy",
-        shares,
-        price,
-        clobTokenId: tokenId,
-        marketEndDate: active.endDate,
-        eventSlug: active.slug,
-      });
-      setAmount("");
-      onBought();
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Trade failed");
-    }
-  };
-
-  if (loading) return <div className="rounded-lg border border-[#d29922]/30 bg-[#161b22] p-6 text-center text-sm text-[#484f58]">Loading BTC market...</div>;
-  if (!active) return <div className="rounded-lg border border-[#d29922]/30 bg-[#161b22] p-6 text-center text-sm text-[#484f58]">No active BTC 5-min market</div>;
-
-  return (
-    <div className="rounded-lg border border-[#d29922]/30 bg-[#161b22] overflow-hidden">
-      <div className="px-4 py-3 border-b border-[#21262d] flex items-center justify-between bg-[#d29922]/5">
-        <div className="flex items-center gap-2">
-          <span className="text-sm font-bold text-[#d29922]">BTC</span>
-          <span className="text-sm font-semibold text-white">Bitcoin 5-Min Up or Down</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <span className="text-[10px] text-[#484f58] uppercase">Ends in</span>
-          <Btc5mCountdown windowEnd={active.windowEnd} />
-        </div>
-      </div>
-
-      <div className="p-4 space-y-3">
-        <div className="flex items-center justify-between">
-          <a
-            href={`${POLYMARKET_BASE_URL}/event/${active.slug}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-[13px] text-[#e6edf3] hover:text-[#58a6ff] font-medium"
-          >
-            {active.question}
-          </a>
-          <div className="flex gap-3 flex-shrink-0 ml-4">
-            <span className="text-sm font-bold text-[#3fb950] tabular-nums">Up {(active.upPrice * 100).toFixed(0)}%</span>
-            <span className="text-sm font-bold text-[#f85149] tabular-nums">Down {(active.downPrice * 100).toFixed(0)}%</span>
-          </div>
-        </div>
-
-        {btcData?.previous?.resolved && (
-          <p className="text-[11px] text-[#484f58]">
-            Last result: <span className={btcData.previous.outcome === "Up" ? "text-[#3fb950]" : "text-[#f85149]"}>{btcData.previous.outcome}</span>
-          </p>
-        )}
-
-        {isConnected ? (
-          <div className="space-y-3">
-            {/* Outcome buttons */}
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                onClick={() => setOutcome("Up")}
-                className={cn(
-                  "px-4 py-2.5 rounded-lg text-sm font-medium border transition-all",
-                  outcome === "Up"
-                    ? "bg-[#238636]/15 border-[#238636] text-[#3fb950]"
-                    : "bg-[#0d1117] border-[#21262d] text-[#768390]"
-                )}
-              >
-                Up {(active.upPrice * 100).toFixed(0)}¢
-              </button>
-              <button
-                onClick={() => setOutcome("Down")}
-                className={cn(
-                  "px-4 py-2.5 rounded-lg text-sm font-medium border transition-all",
-                  outcome === "Down"
-                    ? "bg-[#f85149]/10 border-[#f85149]/50 text-[#f85149]"
-                    : "bg-[#0d1117] border-[#21262d] text-[#768390]"
-                )}
-              >
-                Down {(active.downPrice * 100).toFixed(0)}¢
-              </button>
-            </div>
-
-            {/* Amount + To Win */}
-            <div className="flex items-end gap-3">
-              <div className="flex-1">
-                <div className="flex justify-between text-xs text-[#484f58] mb-1.5">
-                  <span>Shares</span>
-                  <button onClick={() => setAmount(String(Math.floor(balance / price)))} className="text-[#58a6ff] hover:underline">Max</button>
-                </div>
-                <Input
-                  type="number"
-                  placeholder="0"
-                  value={amount}
-                  onChange={(e) => setAmount(e.target.value)}
-                  className="bg-[#0d1117] border-[#21262d] text-white h-10"
-                />
-              </div>
-              {cost > 0 && (
-                <div className="text-right pb-1">
-                  <p className="text-[10px] text-[#484f58]">Avg. Price {(price * 100).toFixed(0)}¢</p>
-                  <p className="text-[10px] text-[#484f58]">To win</p>
-                  <p className="text-xl font-bold text-[#3fb950] tabular-nums">{(cost / price - cost).toFixed(0)} PST</p>
-                </div>
-              )}
-            </div>
-
-            <Button
-              onClick={handleBuy}
-              disabled={!canTrade || isTrading}
-              className="w-full h-10 bg-[#d29922] hover:bg-[#d29922]/80 text-black font-medium"
-            >
-              {isTrading ? "Processing..." : cost > 0 ? `Buy ${outcome} — ${cost.toFixed(0)} PST` : `Buy ${outcome}`}
-            </Button>
-            <p className="text-center text-[11px] text-[#484f58]">Balance: {balance.toLocaleString(undefined, { maximumFractionDigits: 0 })} PST</p>
-          </div>
-        ) : (
-          <div className="flex items-center gap-2">
-            <p className="text-sm text-[#768390]">Log in to trade</p>
-            <LoginButton />
-          </div>
-        )}
-        {error && <p className="text-xs text-[#f85149]">{error}</p>}
-        <p className="text-[10px] text-[#484f58]">Positions auto-close when the 5-minute window ends. Shares pay out 1 PST each if your prediction is correct, 0 if wrong.</p>
       </div>
     </div>
   );
@@ -574,6 +535,14 @@ function TradableMarketsTab({ allMarkets, events, onBought }: {
   const [amount, setAmount] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [consensusResults, setConsensusResults] = useState<Record<string, ConsensusResult>>({});
+  const [pendingBuy, setPendingBuy] = useState<{
+    market: MarketWithPrices;
+    outcome: "Yes" | "No";
+    shares: number;
+    price: number;
+    cost: number;
+    potentialWin: number;
+  } | null>(null);
 
   // Get the 10 AI consensus markets
   const consensusMarkets = useMemo(() => getTopConsensusMarkets(events), [events]);
@@ -605,28 +574,37 @@ function TradableMarketsTab({ allMarkets, events, onBought }: {
   const balance = user?.balance || 0;
   const canTrade = isConnected && shares > 0 && cost <= balance;
 
-  const handleBuy = async () => {
+  const handleBuy = () => {
     if (!selectedMarket || !canTrade) return;
     setError(null);
+    const potentialWin = cost / price - cost;
+    setPendingBuy({ market: selectedMarket, outcome, shares, price, cost, potentialWin });
+  };
+
+  const confirmBuy = async () => {
+    if (!pendingBuy) return;
+    const { market, outcome: buyOutcome, shares: buyShares, price: buyPrice } = pendingBuy;
     try {
       let tokenId = "";
-      try { const ids = JSON.parse(selectedMarket.clobTokenIds || "[]"); tokenId = ids[0] || ""; } catch {}
+      try { const ids = JSON.parse(market.clobTokenIds || "[]"); tokenId = ids[0] || ""; } catch {}
       await executeTrade({
-        marketId: selectedMarket.id,
-        marketQuestion: selectedMarket.question,
-        outcome,
+        marketId: market.id,
+        marketQuestion: market.question,
+        outcome: buyOutcome,
         side: "buy",
-        shares,
-        price,
+        shares: buyShares,
+        price: buyPrice,
         clobTokenId: tokenId,
-        marketEndDate: selectedMarket.endDate,
-        eventSlug: selectedMarket.eventSlug || selectedMarket.slug,
+        marketEndDate: market.endDate,
+        eventSlug: market.eventSlug || market.slug,
       });
       setSelectedMarket(null);
       setAmount("");
+      setPendingBuy(null);
       onBought();
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Trade failed");
+      setPendingBuy(null);
     }
   };
 
@@ -681,8 +659,21 @@ function TradableMarketsTab({ allMarkets, events, onBought }: {
 
   return (
     <div className="space-y-4">
-      {/* BTC 5-Min Market */}
-      <Btc5mCard onBought={onBought} />
+      {/* Buy Confirmation Dialog */}
+      <TradeConfirmDialog
+        pending={pendingBuy ? {
+          marketQuestion: pendingBuy.market.question,
+          outcome: pendingBuy.outcome,
+          shares: pendingBuy.shares,
+          price: pendingBuy.price,
+          cost: pendingBuy.cost,
+          side: "buy",
+          potentialWin: pendingBuy.potentialWin,
+        } : null}
+        onClose={() => setPendingBuy(null)}
+        onConfirm={confirmBuy}
+        isLoading={isTrading}
+      />
 
       {/* AI Consensus Markets */}
       <div className="rounded-lg border border-[#21262d] bg-[#161b22] overflow-hidden">
