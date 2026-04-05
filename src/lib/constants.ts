@@ -50,6 +50,7 @@ export const NAV_LINKS = [
   { href: "/ai", label: "AI Consensus" },
   { href: "/ai-beta", label: "Super Swarm" },
   { href: "/trade", label: "Paper Trade" },
+  { href: "/sports", label: "Sports" },
   { href: "/docs", label: "Docs" },
 ] as const;
 
