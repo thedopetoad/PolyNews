@@ -12,16 +12,11 @@ import crypto from "crypto";
  * virtual tokens, this level of auth is acceptable.
  */
 export function getAuthenticatedUser(request: NextRequest): string | null {
-  // Check Authorization header first
   const authHeader = request.headers.get("authorization");
-  if (authHeader) {
-    const address = authHeader.replace("Bearer ", "").trim();
-    if (isValidAddress(address)) return address.toLowerCase();
-  }
+  if (!authHeader) return null;
 
-  // Fallback: check userId in query params (for GET requests)
-  const userId = request.nextUrl.searchParams.get("userId");
-  if (userId && isValidAddress(userId)) return userId.toLowerCase();
+  const address = authHeader.replace("Bearer ", "").trim();
+  if (isValidAddress(address)) return address.toLowerCase();
 
   return null;
 }

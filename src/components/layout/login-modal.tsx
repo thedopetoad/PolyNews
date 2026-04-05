@@ -97,7 +97,7 @@ export function LoginButton() {
               <div className="px-4 py-3 border-b border-[#21262d]">
                 <p className="text-[10px] text-[#484f58] uppercase">Balance</p>
                 <p className="text-base font-bold text-white tabular-nums">
-                  {user.balance.toLocaleString(undefined, { maximumFractionDigits: 0 })} PST
+                  {user.balance.toLocaleString(undefined, { maximumFractionDigits: 0 })} AIRDROP
                 </p>
               </div>
             )}
@@ -118,6 +118,12 @@ export function LoginButton() {
     metaMaskSDK: "MetaMask", metaMask: "MetaMask",
     coinbaseWalletSDK: "Coinbase Wallet", coinbaseWallet: "Coinbase Wallet",
     walletConnect: "WalletConnect", phantom: "Phantom", injected: "Browser Wallet",
+  };
+  const walletLogos: Record<string, string> = {
+    MetaMask: "/wallets/metamask.png",
+    "Coinbase Wallet": "/wallets/coinbase.png",
+    Phantom: "/wallets/phantom.svg",
+    WalletConnect: "/wallets/walletconnect.png",
   };
   const walletColors: Record<string, string> = {
     MetaMask: "#E87F24", "Coinbase Wallet": "#0052FF",
@@ -151,11 +157,16 @@ export function LoginButton() {
             </div>
             {uniqueWallets.slice(0, 4).map((connector) => {
               const name = walletNames[connector.id] || connector.name;
+              const iconUrl = walletLogos[name];
               const color = walletColors[name] || "#768390";
               return (
                 <button key={connector.uid} onClick={() => { connect({ connector }); setLoginOpen(false); }}
                   className="w-full flex items-center gap-3 px-4 py-3 rounded-lg bg-[#0d1117] border border-[#21262d] hover:border-[#30363d] transition-colors text-left">
-                  <div className="w-5 h-5 rounded-full flex-shrink-0" style={{ backgroundColor: color }} />
+                  {iconUrl ? (
+                    <img src={iconUrl} alt={name} className="w-5 h-5 rounded flex-shrink-0" />
+                  ) : (
+                    <div className="w-5 h-5 rounded-full flex-shrink-0" style={{ backgroundColor: color }} />
+                  )}
                   <span className="text-sm text-[#e6edf3]">{name}</span>
                 </button>
               );

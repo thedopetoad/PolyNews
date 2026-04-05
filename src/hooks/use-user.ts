@@ -149,8 +149,26 @@ export function useUser() {
     },
   });
 
+  const displayNameMutation = useMutation({
+    mutationFn: async (displayName: string) => {
+      const res = await fetch("/api/user", {
+        method: "PATCH",
+        headers: authHeaders(address!),
+        body: JSON.stringify({ displayName }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || "Failed to update name");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["user", address] });
+    },
+  });
+
   const airdropMutation = useMutation({
-    mutationFn: async (type: "daily" | "weekly" | "signup") => {
+    mutationFn: async (type: "daily" | "signup") => {
       const res = await fetch("/api/airdrop", {
         method: "POST",
         headers: authHeaders(address!),
@@ -179,5 +197,7 @@ export function useUser() {
     tradeError: tradeMutation.error?.message || null,
     claimAirdrop: airdropMutation.mutateAsync,
     isClaimingAirdrop: airdropMutation.isPending,
+    setDisplayName: displayNameMutation.mutateAsync,
+    isSettingName: displayNameMutation.isPending,
   };
 }

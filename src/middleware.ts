@@ -7,6 +7,23 @@ const rateLimit = new Map<string, { count: number; resetAt: number }>();
 const RATE_LIMIT_WINDOW = 60_000; // 1 minute
 const RATE_LIMIT_MAX = 60; // 60 requests per minute per IP
 
+// Stricter limits for sensitive endpoints
+const sensitiveRateLimit = new Map<string, { count: number; resetAt: number }>();
+const SENSITIVE_LIMIT_WINDOW = 60_000;
+const SENSITIVE_LIMIT_MAX = 10; // 10 requests per minute for airdrop/trade
+
+function checkSensitiveRateLimit(ip: string): boolean {
+  const now = Date.now();
+  const entry = sensitiveRateLimit.get(ip);
+  if (!entry || now > entry.resetAt) {
+    sensitiveRateLimit.set(ip, { count: 1, resetAt: now + SENSITIVE_LIMIT_WINDOW });
+    return true;
+  }
+  if (entry.count >= SENSITIVE_LIMIT_MAX) return false;
+  entry.count++;
+  return true;
+}
+
 function checkRateLimit(ip: string): boolean {
   const now = Date.now();
   const entry = rateLimit.get(ip);
@@ -55,6 +72,17 @@ export function middleware(request: NextRequest) {
         { error: "Too many requests. Try again in a minute." },
         { status: 429 }
       );
+    }
+
+    // Stricter limits on airdrop and trade endpoints
+    const path = request.nextUrl.pathname;
+    if (path === "/api/airdrop" || path === "/api/trade") {
+      if (!checkSensitiveRateLimit(ip)) {
+        return NextResponse.json(
+          { error: "Rate limit exceeded for this action." },
+          { status: 429 }
+        );
+      }
     }
   }
 

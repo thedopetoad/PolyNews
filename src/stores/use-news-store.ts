@@ -9,6 +9,7 @@ export interface NewsHeadline {
   url: string;
   publishedAt: string;
   keywords: string[];
+  categories: string[];
 }
 
 interface NewsState {

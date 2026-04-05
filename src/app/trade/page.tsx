@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useEffect, useCallback } from "react";
+import { useMemo, useState, useEffect, useCallback, useRef } from "react";
 import { usePolymarketEvents } from "@/hooks/use-polymarket";
 import { useUser, DbPosition } from "@/hooks/use-user";
 import {
@@ -116,14 +116,14 @@ function TradeConfirmDialog({
             </div>
             <div>
               <p className="text-[10px] text-[#484f58] uppercase">{isBuy ? "Cost" : "Proceeds"}</p>
-              <p className="text-sm text-[#e6edf3] tabular-nums">{pending.cost.toFixed(2)} PST</p>
+              <p className="text-sm text-[#e6edf3] tabular-nums">{pending.cost.toFixed(2)} AIRDROP</p>
             </div>
           </div>
 
           {isBuy && pending.potentialWin !== undefined && pending.potentialWin > 0 && (
             <div className="flex items-center justify-between bg-[#238636]/10 rounded-lg px-3 py-2 border border-[#238636]/20">
               <span className="text-xs text-[#768390]">Potential win</span>
-              <span className="text-lg font-bold text-[#3fb950] tabular-nums">{pending.potentialWin.toFixed(0)} PST</span>
+              <span className="text-lg font-bold text-[#3fb950] tabular-nums">{pending.potentialWin.toFixed(0)} AIRDROP</span>
             </div>
           )}
 
@@ -136,7 +136,7 @@ function TradeConfirmDialog({
             )}>
               <span className="text-xs text-[#768390]">P&L</span>
               <span className={cn("text-lg font-bold tabular-nums", pending.pnl >= 0 ? "text-[#3fb950]" : "text-[#f85149]")}>
-                {pending.pnl >= 0 ? "+" : ""}{pending.pnl.toFixed(0)} PST
+                {pending.pnl >= 0 ? "+" : ""}{pending.pnl.toFixed(0)} AIRDROP
               </span>
             </div>
           )}
@@ -168,6 +168,8 @@ function TradeConfirmDialog({
 function MiniPriceChart({ tokenId }: { tokenId: string }) {
   const [history, setHistory] = useState<{ t: number; p: number }[]>([]);
   const [loading, setLoading] = useState(true);
+  const [hover, setHover] = useState<{ x: number; price: number; date: string } | null>(null);
+  const svgRef = useRef<SVGSVGElement>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -203,17 +205,50 @@ function MiniPriceChart({ tokenId }: { tokenId: string }) {
   const color = isUp ? "#3fb950" : "#f85149";
   const gradientId = `grad-${tokenId.slice(0, 8)}`;
 
+  const handleMouseMove = (e: React.MouseEvent<SVGSVGElement>) => {
+    const svg = svgRef.current;
+    if (!svg) return;
+    const rect = svg.getBoundingClientRect();
+    const ratio = (e.clientX - rect.left) / rect.width;
+    const idx = Math.round(ratio * (history.length - 1));
+    const clamped = Math.max(0, Math.min(history.length - 1, idx));
+    const point = history[clamped];
+    const date = new Date(point.t * 1000).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+    setHover({ x: (clamped / (history.length - 1)) * W, price: point.p, date });
+  };
+
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-[80px]" preserveAspectRatio="none">
-      <defs>
-        <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor={color} stopOpacity={0.3} />
-          <stop offset="100%" stopColor={color} stopOpacity={0} />
-        </linearGradient>
-      </defs>
-      <path d={areaPath} fill={`url(#${gradientId})`} />
-      <path d={linePath} fill="none" stroke={color} strokeWidth={2} vectorEffect="non-scaling-stroke" />
-    </svg>
+    <div className="relative">
+      <svg
+        ref={svgRef}
+        viewBox={`0 0 ${W} ${H}`}
+        className="w-full h-[80px] cursor-crosshair"
+        preserveAspectRatio="none"
+        onMouseMove={handleMouseMove}
+        onMouseLeave={() => setHover(null)}
+      >
+        <defs>
+          <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={color} stopOpacity={0.3} />
+            <stop offset="100%" stopColor={color} stopOpacity={0} />
+          </linearGradient>
+        </defs>
+        <path d={areaPath} fill={`url(#${gradientId})`} />
+        <path d={linePath} fill="none" stroke={color} strokeWidth={2} vectorEffect="non-scaling-stroke" />
+        {hover && (
+          <line x1={hover.x} y1={0} x2={hover.x} y2={H} stroke="#484f58" strokeWidth={1} vectorEffect="non-scaling-stroke" strokeDasharray="3,3" />
+        )}
+      </svg>
+      {hover && (
+        <div
+          className="absolute top-0 pointer-events-none bg-[#1c2128] border border-[#30363d] rounded px-2 py-1 text-[11px] text-white whitespace-nowrap z-10"
+          style={{ left: `${(hover.x / W) * 100}%`, transform: "translateX(-50%)" }}
+        >
+          <span className="font-semibold tabular-nums" style={{ color }}>{(hover.price * 100).toFixed(1)}%</span>
+          <span className="text-[#484f58] ml-1.5">{hover.date}</span>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -261,10 +296,13 @@ function PositionDetail({ pos, livePrice }: { pos: DbPosition; livePrice: number
 
 /* ─── Portfolio Tab ─── */
 function PortfolioTab({ allMarkets, onSwitchTab }: { allMarkets: MarketWithPrices[]; onSwitchTab: () => void }) {
-  const { user, positions, trades, isConnected, claimAirdrop, isClaimingAirdrop, executeTrade, isTrading, address } = useUser();
+  const { user, positions, trades, isConnected, claimAirdrop, isClaimingAirdrop, executeTrade, isTrading, address, setDisplayName, isSettingName } = useUser();
   const [claimError, setClaimError] = useState<string | null>(null);
   const [claimedToday, setClaimedToday] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [editingName, setEditingName] = useState(false);
+  const [nameInput, setNameInput] = useState("");
+  const [nameError, setNameError] = useState<string | null>(null);
 
   // Build price targets from stored clobTokenIds on positions
   const priceTargets = useMemo(() => {
@@ -366,20 +404,80 @@ function PortfolioTab({ allMarkets, onSwitchTab }: { allMarkets: MarketWithPrice
         isLoading={isTrading && closingId !== null}
       />
 
-      {/* Balance Card */}
+      {/* Username + Balance Card */}
       <div className="rounded-lg border border-[#21262d] bg-[#161b22] p-5">
+        {/* Username */}
+        <div className="mb-3 pb-3 border-b border-[#21262d]">
+          {editingName ? (
+            <div className="flex items-center gap-2">
+              <Input
+                value={nameInput}
+                onChange={(e) => setNameInput(e.target.value)}
+                placeholder="Username (2-20 chars)"
+                className="bg-[#0d1117] border-[#21262d] text-white h-8 text-sm max-w-[200px]"
+                maxLength={20}
+                onKeyDown={async (e) => {
+                  if (e.key === "Enter") {
+                    setNameError(null);
+                    try {
+                      await setDisplayName(nameInput.trim());
+                      setEditingName(false);
+                    } catch (err: unknown) {
+                      setNameError(err instanceof Error ? err.message : "Failed");
+                    }
+                  } else if (e.key === "Escape") {
+                    setEditingName(false);
+                  }
+                }}
+                autoFocus
+              />
+              <button
+                onClick={async () => {
+                  setNameError(null);
+                  try {
+                    await setDisplayName(nameInput.trim());
+                    setEditingName(false);
+                  } catch (err: unknown) {
+                    setNameError(err instanceof Error ? err.message : "Failed");
+                  }
+                }}
+                disabled={isSettingName}
+                className="px-2 py-1 rounded text-[11px] font-medium bg-[#238636] text-white hover:bg-[#2ea043]"
+              >
+                {isSettingName ? "..." : "Save"}
+              </button>
+              <button onClick={() => setEditingName(false)} className="text-[11px] text-[#484f58] hover:text-white">Cancel</button>
+              {nameError && <span className="text-[10px] text-[#f85149]">{nameError}</span>}
+            </div>
+          ) : (
+            <div className="flex items-center gap-2">
+              {user.displayName ? (
+                <span className="text-sm font-semibold text-[#e6edf3]">{user.displayName}</span>
+              ) : (
+                <span className="text-sm text-[#484f58]">No username set</span>
+              )}
+              <button
+                onClick={() => { setNameInput(user.displayName || ""); setEditingName(true); }}
+                className="text-[10px] text-[#58a6ff] hover:underline"
+              >
+                {user.displayName ? "edit" : "set username"}
+              </button>
+            </div>
+          )}
+        </div>
+
         <div className="flex items-center justify-between">
           <div>
             <p className="text-[10px] text-[#484f58] uppercase tracking-wider">Cash Balance</p>
             <p className="text-2xl font-bold text-white tabular-nums">
               {user.balance.toLocaleString(undefined, { maximumFractionDigits: 0 })}
-              <span className="text-sm font-normal text-[#484f58] ml-1">PST</span>
+              <span className="text-sm font-normal text-[#484f58] ml-1">AIRDROP</span>
             </p>
           </div>
           <div className="text-right">
             <p className="text-[10px] text-[#484f58] uppercase tracking-wider">Total Portfolio</p>
             <p className="text-lg font-bold text-white tabular-nums">
-              {totalPortfolioValue.toLocaleString(undefined, { maximumFractionDigits: 0 })} PST
+              {totalPortfolioValue.toLocaleString(undefined, { maximumFractionDigits: 0 })} AIRDROP
             </p>
           </div>
         </div>
@@ -392,7 +490,7 @@ function PortfolioTab({ allMarkets, onSwitchTab }: { allMarkets: MarketWithPrice
               disabled={isClaimingAirdrop}
               className="px-3 py-1.5 rounded text-[11px] font-medium bg-[#238636] hover:bg-[#2ea043] text-white transition-colors"
             >
-              {isClaimingAirdrop ? "Claiming..." : `Claim ${AIRDROP_AMOUNTS.daily} PST`}
+              {isClaimingAirdrop ? "Claiming..." : `Claim ${AIRDROP_AMOUNTS.daily} AIRDROP`}
             </button>
           )}
           {claimError && claimError !== "Already claimed today" && (
@@ -459,7 +557,7 @@ function PortfolioTab({ allMarkets, onSwitchTab }: { allMarkets: MarketWithPrice
                         <div>
                           <p className="text-sm text-[#e6edf3] tabular-nums">{(livePrice * 100).toFixed(0)}%</p>
                           <p className={cn("text-[11px] font-semibold tabular-nums", pnl! >= 0 ? "text-[#3fb950]" : "text-[#f85149]")}>
-                            {pnl! >= 0 ? "+" : ""}{pnl!.toFixed(0)} PST ({pnlPct! >= 0 ? "+" : ""}{pnlPct!.toFixed(0)}%)
+                            {pnl! >= 0 ? "+" : ""}{pnl!.toFixed(0)} AIRDROP ({pnlPct! >= 0 ? "+" : ""}{pnlPct!.toFixed(0)}%)
                           </p>
                         </div>
                       ) : (
@@ -497,7 +595,7 @@ function PortfolioTab({ allMarkets, onSwitchTab }: { allMarkets: MarketWithPrice
                         <span className="text-xs text-[#adbac7]">{pos.shares} @ {(pos.avgPrice * 100).toFixed(0)}%</span>
                         {pnl !== null && (
                           <span className={cn("text-xs font-semibold", pnl >= 0 ? "text-[#3fb950]" : "text-[#f85149]")}>
-                            {pnl >= 0 ? "+" : ""}{pnl.toFixed(0)} PST
+                            {pnl >= 0 ? "+" : ""}{pnl.toFixed(0)} AIRDROP
                           </span>
                         )}
                       </div>
@@ -535,6 +633,7 @@ function TradableMarketsTab({ allMarkets, events, onBought }: {
   const [amount, setAmount] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [consensusResults, setConsensusResults] = useState<Record<string, ConsensusResult>>({});
+  const [expandedMarketId, setExpandedMarketId] = useState<string | null>(null);
   const [pendingBuy, setPendingBuy] = useState<{
     market: MarketWithPrices;
     outcome: "Yes" | "No";
@@ -608,54 +707,89 @@ function TradableMarketsTab({ allMarkets, events, onBought }: {
     }
   };
 
-  const renderMarketRow = (market: MarketWithPrices, label: string, consensus?: ConsensusResult) => (
-    <div
-      key={market.id}
-      className={cn(
-        "flex items-center gap-3 px-4 py-3 border-b border-[#21262d] last:border-b-0 transition-colors",
-        selectedMarket?.id === market.id ? "bg-[#1c2128]" : "hover:bg-[#1c2128]/50"
-      )}
-    >
-      {/* Market info */}
-      <div className="flex-1 min-w-0">
-        <a
-          href={`${POLYMARKET_BASE_URL}/event/${market.eventSlug || market.slug}`}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-[13px] text-[#e6edf3] hover:text-[#58a6ff] font-medium leading-snug line-clamp-1"
-          onClick={(e) => e.stopPropagation()}
-        >
-          {market.question}
-        </a>
-        <div className="flex items-center gap-2 mt-0.5">
-          <span className="text-[10px] text-[#484f58]">{formatVolume(market.volume)}</span>
-          <span className="text-[10px] text-[#484f58]">{label}</span>
-          {consensus && (
-            <span className="text-[10px] text-[#58a6ff]">AI: {consensus.consensus.toFixed(0)}%</span>
+  const renderMarketRow = (market: MarketWithPrices, label: string, consensus?: ConsensusResult) => {
+    const isExpanded = expandedMarketId === market.id;
+    let tokenId = "";
+    try { const ids = JSON.parse(market.clobTokenIds || "[]"); tokenId = ids[0] || ""; } catch {}
+
+    return (
+      <div key={market.id}>
+        <div
+          className={cn(
+            "flex items-center gap-3 px-4 py-3 border-b border-[#21262d] last:border-b-0 transition-colors cursor-pointer",
+            selectedMarket?.id === market.id ? "bg-[#1c2128]" : "hover:bg-[#1c2128]/50"
           )}
+          onClick={() => setExpandedMarketId(isExpanded ? null : market.id)}
+        >
+          {/* Chevron */}
+          <svg className={cn("w-3 h-3 text-[#484f58] transition-transform flex-shrink-0", isExpanded && "rotate-90")} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+
+          {/* Market info */}
+          <div className="flex-1 min-w-0">
+            <p className="text-[13px] text-[#e6edf3] font-medium leading-snug line-clamp-1">{market.question}</p>
+            <div className="flex items-center gap-2 mt-0.5">
+              <span className="text-[10px] text-[#484f58]">{formatVolume(market.volume)}</span>
+              <span className="text-[10px] text-[#484f58]">{label}</span>
+              {consensus && (
+                <span className="text-[10px] text-[#58a6ff]">AI: {consensus.consensus.toFixed(0)}%</span>
+              )}
+            </div>
+          </div>
+
+          {/* Live odds */}
+          <div className="flex gap-2 flex-shrink-0">
+            <span className="text-xs font-semibold text-[#3fb950] tabular-nums">Yes {formatPercentage(getPrice(market).yesPrice)}</span>
+            <span className="text-xs font-semibold text-[#f85149] tabular-nums">No {formatPercentage(getPrice(market).noPrice)}</span>
+          </div>
+
+          {/* Trade button */}
+          <button
+            onClick={(e) => { e.stopPropagation(); setSelectedMarket(selectedMarket?.id === market.id ? null : market); setOutcome("Yes"); setAmount(""); setError(null); }}
+            className={cn(
+              "flex-shrink-0 px-3 py-1.5 rounded text-[11px] font-medium transition-colors",
+              selectedMarket?.id === market.id
+                ? "bg-[#21262d] text-[#768390]"
+                : "bg-[#238636]/15 text-[#3fb950] hover:bg-[#238636]/25"
+            )}
+          >
+            {selectedMarket?.id === market.id ? "Cancel" : "Trade"}
+          </button>
         </div>
-      </div>
 
-      {/* Live odds */}
-      <div className="flex gap-2 flex-shrink-0">
-        <span className="text-xs font-semibold text-[#3fb950] tabular-nums">Yes {formatPercentage(getPrice(market).yesPrice)}</span>
-        <span className="text-xs font-semibold text-[#f85149] tabular-nums">No {formatPercentage(getPrice(market).noPrice)}</span>
-      </div>
-
-      {/* Trade button */}
-      <button
-        onClick={() => { setSelectedMarket(selectedMarket?.id === market.id ? null : market); setOutcome("Yes"); setAmount(""); setError(null); }}
-        className={cn(
-          "flex-shrink-0 px-3 py-1.5 rounded text-[11px] font-medium transition-colors",
-          selectedMarket?.id === market.id
-            ? "bg-[#21262d] text-[#768390]"
-            : "bg-[#238636]/15 text-[#3fb950] hover:bg-[#238636]/25"
+        {/* Expandable Detail */}
+        {isExpanded && (
+          <div className="px-4 py-3 bg-[#0d1117] border-b border-[#21262d] space-y-3">
+            {tokenId && <MiniPriceChart tokenId={tokenId} />}
+            <div className="grid grid-cols-3 gap-3 text-xs">
+              <div>
+                <p className="text-[#484f58]">Volume</p>
+                <p className="text-[#e6edf3]">{formatVolume(market.volume)}</p>
+              </div>
+              <div>
+                <p className="text-[#484f58]">End Date</p>
+                <p className="text-[#e6edf3]">{market.endDate ? new Date(market.endDate).toLocaleDateString() : "N/A"}</p>
+              </div>
+              <div>
+                <p className="text-[#484f58]">24h Volume</p>
+                <p className="text-[#e6edf3]">{formatVolume(market.volume24hr)}</p>
+              </div>
+            </div>
+            {(market.eventSlug || market.slug) && (
+              <a
+                href={`${POLYMARKET_BASE_URL}/event/${market.eventSlug || market.slug}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 text-xs text-[#58a6ff] hover:underline"
+              >
+                View on Polymarket
+                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
+              </a>
+            )}
+          </div>
         )}
-      >
-        {selectedMarket?.id === market.id ? "Cancel" : "Trade"}
-      </button>
-    </div>
-  );
+      </div>
+    );
+  };
 
   return (
     <div className="space-y-4">
@@ -757,11 +891,11 @@ function TradableMarketsTab({ allMarkets, events, onBought }: {
                 <div className="bg-[#0d1117] rounded-lg p-3 text-xs border border-[#21262d]">
                   <div className="flex justify-between text-[#768390] mb-1.5">
                     <span>Avg. Price {(price * 100).toFixed(0)}¢</span>
-                    <span>Cost: {cost.toFixed(2)} PST</span>
+                    <span>Cost: {cost.toFixed(2)} AIRDROP</span>
                   </div>
                   <div className="flex justify-between items-end">
                     <span className="text-[#768390]">To win</span>
-                    <span className="text-xl font-bold text-[#3fb950] tabular-nums">{(cost / price - cost).toFixed(0)} PST</span>
+                    <span className="text-xl font-bold text-[#3fb950] tabular-nums">{(cost / price - cost).toFixed(0)} AIRDROP</span>
                   </div>
                 </div>
               )}
@@ -773,12 +907,91 @@ function TradableMarketsTab({ allMarkets, events, onBought }: {
                 disabled={!canTrade || isTrading}
                 className="w-full h-10 font-medium bg-[#238636] hover:bg-[#2ea043] text-white"
               >
-                {isTrading ? "Processing..." : shares > 0 ? `Buy ${outcome} — ${cost.toFixed(2)} PST` : `Buy ${outcome}`}
+                {isTrading ? "Processing..." : shares > 0 ? `Buy ${outcome} — ${cost.toFixed(2)} AIRDROP` : `Buy ${outcome}`}
               </Button>
 
-              <p className="text-center text-[11px] text-[#484f58]">Balance: {balance.toLocaleString(undefined, { maximumFractionDigits: 0 })} PST</p>
+              <p className="text-center text-[11px] text-[#484f58]">Balance: {balance.toLocaleString(undefined, { maximumFractionDigits: 0 })} AIRDROP</p>
             </div>
           )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ─── Leaderboard Tab ─── */
+function LeaderboardTab() {
+  const { address } = useUser();
+  const [leaderboard, setLeaderboard] = useState<{ id: string; displayName: string | null; balance: number }[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetch("/api/leaderboard")
+      .then((r) => r.json())
+      .then((data) => { if (data.leaderboard) setLeaderboard(data.leaderboard); })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  const currentAddress = address?.toLowerCase() || "";
+
+  if (loading) return <p className="text-sm text-[#484f58] text-center py-16">Loading leaderboard...</p>;
+
+  return (
+    <div className="rounded-lg border border-[#21262d] bg-[#161b22] overflow-hidden">
+      <div className="px-4 py-2.5 border-b border-[#21262d]">
+        <h3 className="text-sm font-semibold text-white">Top Traders</h3>
+      </div>
+
+      {/* Header */}
+      <div className="grid grid-cols-12 gap-2 px-4 py-2 text-[10px] text-[#484f58] uppercase tracking-wider border-b border-[#21262d]">
+        <div className="col-span-1">#</div>
+        <div className="col-span-7">Player</div>
+        <div className="col-span-4 text-right">Balance</div>
+      </div>
+
+      {leaderboard.length === 0 ? (
+        <p className="text-sm text-[#484f58] text-center py-12">No traders yet</p>
+      ) : (
+        <div className="divide-y divide-[#21262d]">
+          {leaderboard.map((entry, idx) => {
+            const isMe = entry.id === currentAddress;
+            const rank = idx + 1;
+            const displayId = entry.id.startsWith("0x")
+              ? `${entry.id.slice(0, 6)}...${entry.id.slice(-4)}`
+              : entry.id.slice(0, 10);
+
+            return (
+              <div
+                key={entry.id}
+                className={cn(
+                  "grid grid-cols-12 gap-2 px-4 py-3 items-center",
+                  isMe && "bg-[#58a6ff]/5 border-l-2 border-[#58a6ff]"
+                )}
+              >
+                <div className="col-span-1">
+                  <span className={cn(
+                    "text-sm font-bold tabular-nums",
+                    rank === 1 ? "text-[#d29922]" : rank === 2 ? "text-[#768390]" : rank === 3 ? "text-[#a0603e]" : "text-[#484f58]"
+                  )}>
+                    {rank}
+                  </span>
+                </div>
+                <div className="col-span-7">
+                  <span className={cn("text-sm font-medium", isMe ? "text-[#58a6ff]" : "text-[#e6edf3]")}>
+                    {entry.displayName || displayId}
+                  </span>
+                  {isMe && <span className="text-[10px] text-[#58a6ff] ml-2">(you)</span>}
+                </div>
+                <div className="col-span-4 text-right">
+                  <span className="text-sm font-semibold text-white tabular-nums">
+                    {entry.balance.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                  </span>
+                  <span className="text-[10px] text-[#484f58] ml-1">AIRDROP</span>
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
@@ -788,7 +1001,7 @@ function TradableMarketsTab({ allMarkets, events, onBought }: {
 /* ─── Main Page ─── */
 export default function TradePage() {
   const { data: events, isLoading } = usePolymarketEvents({ limit: "50" });
-  const [tab, setTab] = useState<"portfolio" | "markets">("portfolio");
+  const [tab, setTab] = useState<"portfolio" | "markets" | "leaderboard">("portfolio");
 
   const allMarkets = useMemo(() => {
     if (!events) return [];
@@ -831,9 +1044,22 @@ export default function TradePage() {
         >
           Tradable Markets
         </button>
+        <button
+          onClick={() => setTab("leaderboard")}
+          className={cn(
+            "px-4 py-2.5 text-sm font-medium transition-colors",
+            tab === "leaderboard"
+              ? "text-white border-b-2 border-[#d29922]"
+              : "text-[#768390] hover:text-[#adbac7]"
+          )}
+        >
+          Leaderboard
+        </button>
       </div>
 
-      {isLoading ? (
+      {tab === "leaderboard" ? (
+        <LeaderboardTab />
+      ) : isLoading ? (
         <p className="text-sm text-[#484f58] text-center py-16">Loading markets...</p>
       ) : tab === "portfolio" ? (
         <PortfolioTab allMarkets={allMarkets} onSwitchTab={() => setTab("markets")} />

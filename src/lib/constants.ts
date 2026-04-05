@@ -34,15 +34,16 @@ export const MARKET_CATEGORIES = [
 
 export type MarketCategory = typeof MARKET_CATEGORIES[number]["key"];
 
+export const TOKEN_NAME = "AIRDROP";
+
 export const AIRDROP_AMOUNTS = {
   signup: 1000,
   daily: 100,
-  weekly: 500,
   referralBonus: 5000,
   referralFirstTrade: 250,
 } as const;
 
-export const STARTING_BALANCE = 10000;
+export const STARTING_BALANCE = 1000;
 
 export const NAV_LINKS = [
   { href: "/", label: "News" },

@@ -96,7 +96,7 @@ const sections: DocSection[] = [
         <p>Practice prediction market trading without risk using live Polymarket data.</p>
         <h4 className="font-semibold text-[#e6edf3] mt-2">Two-Tab Design</h4>
         <ul className="list-disc pl-5 space-y-1.5">
-          <li><strong className="text-[#e6edf3]">Portfolio Tab</strong> &mdash; Shows your PST balance, daily claim, and all open positions with live P&amp;L calculated from current Polymarket odds.</li>
+          <li><strong className="text-[#e6edf3]">Portfolio Tab</strong> &mdash; Shows your AIRDROP balance, daily claim, and all open positions with live P&amp;L calculated from current Polymarket odds.</li>
           <li><strong className="text-[#e6edf3]">Tradable Markets Tab</strong> &mdash; 15 curated markets: 10 from AI Swarm Consensus picks + 5 top sports markets ending soon.</li>
         </ul>
         <h4 className="font-semibold text-[#e6edf3] mt-2">How Trading Works</h4>
@@ -104,7 +104,7 @@ const sections: DocSection[] = [
           <li><strong className="text-[#e6edf3]">Buy:</strong> Select a market, choose Yes or No, enter shares. You buy in at the current live Polymarket odds. Your buy-in price is stored in the database.</li>
           <li><strong className="text-[#e6edf3]">Close:</strong> In the Portfolio tab, click Close on any position. The system checks the live Polymarket odds and calculates your P&amp;L based on the price change since your buy-in.</li>
         </ul>
-        <p>PST (PolyStream Tokens) are virtual and have no real value. Prices update every 60 seconds from the Polymarket CLOB API.</p>
+        <p>AIRDROP tokens are virtual and have no real value. Prices update every 60 seconds from the Polymarket CLOB API.</p>
       </div>
     ),
   },
@@ -113,14 +113,13 @@ const sections: DocSection[] = [
     title: "Airdrop & Referral",
     content: (
       <div className="space-y-3">
-        <p>Earn virtual PST tokens:</p>
+        <p>Earn virtual AIRDROP tokens:</p>
         <div className="bg-[#0d1117] rounded-md border border-[#21262d] divide-y divide-[#21262d]">
           {[
-            ["Signup Bonus", `+${AIRDROP_AMOUNTS.signup.toLocaleString()} PST`],
-            ["Daily Login", `+${AIRDROP_AMOUNTS.daily} PST/day`],
-            ["Weekly Active", `+${AIRDROP_AMOUNTS.weekly} PST/week`],
-            ["Referral Signup", `+${AIRDROP_AMOUNTS.referralBonus.toLocaleString()} PST`],
-            ["Referral First Trade", `+${AIRDROP_AMOUNTS.referralFirstTrade} PST`],
+            ["Signup Bonus", `+${AIRDROP_AMOUNTS.signup.toLocaleString()} AIRDROP`],
+            ["Daily Login", `+${AIRDROP_AMOUNTS.daily} AIRDROP/day`],
+            ["Referral Signup", `+${AIRDROP_AMOUNTS.referralBonus.toLocaleString()} AIRDROP`],
+            ["Referral First Trade", `+${AIRDROP_AMOUNTS.referralFirstTrade} AIRDROP`],
           ].map(([label, amount]) => (
             <div key={label} className="flex items-center justify-between px-4 py-2.5 text-sm">
               <span className="text-[#adbac7]">{label}</span>

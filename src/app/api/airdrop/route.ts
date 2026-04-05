@@ -19,7 +19,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Validate type
-    if (!["daily", "weekly", "signup"].includes(type)) {
+    if (!["daily", "signup"].includes(type)) {
       return NextResponse.json({ error: "Invalid airdrop type" }, { status: 400 });
     }
 
@@ -90,33 +90,6 @@ export async function POST(request: NextRequest) {
 
       if (result.length === 0) {
         return NextResponse.json({ error: "Already claimed today" }, { status: 400 });
-      }
-    } else if (type === "weekly") {
-      const now = new Date();
-      const weekKey = `${now.getFullYear()}-W${Math.ceil(
-        ((now.getTime() - new Date(now.getFullYear(), 0, 1).getTime()) / 86400000 + 1) / 7
-      )}`;
-      if (user.lastWeeklyAirdrop === weekKey) {
-        return NextResponse.json({ error: "Already claimed this week" }, { status: 400 });
-      }
-      amount = AIRDROP_AMOUNTS.weekly;
-
-      const result = await db
-        .update(users)
-        .set({
-          balance: sql`${users.balance} + ${amount}`,
-          lastWeeklyAirdrop: weekKey,
-        })
-        .where(
-          and(
-            eq(users.id, normalizedUserId),
-            sql`${users.lastWeeklyAirdrop} IS DISTINCT FROM ${weekKey}`
-          )
-        )
-        .returning();
-
-      if (result.length === 0) {
-        return NextResponse.json({ error: "Already claimed this week" }, { status: 400 });
       }
     }
 

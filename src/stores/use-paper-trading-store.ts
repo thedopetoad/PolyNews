@@ -167,26 +167,7 @@ export const usePaperTradingStore = create<PaperTradingState>()(
       },
 
       claimWeeklyAirdrop: () => {
-        const now = new Date();
-        const weekKey = `${now.getFullYear()}-W${Math.ceil(
-          ((now.getTime() - new Date(now.getFullYear(), 0, 1).getTime()) / 86400000 + 1) / 7
-        )}`;
-        if (get().lastWeeklyAirdrop === weekKey) return false;
-
-        set((state) => ({
-          balance: state.balance + AIRDROP_AMOUNTS.weekly,
-          lastWeeklyAirdrop: weekKey,
-          airdrops: [
-            {
-              id: generateId(),
-              source: "weekly",
-              amount: AIRDROP_AMOUNTS.weekly,
-              timestamp: Date.now(),
-            },
-            ...state.airdrops,
-          ],
-        }));
-        return true;
+        return false; // Weekly airdrop removed
       },
 
       claimSignupAirdrop: () => {
