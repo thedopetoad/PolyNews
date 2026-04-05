@@ -9,37 +9,75 @@ A prediction market platform at **polystream.vercel.app** combining live news, A
 - `npm run dev` - local dev server
 - `npm run build` - production build
 - `npx vercel --yes --prod` - deploy to production
-- `npm run db:push` - push schema changes to Neon DB
+- `npx drizzle-kit push` - push schema changes to Neon DB
 
 ## Tech Stack
 - Next.js 16 (App Router), Tailwind CSS, shadcn/ui
 - RainbowKit + wagmi (wallet auth), Web3Auth (Google login)
 - Neon PostgreSQL (via Vercel Marketplace), Drizzle ORM
-- OpenAI GPT-4o-mini (AI swarm consensus)
+- OpenAI GPT-4o-mini (AI consensus + web search via Responses API)
 - Polymarket Gamma API (market data) + CLOB API (real-time prices)
+- YouTube Data API v3 (live stream discovery)
 
-## Key Architecture
-- `/api/polymarket/events` - Fetches markets, enriches with CLOB prices, categorizes, filters resolved
-- `/api/consensus` - 3-round debate system (5 personas x 3 rounds = 15 calls), cached 5hrs in DB
-- `/api/trade` - Paper trading with atomic SQL operations
-- `/api/airdrop` - Daily/weekly token claims
-- `useUser` hook - Unified auth (wagmi wallets + Web3Auth Google via Zustand auth store)
+## Pages & Features
 
-## Environment Variables (all set in Vercel + .env.local)
-- DATABASE_URL - Neon PostgreSQL
-- OPENAI_API_KEY - GPT-4o-mini for consensus
-- NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID
-- NEXT_PUBLIC_WEB3AUTH_CLIENT_ID
+### News Page (/)
+- 7 YouTube live streams: Al Jazeera, LiveNow FOX, ABC News, CBS News, Sky News, France 24, DW News
+- Auto-discovers live streams via YouTube Data API, cached 30min in DB
+- **4x multi-view** mode to watch 4 channels simultaneously
+- RSS news feed (BBC, NYT, NPR)
+- Market ticker with category tabs
 
-## Remaining Issues
-See TODO.md for the full list with details and root causes.
+### AI Consensus (/ai)
+- Top 10 markets by soonest end date, $50K+ volume, category diversity
+- 5 AI personas debate across 3 rounds with live web search context
+- Cached 5 hours in DB, live CLOB prices refresh every 15s
+- Waits for fresh prices before rendering (no stale data)
+
+### Super Swarm (/ai-beta)
+- **Coming Soon** page — placeholder for future MiroFish integration
+- MiroShark was tested locally (Ollama + Neo4j) but not production-ready
+- Custom swarm engine was removed (OpenAI rate limit issues)
+
+### Paper Trade (/trade)
+- **Portfolio tab**: balance, positions with live P&L, close at live price
+- **Tradable Markets tab**: BTC 5-min rapid trading + AI consensus markets
+- BTC 5-min auto-closes on resolution, next market appears automatically
+- Positions store clobTokenId for permanent price tracking
+- "To win" Polymarket-style display
+
+### Docs (/docs)
+- Full documentation with sticky sidebar navigation
+
+## Key API Routes
+- `/api/polymarket/events` - Market data (9 tags × 8 events, CLOB enrichment, categorization)
+- `/api/polymarket/btc5m` - BTC 5-min market with countdown
+- `/api/polymarket/prices` - Direct CLOB price lookup
+- `/api/trade` - Paper trade execution (stores clobTokenId, endDate, eventSlug)
+- `/api/trade/auto-close` - Settles resolved market positions
+- `/api/consensus` - 3-round AI debate with web search
+- `/api/youtube/live` - Batch live stream discovery with DB cache
+- `/api/airdrop`, `/api/user`, `/api/news`
+
+## Database (Neon PostgreSQL)
+Tables: users, positions, trades, airdrops, consensus_cache, youtube_stream_cache, referrals
+
+## Environment Variables
+- DATABASE_URL, OPENAI_API_KEY, YOUTUBE_API_KEY
+- NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID, NEXT_PUBLIC_WEB3AUTH_CLIENT_ID
+
+## Important Notes
+- Market discovery is self-healing — new markets auto-surface as old ones resolve
+- Live prices: useLivePrices() hook fetches CLOB directly for displayed markets every 15s
+- Owner wallet: 0xFbeEfB072F368803B33BA5c529f2F6762941b282
+- OpenAI is Tier 1 (200K TPM, 10K RPD) — rate limits apply for heavy usage
+- Groq API key also available (gsk_...) for local LLM work
+- Ollama installed locally with qwen3:8b model (for future MiroShark work)
 
 ## Vercel
 - Project: polystream (williamnuuh-7435s-projects)
-- CLI is already authenticated
 - `npx vercel --yes --prod` deploys immediately
 
 ## Git
 - User: toad <thedopetoad@gmail.com>
-- 28 commits on master branch
-- Not yet pushed to GitHub (local only)
+- All on master branch, local only (not on GitHub)
