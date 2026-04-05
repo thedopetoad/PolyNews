@@ -48,3 +48,5 @@ miroshark/
 neo4j-community-*/
 neo4j.zip
 java17.msi
+
+.vercel
