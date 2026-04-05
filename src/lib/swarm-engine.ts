@@ -2,7 +2,9 @@ import OpenAI from "openai";
 import { calibrateSwarmPrediction } from "./calibration";
 import { getDb, swarmAgentMemory } from "@/db";
 import { eq, and, isNotNull, desc } from "drizzle-orm";
-import { updateProgress, resetProgress } from "./swarm-progress";
+// Progress tracking removed — was used by deleted swarm dashboard
+const updateProgress = (..._args: unknown[]) => {};
+const resetProgress = () => {};
 
 function getOpenAI() {
   return new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
