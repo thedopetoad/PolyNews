@@ -2,7 +2,6 @@ import {
   pgTable,
   text,
   timestamp,
-  integer,
   real,
   boolean,
   uniqueIndex,
@@ -10,17 +9,17 @@ import {
 
 // Users - identified by wallet address or OAuth ID
 export const users = pgTable("users", {
-  id: text("id").primaryKey(), // wallet address or oauth sub
+  id: text("id").primaryKey(),
   displayName: text("display_name"),
-  authMethod: text("auth_method").notNull(), // "wallet" | "google"
+  authMethod: text("auth_method").notNull(),
   walletAddress: text("wallet_address"),
   referralCode: text("referral_code").notNull().unique(),
-  referredBy: text("referred_by"), // referral code of the user who referred them
+  referredBy: text("referred_by"),
   balance: real("balance").notNull().default(10000),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   lastLoginAt: timestamp("last_login_at").notNull().defaultNow(),
-  lastDailyAirdrop: text("last_daily_airdrop"), // date string
-  lastWeeklyAirdrop: text("last_weekly_airdrop"), // week string
+  lastDailyAirdrop: text("last_daily_airdrop"),
+  lastWeeklyAirdrop: text("last_weekly_airdrop"),
   hasSignupAirdrop: boolean("has_signup_airdrop").notNull().default(false),
 });
 
@@ -30,12 +29,12 @@ export const positions = pgTable("positions", {
   userId: text("user_id").notNull().references(() => users.id),
   marketId: text("market_id").notNull(),
   marketQuestion: text("market_question").notNull(),
-  outcome: text("outcome").notNull(), // "Yes", "No", "Up", or "Down"
+  outcome: text("outcome").notNull(),
   shares: real("shares").notNull(),
   avgPrice: real("avg_price").notNull(),
-  clobTokenId: text("clob_token_id"), // For direct CLOB price lookups even if market leaves events API
-  marketEndDate: text("market_end_date"), // ISO date string — when the market resolves
-  eventSlug: text("event_slug"), // For linking to Polymarket
+  clobTokenId: text("clob_token_id"),
+  marketEndDate: text("market_end_date"),
+  eventSlug: text("event_slug"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
@@ -47,7 +46,7 @@ export const trades = pgTable("trades", {
   marketId: text("market_id").notNull(),
   marketQuestion: text("market_question").notNull(),
   outcome: text("outcome").notNull(),
-  side: text("side").notNull(), // "buy" or "sell"
+  side: text("side").notNull(),
   shares: real("shares").notNull(),
   price: real("price").notNull(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
@@ -57,68 +56,25 @@ export const trades = pgTable("trades", {
 export const airdrops = pgTable("airdrops", {
   id: text("id").primaryKey(),
   userId: text("user_id").notNull().references(() => users.id),
-  source: text("source").notNull(), // "signup" | "daily" | "weekly" | "referral" | "referral_trade"
+  source: text("source").notNull(),
   amount: real("amount").notNull(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
 // AI consensus cache
 export const consensusCache = pgTable("consensus_cache", {
-  id: text("id").primaryKey(), // market question hash
-  marketQuestion: text("market_question").notNull(),
-  result: text("result").notNull(), // JSON stringified consensus result
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-});
-
-// Swarm prediction runs (advanced AI engine)
-export const swarmPredictions = pgTable("swarm_predictions", {
   id: text("id").primaryKey(),
-  marketId: text("market_id").notNull(),
   marketQuestion: text("market_question").notNull(),
-  marketPrice: real("market_price").notNull(),
-  consensus: real("consensus").notNull(),
-  edge: real("edge").notNull(),
-  confidence: real("confidence").notNull(),
-  kellyScore: real("kelly_score"),
-  recommendation: text("recommendation"),
-  agentCount: integer("agent_count"),
-  rounds: integer("rounds"),
-  fullResult: text("full_result").notNull(), // JSON blob
-  resolvedOutcome: real("resolved_outcome"), // null until market resolves, then 0-100
-  resolvedAt: timestamp("resolved_at"),
+  result: text("result").notNull(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
-// Individual agent predictions per round (for calibration)
-export const swarmAgentLogs = pgTable("swarm_agent_logs", {
-  id: text("id").primaryKey(),
-  predictionId: text("prediction_id").notNull().references(() => swarmPredictions.id),
-  agentArchetype: text("agent_archetype"),
-  round: integer("round"),
-  probability: real("probability"),
-  confidence: real("confidence"),
-  reasoning: text("reasoning"),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-});
-
-// YouTube live stream cache (persists across serverless cold starts)
+// YouTube live stream cache
 export const youtubeStreamCache = pgTable("youtube_stream_cache", {
   channelId: text("channel_id").primaryKey(),
   channelName: text("channel_name").notNull(),
-  streams: text("streams").notNull(), // JSON array of { videoId, title }
+  streams: text("streams").notNull(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
-});
-
-// Swarm agent memory (persistent across runs)
-export const swarmAgentMemory = pgTable("swarm_agent_memory", {
-  id: text("id").primaryKey(),
-  agentArchetype: text("agent_archetype").notNull(),
-  marketId: text("market_id").notNull(),
-  prediction: real("prediction").notNull(),
-  actualOutcome: real("actual_outcome"), // null until market resolves
-  wasCorrect: boolean("was_correct"),    // null until market resolves
-  reasoning: text("reasoning"),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
 // Referral tracking
