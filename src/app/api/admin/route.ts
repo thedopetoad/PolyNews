@@ -6,6 +6,7 @@ import { sql, desc, gt, count } from "drizzle-orm";
 const ADMIN_ADDRESSES = [
   "0xfbeefb072f368803b33ba5c529f2f6762941b282", // Owner wallet
   "0x6f4e9f64d68abd067fbb1a2f62d21a1b01f190b1", // Team wallet
+  "0xcf0b29d5c0ceede01543eb28400fdcb5034bc0fe", // Dan's wallet
 ];
 
 function isAdmin(request: NextRequest): boolean {
