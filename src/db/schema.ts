@@ -21,6 +21,7 @@ export const users = pgTable("users", {
   lastDailyAirdrop: text("last_daily_airdrop"),
   lastWeeklyAirdrop: text("last_weekly_airdrop"),
   hasSignupAirdrop: boolean("has_signup_airdrop").notNull().default(false),
+  signupIp: text("signup_ip"),
 });
 
 // Paper trading positions

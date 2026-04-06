@@ -136,6 +136,7 @@ export async function POST(request: NextRequest) {
         referralCode,
         referredBy: referredBy || null,
         balance: STARTING_BALANCE,
+        signupIp: ip,
       })
       .returning();
 
