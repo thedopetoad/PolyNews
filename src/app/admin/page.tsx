@@ -187,8 +187,13 @@ export default function AdminPage() {
         <p className="text-[#768390]">
           {!connectedAddress
             ? "Connect an authorized wallet to access the admin dashboard."
-            : "Your wallet is not authorized to view this page."}
+            : `Your wallet is not authorized to view this page.`}
         </p>
+        {connectedAddress && (
+          <p className="text-[#484f58] text-xs mt-3 font-mono">
+            Connected as: {connectedAddress}
+          </p>
+        )}
       </div>
     );
   }
