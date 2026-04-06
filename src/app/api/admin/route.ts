@@ -4,8 +4,7 @@ import { sql, desc, gt, count } from "drizzle-orm";
 
 // Only these addresses can access the admin dashboard
 const ADMIN_ADDRESSES = [
-  "0xfbeefb072f368803b33ba5c529f2f6762941b282",
-  "0x6f4e9f64d68abd067fbb1a2f62d21a1b01f190b1",
+  "0xfbeefb072f368803b33ba5c529f2f6762941b282", // Owner wallet
 ];
 
 function isAdmin(request: NextRequest): boolean {
