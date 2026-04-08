@@ -468,7 +468,13 @@ export default function AdminPage() {
               {data.recentUsers.map((u) => (
                 <tr key={u.id} className="border-b border-[#21262d]/50">
                   <td className="py-2 pr-4 font-mono text-xs text-[#e6edf3]">
-                    {maskAddress(u.id)}
+                    <button
+                      onClick={() => { navigator.clipboard.writeText(u.id); }}
+                      className="hover:text-[#58a6ff] transition-colors cursor-pointer"
+                      title={u.id}
+                    >
+                      {maskAddress(u.id)}
+                    </button>
                   </td>
                   <td className="py-2 pr-4 text-[#e6edf3]">
                     {u.displayName || "-"}

@@ -244,19 +244,22 @@ export async function POST(request: NextRequest) {
     }
 
     const db = getDb();
-    const targetId = userId.toLowerCase();
+
+    // Try exact ID first, then lowercased (handles mixed-case Google auth IDs)
+    async function findAndUpdate(setter: Record<string, unknown>) {
+      let [updated] = await db.update(users).set(setter).where(eq(users.id, userId)).returning();
+      if (!updated) {
+        [updated] = await db.update(users).set(setter).where(eq(users.id, userId.toLowerCase())).returning();
+      }
+      return updated || null;
+    }
 
     if (action === "setBalance") {
       if (typeof balance !== "number" || balance < 0) {
         return NextResponse.json({ error: "Invalid balance" }, { status: 400 });
       }
 
-      const [updated] = await db
-        .update(users)
-        .set({ balance })
-        .where(eq(users.id, targetId))
-        .returning();
-
+      const updated = await findAndUpdate({ balance });
       if (!updated) {
         return NextResponse.json({ error: "User not found" }, { status: 404 });
       }
@@ -265,12 +268,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (action === "resetBalance") {
-      const [updated] = await db
-        .update(users)
-        .set({ balance: 1000 })
-        .where(eq(users.id, targetId))
-        .returning();
-
+      const updated = await findAndUpdate({ balance: 1000 });
       if (!updated) {
         return NextResponse.json({ error: "User not found" }, { status: 404 });
       }
