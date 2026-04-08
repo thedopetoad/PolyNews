@@ -234,7 +234,7 @@ function MiniPriceChart({ tokenId }: { tokenId: string }) {
           </linearGradient>
         </defs>
         <path d={areaPath} fill={`url(#${gradientId})`} />
-        <path d={linePath} fill="none" stroke={color} strokeWidth={2} vectorEffect="non-scaling-stroke" />
+        <path d={linePath} fill="none" stroke={color} strokeWidth={2} vectorEffect="non-scaling-stroke" className="animate-draw-line" />
         {hover && (
           <line x1={hover.x} y1={0} x2={hover.x} y2={H} stroke="#484f58" strokeWidth={1} vectorEffect="non-scaling-stroke" strokeDasharray="3,3" />
         )}
@@ -979,9 +979,10 @@ function LeaderboardTab() {
               <div
                 key={entry.id}
                 className={cn(
-                  "grid grid-cols-12 gap-2 px-4 py-3 items-center",
+                  "grid grid-cols-12 gap-2 px-4 py-3 items-center animate-fade-in-up",
                   isMe && "bg-[#58a6ff]/5 border-l-2 border-[#58a6ff]"
                 )}
+                style={{ animationDelay: `${idx * 40}ms`, animationFillMode: "backwards" }}
               >
                 <div className="col-span-1">
                   <span className={cn(
@@ -1071,19 +1072,21 @@ export default function TradePage() {
         </button>
       </div>
 
-      {tab === "leaderboard" ? (
-        <LeaderboardTab />
-      ) : isLoading ? (
-        <p className="text-sm text-[#484f58] text-center py-16">Loading markets...</p>
-      ) : tab === "portfolio" ? (
-        <PortfolioTab allMarkets={allMarkets} onSwitchTab={() => setTab("markets")} />
-      ) : (
-        <TradableMarketsTab
-          allMarkets={allMarkets}
-          events={(events || []) as PolymarketEvent[]}
-          onBought={() => setTab("portfolio")}
-        />
-      )}
+      <div key={tab} className="animate-fade-in-up">
+        {tab === "leaderboard" ? (
+          <LeaderboardTab />
+        ) : isLoading ? (
+          <p className="text-sm text-[#484f58] text-center py-16">Loading markets...</p>
+        ) : tab === "portfolio" ? (
+          <PortfolioTab allMarkets={allMarkets} onSwitchTab={() => setTab("markets")} />
+        ) : (
+          <TradableMarketsTab
+            allMarkets={allMarkets}
+            events={(events || []) as PolymarketEvent[]}
+            onBought={() => setTab("portfolio")}
+          />
+        )}
+      </div>
     </div>
   );
 }

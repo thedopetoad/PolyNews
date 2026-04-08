@@ -116,7 +116,8 @@ export function NewsFeed({ className }: { className?: string }) {
               href={headline.url}
               target="_blank"
               rel="noopener noreferrer"
-              className="block px-4 py-3 hover:bg-[#1c2128] transition-colors"
+              className="block px-4 py-3 hover:bg-[#1c2128] transition-colors animate-fade-in-up"
+              style={{ animationDelay: `${idx * 30}ms`, animationFillMode: "backwards" }}
             >
               <p className="text-[13px] text-[#e6edf3] leading-snug line-clamp-2">
                 {headline.title}

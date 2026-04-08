@@ -20,7 +20,7 @@ function MarketCard({ market }: { market: LiveMarket }) {
       href={`${POLYMARKET_BASE_URL}/event/${market.eventSlug || market.slug}`}
       target="_blank"
       rel="noopener noreferrer"
-      className="flex-shrink-0 w-72 rounded-lg border border-[#21262d] bg-[#161b22] p-3 hover:border-[#30363d] transition-colors"
+      className="flex-shrink-0 w-72 rounded-lg border border-[#21262d] bg-[#161b22] p-3 hover:border-[#30363d] hover:shadow-[0_0_12px_rgba(88,166,255,0.1)] transition-all"
     >
       <p className="text-[13px] font-medium text-[#e6edf3] leading-snug line-clamp-2 h-10">
         {market.question}

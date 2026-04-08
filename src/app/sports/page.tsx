@@ -73,8 +73,8 @@ function OddsPill({ label, price, eventSlug, highlight }: {
       className={cn(
         "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition-all whitespace-nowrap",
         highlight
-          ? "bg-[#238636]/20 text-[#3fb950] hover:bg-[#238636]/30 border border-[#238636]/30"
-          : "bg-[#21262d] text-[#e6edf3] hover:bg-[#30363d] border border-transparent"
+          ? "bg-[#238636]/20 text-[#3fb950] hover:bg-[#238636]/30 border border-[#238636]/30 hover:shadow-[0_0_12px_rgba(63,185,80,0.3)]"
+          : "bg-[#21262d] text-[#e6edf3] hover:bg-[#30363d] border border-transparent hover:shadow-[0_0_8px_rgba(88,166,255,0.15)]"
       )}
     >
       <span className="truncate max-w-[80px]">{label}</span>
@@ -84,7 +84,7 @@ function OddsPill({ label, price, eventSlug, highlight }: {
 }
 
 /* ─── Game Row (Polymarket-style) ─── */
-function GameRow({ event }: { event: SportEvent }) {
+function GameRow({ event, index }: { event: SportEvent; index: number }) {
   const isMultiMarket = event.negRisk && event.markets.length > 1;
   const time = formatGameTime(event.gameStartTime);
   const vol = formatVol(event.volume || event.markets.reduce((s, m) => s + m.volume, 0));
@@ -118,7 +118,13 @@ function GameRow({ event }: { event: SportEvent }) {
   const maxPrice = Math.max(...outcomes.map((o) => o.price));
 
   return (
-    <div className="flex items-center gap-4 px-4 py-3 border-b border-[#21262d] hover:bg-[#1c2128]/50 transition-colors">
+    <div
+      className={cn(
+        "flex items-center gap-4 px-4 py-3 border-b border-[#21262d] hover:bg-[#1c2128]/50 transition-colors animate-fade-in-up",
+        isLive && "border-l-2 border-l-[#f85149] bg-[#f85149]/[0.03]"
+      )}
+      style={{ animationDelay: `${index * 50}ms`, animationFillMode: "backwards" }}
+    >
       {/* Time */}
       <div className="w-16 flex-shrink-0 text-center">
         {isLive ? (
@@ -293,7 +299,7 @@ export default function SportsPage() {
                     <div className="px-4 py-1.5 bg-[#f85149]/5 border-b border-[#21262d]">
                       <span className="text-[10px] font-semibold text-[#f85149] uppercase tracking-wider">Live Now</span>
                     </div>
-                    {liveEvents.map((e) => <GameRow key={e.id} event={e} />)}
+                    {liveEvents.map((e, i) => <GameRow key={e.id} event={e} index={i} />)}
                   </>
                 )}
                 {upcomingEvents.length > 0 && (
@@ -303,7 +309,7 @@ export default function SportsPage() {
                         <span className="text-[10px] font-semibold text-[#484f58] uppercase tracking-wider">Upcoming</span>
                       </div>
                     )}
-                    {upcomingEvents.map((e) => <GameRow key={e.id} event={e} />)}
+                    {upcomingEvents.map((e, i) => <GameRow key={e.id} event={e} index={i} />)}
                   </>
                 )}
               </>
