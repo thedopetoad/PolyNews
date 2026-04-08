@@ -397,9 +397,10 @@ function LiveRadioPlayer({ teamA, teamB }: { teamA: string; teamB: string }) {
   const toggleMute = () => {
     if (!station) return;
 
-    // Not playing yet — create audio and start
+    // Not playing yet — create audio and start (proxy through our API to fix MIME/CORS)
     if (!playing || !audioRef.current) {
-      const audio = new Audio(station.url);
+      const proxyUrl = `/api/sports/radio/stream?url=${encodeURIComponent(station.url)}`;
+      const audio = new Audio(proxyUrl);
       audio.volume = 0.5;
       audioRef.current = audio;
 
