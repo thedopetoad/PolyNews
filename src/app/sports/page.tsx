@@ -31,7 +31,7 @@ interface SportEvent {
   title: string;
   slug: string;
   image: string;
-  startDate: string;
+  gameStartTime: string;
   endDate: string;
   volume: number;
   liquidity: number;
@@ -86,9 +86,10 @@ function OddsPill({ label, price, eventSlug, highlight }: {
 /* ─── Game Row (Polymarket-style) ─── */
 function GameRow({ event }: { event: SportEvent }) {
   const isMultiMarket = event.negRisk && event.markets.length > 1;
-  const time = formatGameTime(event.endDate);
+  const time = formatGameTime(event.gameStartTime);
   const vol = formatVol(event.volume || event.markets.reduce((s, m) => s + m.volume, 0));
-  const isLive = time === "LIVE";
+  const gameStart = new Date(event.gameStartTime).getTime();
+  const isLive = gameStart <= Date.now() && (Date.now() - gameStart) < 6 * 60 * 60 * 1000;
 
   // Build outcomes list
   let outcomes: { label: string; price: number }[] = [];
@@ -188,9 +189,14 @@ export default function SportsPage() {
   const leagues: League[] = leaguesData?.leagues || [];
   const events: SportEvent[] = eventsData?.events || [];
 
-  // Separate live and upcoming
+  // Separate live and upcoming based on actual game start time
   const now = Date.now();
-  const liveEvents = events.filter((e) => new Date(e.endDate).getTime() > now && new Date(e.startDate || e.endDate).getTime() <= now);
+  const liveEvents = events.filter((e) => {
+    const gameStart = new Date(e.gameStartTime).getTime();
+    const gameEnd = new Date(e.endDate).getTime();
+    // Game is live if it started and hasn't ended yet, and started within last 6 hours (reasonable game duration)
+    return gameStart <= now && gameEnd > now && (now - gameStart) < 6 * 60 * 60 * 1000;
+  });
   const upcomingEvents = events.filter((e) => !liveEvents.includes(e));
 
   const selectedLeague = leagues.find((l) => l.code === selectedSport);

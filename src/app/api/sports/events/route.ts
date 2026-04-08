@@ -27,7 +27,7 @@ interface ParsedEvent {
   title: string;
   slug: string;
   image: string;
-  startDate: string;
+  gameStartTime: string;
   endDate: string;
   volume: number;
   liquidity: number;
@@ -102,12 +102,16 @@ export async function GET(request: NextRequest) {
 
       if (markets.length === 0) continue;
 
+      // Use gameStartTime from first market, or creationDate as game time
+      const firstMarket = (event.markets || [])[0];
+      const gameTime = firstMarket?.gameStartTime || event.creationDate || event.startDate || "";
+
       events.push({
         id: event.id,
         title: event.title,
         slug: event.slug,
         image: event.image || "",
-        startDate: event.startDate || event.creationDate || "",
+        gameStartTime: gameTime,
         endDate: event.endDate || "",
         volume: event.volume || 0,
         liquidity: event.liquidity || 0,
