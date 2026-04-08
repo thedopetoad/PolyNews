@@ -234,7 +234,7 @@ function MiniPriceChart({ tokenId }: { tokenId: string }) {
           </linearGradient>
         </defs>
         <path d={areaPath} fill={`url(#${gradientId})`} />
-        <path d={linePath} fill="none" stroke={color} strokeWidth={2} vectorEffect="non-scaling-stroke" className="animate-draw-line" />
+        <path d={linePath} fill="none" stroke={color} strokeWidth={2} vectorEffect="non-scaling-stroke" />
         {hover && (
           <line x1={hover.x} y1={0} x2={hover.x} y2={H} stroke="#484f58" strokeWidth={1} vectorEffect="non-scaling-stroke" strokeDasharray="3,3" />
         )}
@@ -717,13 +717,13 @@ function TradableMarketsTab({ allMarkets, events, onBought }: {
     }
   };
 
-  const renderMarketRow = (market: MarketWithPrices, label: string, consensus?: ConsensusResult) => {
+  const renderMarketRow = (market: MarketWithPrices, label: string, consensus?: ConsensusResult, rowIndex?: number) => {
     const isExpanded = expandedMarketId === market.id;
     let tokenId = "";
     try { const ids = JSON.parse(market.clobTokenIds || "[]"); tokenId = ids[0] || ""; } catch {}
 
     return (
-      <div key={market.id}>
+      <div key={market.id} className="animate-fade-in-up" style={{ animationDelay: `${(rowIndex ?? 0) * 50}ms`, animationFillMode: "backwards" }}>
         <div
           className={cn(
             "flex items-center gap-3 px-4 py-3 border-b border-[#21262d] last:border-b-0 transition-colors cursor-pointer",
@@ -828,7 +828,7 @@ function TradableMarketsTab({ allMarkets, events, onBought }: {
         {consensusMarkets.length === 0 || !pricesReady ? (
           <p className="text-sm text-[#484f58] text-center py-8">Loading live prices...</p>
         ) : (
-          consensusMarkets.map((m) => renderMarketRow(m, "AI Pick", consensusResults[m.id]))
+          consensusMarkets.map((m, idx) => renderMarketRow(m, "AI Pick", consensusResults[m.id], idx))
         )}
       </div>
 

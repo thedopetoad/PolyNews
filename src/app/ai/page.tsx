@@ -121,7 +121,7 @@ export default function AIConsensusPage() {
             const marketUrl = `${POLYMARKET_BASE_URL}/event/${mc.market.eventSlug || mc.market.slug}`;
 
             return (
-              <div key={mc.market.id} className="border-b border-[#21262d] last:border-b-0">
+              <div key={mc.market.id} className="border-b border-[#21262d] last:border-b-0 animate-fade-in-up" style={{ animationDelay: `${idx * 30}ms`, animationFillMode: "backwards" }}>
                 {/* Desktop */}
                 <div className="hidden sm:grid grid-cols-12 gap-2 px-4 py-4 items-center">
                   <div className="col-span-5">
