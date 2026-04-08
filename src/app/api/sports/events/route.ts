@@ -19,35 +19,43 @@ const ESPN_SPORT_MAP: Record<string, string> = {
   bun: "soccer/ger.1", ucl: "soccer/uefa.champions", ufc: "mma/ufc",
 };
 
-// Fetch ESPN scoreboard and return set of live game title keywords
-async function getESPNLiveGames(sport: string): Promise<Set<string>> {
-  const liveTeams = new Set<string>();
+// Fetch ESPN scoreboard and return pairs of team names for each live game
+interface LiveGame {
+  teams: string[]; // All team name variants for this game (both teams)
+}
+
+async function getESPNLiveGames(sport: string): Promise<LiveGame[]> {
   const espnPath = ESPN_SPORT_MAP[sport];
-  if (!espnPath) return liveTeams;
+  if (!espnPath) return [];
 
   try {
     const res = await fetch(`${ESPN_API}/${espnPath}/scoreboard`, {
       next: { revalidate: 60 },
     });
-    if (!res.ok) return liveTeams;
+    if (!res.ok) return [];
     const data = await res.json();
+    const liveGames: LiveGame[] = [];
 
     for (const event of data.events || []) {
       const comp = event.competitions?.[0];
       if (!comp) continue;
       const statusName = comp.status?.type?.name;
       if (statusName === "STATUS_IN_PROGRESS") {
-        // Add all team names from this live game
+        const teams: string[] = [];
         for (const t of comp.competitors || []) {
-          const name = (t.team?.displayName || "").toLowerCase();
+          const display = (t.team?.displayName || "").toLowerCase();
           const short = (t.team?.shortDisplayName || "").toLowerCase();
-          if (name) liveTeams.add(name);
-          if (short) liveTeams.add(short);
+          const abbr = (t.team?.abbreviation || "").toLowerCase();
+          if (display) teams.push(display);
+          if (short && short !== display) teams.push(short);
+          if (abbr) teams.push(abbr);
         }
+        if (teams.length >= 2) liveGames.push({ teams });
       }
     }
+    return liveGames;
   } catch {}
-  return liveTeams;
+  return [];
 }
 
 interface ParsedMarket {
@@ -180,15 +188,22 @@ export async function GET(request: NextRequest) {
 
     await Promise.all(enrichPromises);
 
-    // Check ESPN for actually live games
-    const liveTeams = await getESPNLiveGames(sport);
-    if (liveTeams.size > 0) {
+    // Check ESPN for actually live games — require BOTH teams to match the SAME ESPN game
+    const liveGames = await getESPNLiveGames(sport);
+    if (liveGames.length > 0) {
       for (const event of events) {
-        const titleWords = event.title.toLowerCase().split(/\s+/);
-        // Match if any significant word from the event title matches a live team
-        event.espnLive = titleWords.some(
-          (w) => w.length > 3 && [...liveTeams].some((team) => team.includes(w))
-        );
+        // Split "Team A vs. Team B" into two team names
+        const parts = event.title.split(/\s+vs\.?\s+/i);
+        if (parts.length < 2) continue;
+        const teamA = parts[0].trim().toLowerCase();
+        const teamB = parts[1].trim().toLowerCase();
+
+        // Check if both teams match the SAME ESPN live game
+        event.espnLive = liveGames.some((game) => {
+          const matchA = game.teams.some((t) => t.includes(teamA) || teamA.includes(t));
+          const matchB = game.teams.some((t) => t.includes(teamB) || teamB.includes(t));
+          return matchA && matchB;
+        });
       }
     }
 
