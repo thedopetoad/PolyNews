@@ -9,7 +9,7 @@ interface StationInfo {
 // Fallback: ESPN Radio (always available)
 const ESPN_RADIO: StationInfo = {
   name: "ESPN Radio",
-  url: "http://live.amperwave.net/direct/espn-network-48?source=v7player",
+  url: "https://live.amperwave.net/direct/espn-network-48?source=v7player",
 };
 
 // Team -> station with direct stream URL
@@ -17,15 +17,15 @@ const ESPN_RADIO: StationInfo = {
 const TEAM_STREAMS: Record<string, StationInfo> = {
   // MLB
   "chicago white sox": { name: "ESPN 1000 Chicago", url: "https://live.amperwave.net/direct/goodkarma-wmvpammp3-ibc1" },
-  "cincinnati reds": { name: "700 WLW", url: "https://stream.revma.ihrhls.com/zc1713/hls.m3u8" },
+  "cincinnati reds": { name: "700 WLW", url: "https://stream.revma.ihrhls.com/zc1713" },
   "milwaukee brewers": { name: "620 WTMJ", url: "https://live.amperwave.net/manifest/goodkarma-wtmjamaac-ibc3" },
-  "san francisco giants": { name: "KNBR 680", url: "http://17793.live.streamtheworld.com/KNBRAM_SC" },
+  "san francisco giants": { name: "KNBR 680", url: "https://playerservices.streamtheworld.com/api/livestream-redirect/KNBRAM.mp3" },
   "seattle mariners": { name: "KIRO 710 ESPN", url: "https://bonneville.cdnstream1.com/2642_48.aac" },
   "minnesota twins": { name: "KFAN Sports", url: "https://stream.revma.ihrhls.com/zc1209" },
 
   // NBA
   "chicago bulls": { name: "ESPN 1000 Chicago", url: "https://live.amperwave.net/direct/goodkarma-wmvpammp3-ibc1" },
-  "golden state warriors": { name: "KNBR 680", url: "http://17793.live.streamtheworld.com/KNBRAM_SC" },
+  "golden state warriors": { name: "KNBR 680", url: "https://playerservices.streamtheworld.com/api/livestream-redirect/KNBRAM.mp3" },
   "milwaukee bucks": { name: "620 WTMJ", url: "https://live.amperwave.net/manifest/goodkarma-wtmjamaac-ibc3" },
   "minnesota timberwolves": { name: "KFAN Sports", url: "https://stream.revma.ihrhls.com/zc1209" },
 

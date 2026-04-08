@@ -477,7 +477,7 @@ function LiveRadioPlayer({ teamA, teamB }: { teamA: string; teamB: string }) {
         <span className="text-[9px] text-[#f85149] font-medium ml-auto flex-shrink-0">LIVE</span>
       )}
 
-      <audio ref={audioRef} crossOrigin="anonymous" />
+      <audio ref={audioRef} />
     </div>
   );
 }
