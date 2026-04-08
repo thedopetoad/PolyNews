@@ -155,6 +155,10 @@ export async function GET(request: NextRequest) {
       const firstMarket = (event.markets || [])[0];
       const gameTime = firstMarket?.gameStartTime || event.creationDate || event.startDate || "";
 
+      // Skip stale events — game started more than 12 hours ago
+      const gameStart = new Date(gameTime).getTime();
+      if (!isNaN(gameStart) && gameStart < Date.now() - 12 * 60 * 60 * 1000) continue;
+
       events.push({
         id: event.id,
         title: event.title,
