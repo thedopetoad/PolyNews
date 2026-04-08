@@ -876,8 +876,8 @@ function TradableMarketsTab({ allMarkets, events, onBought }: {
                 <div className="flex justify-between text-xs text-[#484f58] mb-1.5">
                   <span>Shares</span>
                   <button
-                    onClick={() => setAmount(String(Math.floor(balance / price)))}
-                    className="text-[#58a6ff] hover:underline"
+                    onClick={() => price > 0 && setAmount(String(Math.floor(balance / price)))}
+                    className={cn("hover:underline", price > 0 ? "text-[#58a6ff]" : "text-[#484f58] cursor-not-allowed")}
                   >
                     Max
                   </button>
@@ -885,8 +885,12 @@ function TradableMarketsTab({ allMarkets, events, onBought }: {
                 <Input
                   type="number"
                   placeholder="0"
+                  min="0"
                   value={amount}
-                  onChange={(e) => setAmount(e.target.value)}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    if (val === "" || parseFloat(val) >= 0) setAmount(val);
+                  }}
                   className="bg-[#0d1117] border-[#21262d] text-white text-base h-10"
                 />
               </div>

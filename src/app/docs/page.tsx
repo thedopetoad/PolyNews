@@ -23,7 +23,7 @@ const sections: DocSection[] = [
           <li><strong className="text-[#e6edf3]">Connect your wallet</strong> using the button in the top right. Supports MetaMask, Coinbase Wallet, Phantom, WalletConnect, and Google.</li>
           <li><strong className="text-[#e6edf3]">Watch live news</strong> on the home page and see which prediction markets are related.</li>
           <li><strong className="text-[#e6edf3]">Check AI consensus</strong> for swarm intelligence predictions on each market.</li>
-          <li><strong className="text-[#e6edf3]">Paper trade</strong> with virtual PST tokens to practice.</li>
+          <li><strong className="text-[#e6edf3]">Paper trade</strong> with virtual AIRDROP tokens to practice.</li>
         </ol>
       </div>
     ),
