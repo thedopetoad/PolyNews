@@ -347,6 +347,98 @@ function TeamRow({ name, mlPrice, spreadLabel, spreadPrice, totalLabel, totalPri
   );
 }
 
+/* ─── Live Radio Player ─── */
+function LiveRadioPlayer({ teamA, teamB }: { teamA: string; teamB: string }) {
+  const [station, setStation] = useState<{ name: string; streamUrl: string } | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [playing, setPlaying] = useState(false);
+  const [selectedTeam, setSelectedTeam] = useState<"home" | "away">("home");
+  const audioRef = useRef<HTMLAudioElement>(null);
+
+  const currentTeam = selectedTeam === "home" ? teamA : teamB;
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setStation(null);
+    setPlaying(false);
+    if (audioRef.current) { audioRef.current.pause(); audioRef.current.src = ""; }
+
+    fetch(`/api/sports/radio?team=${encodeURIComponent(currentTeam)}`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (!cancelled && data.station) setStation(data.station);
+      })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [currentTeam]);
+
+  const togglePlay = () => {
+    const audio = audioRef.current;
+    if (!audio || !station) return;
+    if (playing) {
+      audio.pause();
+      setPlaying(false);
+    } else {
+      audio.src = station.streamUrl;
+      audio.play().catch(() => setPlaying(false));
+      setPlaying(true);
+    }
+  };
+
+  return (
+    <div className="flex items-center gap-2 bg-[#161b22] rounded-md px-3 py-2 border border-[#21262d]" onClick={(e) => e.stopPropagation()}>
+      {/* Radio icon */}
+      <svg className="w-3.5 h-3.5 text-[#f85149] flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.536 8.464a5 5 0 010 7.072M18.364 5.636a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707A1 1 0 0112 5.586V18.414a1 1 0 01-1.707.707L5.586 15z" />
+      </svg>
+
+      {/* Team toggle */}
+      <div className="flex gap-1">
+        <button
+          className={cn("text-[10px] px-1.5 py-0.5 rounded", selectedTeam === "home" ? "bg-[#21262d] text-[#e6edf3]" : "text-[#484f58] hover:text-[#adbac7]")}
+          onClick={() => setSelectedTeam("home")}
+        >
+          {abbrev(teamA)}
+        </button>
+        <button
+          className={cn("text-[10px] px-1.5 py-0.5 rounded", selectedTeam === "away" ? "bg-[#21262d] text-[#e6edf3]" : "text-[#484f58] hover:text-[#adbac7]")}
+          onClick={() => setSelectedTeam("away")}
+        >
+          {abbrev(teamB)}
+        </button>
+      </div>
+
+      {/* Station info + play */}
+      {loading ? (
+        <span className="text-[10px] text-[#484f58]">Finding station...</span>
+      ) : station ? (
+        <>
+          <span className="text-[10px] text-[#adbac7] truncate max-w-[120px]">{station.name}</span>
+          <button
+            onClick={togglePlay}
+            className={cn(
+              "ml-auto w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 transition-colors",
+              playing ? "bg-[#f85149]/20 text-[#f85149]" : "bg-[#238636]/20 text-[#3fb950] hover:bg-[#238636]/30"
+            )}
+          >
+            {playing ? (
+              <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24"><rect x="6" y="4" width="4" height="16" /><rect x="14" y="4" width="4" height="16" /></svg>
+            ) : (
+              <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z" /></svg>
+            )}
+          </button>
+        </>
+      ) : (
+        <span className="text-[10px] text-[#484f58]">No station found</span>
+      )}
+
+      <audio ref={audioRef} />
+    </div>
+  );
+}
+
 /* ─── Game Card (Polymarket-style) ─── */
 function GameCard({ event, index, sport, expanded, onToggle }: { event: SportEvent; index: number; sport: string; expanded: boolean; onToggle: () => void }) {
   const [teamA, teamB] = parseTeams(event.title);
@@ -406,8 +498,8 @@ function GameCard({ event, index, sport, expanded, onToggle }: { event: SportEve
   }
 
   const handleCardClick = (e: React.MouseEvent) => {
-    // Don't toggle if clicking a link
-    if ((e.target as HTMLElement).closest("a")) return;
+    // Don't toggle if clicking a link or button (radio controls)
+    if ((e.target as HTMLElement).closest("a, button, audio")) return;
     onToggle();
   };
 
@@ -469,9 +561,17 @@ function GameCard({ event, index, sport, expanded, onToggle }: { event: SportEve
         gameLink={`/sports/game?eventId=${event.id}&sport=${sport}`}
       />
 
-      {/* Expanded Section — chart + stats */}
+      {/* Expanded Section — radio + chart + stats */}
       {expanded && (
         <div className="border-t border-[#21262d] bg-[#0d1117] px-4 py-3 space-y-3 animate-fade-in-up">
+          {/* Live Radio */}
+          {isLive && teamA && teamB && (
+            <div>
+              <p className="text-[10px] text-[#484f58] uppercase tracking-wider mb-1">Live Radio</p>
+              <LiveRadioPlayer teamA={teamA} teamB={teamB} />
+            </div>
+          )}
+
           {chartOutcomes.length > 0 && (
             <div>
               <p className="text-[10px] text-[#484f58] uppercase tracking-wider mb-1">Price History</p>
