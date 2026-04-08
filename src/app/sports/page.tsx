@@ -355,64 +355,70 @@ function LiveRadioPlayer({ teamA, teamB }: { teamA: string; teamB: string }) {
   const [muted, setMuted] = useState(false);
   const [playing, setPlaying] = useState(false);
   const [selectedTeam, setSelectedTeam] = useState<"home" | "away">("home");
-  const audioRef = useRef<HTMLAudioElement>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
   const currentTeam = selectedTeam === "home" ? teamA : teamB;
 
-  // Fetch station and auto-play
+  // Cleanup audio on unmount or team change
+  useEffect(() => {
+    return () => {
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current.src = "";
+        audioRef.current = null;
+      }
+    };
+  }, []);
+
+  // Fetch station when team changes
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     setPlaying(false);
-    const audio = audioRef.current;
-    if (audio) { audio.pause(); audio.removeAttribute("src"); audio.load(); }
+
+    // Stop current audio
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.src = "";
+      audioRef.current = null;
+    }
 
     fetch(`/api/sports/radio?team=${encodeURIComponent(currentTeam)}`)
       .then((r) => r.json())
       .then((data) => {
-        if (cancelled || !data.station) return;
-        setStation(data.station);
+        if (cancelled) return;
+        if (data.station) setStation(data.station);
         setLoading(false);
-        // Auto-play
-        if (audio) {
-          audio.src = data.station.url;
-          audio.volume = 0.5;
-          audio.muted = false;
-          setMuted(false);
-          const playPromise = audio.play();
-          if (playPromise) {
-            playPromise.then(() => {
-              if (!cancelled) setPlaying(true);
-            }).catch(() => {
-              // Autoplay blocked — that's ok, user can click the button
-              if (!cancelled) setPlaying(false);
-            });
-          }
-        }
       })
       .catch(() => { if (!cancelled) setLoading(false); });
-
-    return () => {
-      cancelled = true;
-      if (audio) { audio.pause(); audio.removeAttribute("src"); audio.load(); }
-    };
+    return () => { cancelled = true; };
   }, [currentTeam]);
 
   const toggleMute = () => {
-    const audio = audioRef.current;
-    if (!audio) return;
+    if (!station) return;
 
-    if (!playing) {
-      // First click — start playing
-      if (station) {
-        audio.src = station.url;
-        audio.volume = 0.5;
-        audio.muted = false;
-        audio.play().then(() => { setPlaying(true); setMuted(false); }).catch(() => {});
-      }
+    // Not playing yet — create audio and start
+    if (!playing || !audioRef.current) {
+      const audio = new Audio(station.url);
+      audio.volume = 0.5;
+      audioRef.current = audio;
+
+      audio.addEventListener("error", () => {
+        setPlaying(false);
+        console.error("Radio stream error:", audio.error?.message);
+      });
+
+      audio.play()
+        .then(() => { setPlaying(true); setMuted(false); })
+        .catch((err) => {
+          console.error("Radio play failed:", err);
+          setPlaying(false);
+        });
       return;
     }
 
+    // Already playing — toggle mute
+    const audio = audioRef.current;
     if (muted) {
       audio.muted = false;
       setMuted(false);
@@ -435,12 +441,10 @@ function LiveRadioPlayer({ teamA, teamB }: { teamA: string; teamB: string }) {
         )}
       >
         {playing && !muted ? (
-          /* Speaker with waves */
           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M15.536 8.464a5 5 0 010 7.072M18.364 5.636a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707A1 1 0 0112 5.586V18.414a1 1 0 01-1.707.707L5.586 15z" />
           </svg>
         ) : (
-          /* Speaker muted / off */
           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707A1 1 0 0112 5.586V18.414a1 1 0 01-1.707.707L5.586 15z" />
             <path strokeLinecap="round" strokeLinejoin="round" d="M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2" />
@@ -476,8 +480,6 @@ function LiveRadioPlayer({ teamA, teamB }: { teamA: string; teamB: string }) {
       {playing && !muted && (
         <span className="text-[9px] text-[#f85149] font-medium ml-auto flex-shrink-0">LIVE</span>
       )}
-
-      <audio ref={audioRef} />
     </div>
   );
 }
