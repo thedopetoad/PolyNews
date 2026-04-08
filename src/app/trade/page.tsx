@@ -633,6 +633,139 @@ function PortfolioTab({ allMarkets, onSwitchTab }: { allMarkets: MarketWithPrice
 }
 
 /* ─── Tradable Markets Tab ─── */
+/* ─── Sports Multi-Outcome Chart (for trade page) ─── */
+const CHART_COLORS = ["#4d8fea", "#8b949e", "#58a6ff", "#da3633", "#3fb950"];
+
+function SportsTradeChart({ market }: { market: MarketWithPrices }) {
+  const svgRef = useRef<SVGSVGElement>(null);
+  const [seriesData, setSeriesData] = useState<{ t: number; p: number }[][]>([]);
+  const [loading, setLoading] = useState(true);
+  const [hover, setHover] = useState<{ xPct: number; values: { name: string; price: number; yPct: number; color: string }[]; date: string } | null>(null);
+
+  // Parse outcomes and token IDs
+  const outcomes = useMemo(() => {
+    let names: string[] = [];
+    let tokenIds: string[] = [];
+    try { names = JSON.parse(market.outcomes || "[]"); } catch {}
+    try { tokenIds = JSON.parse(market.clobTokenIds || "[]"); } catch {}
+    // For binary markets: first token is fetched, second derived
+    return names.map((name, i) => ({
+      name,
+      tokenId: tokenIds[i] || "",
+      color: CHART_COLORS[i % CHART_COLORS.length],
+    }));
+  }, [market.outcomes, market.clobTokenIds]);
+
+  useEffect(() => {
+    if (outcomes.length === 0) { setLoading(false); return; }
+    let cancelled = false;
+    const firstToken = outcomes.find((o) => o.tokenId)?.tokenId;
+    if (!firstToken) { setLoading(false); return; }
+
+    const uniqueTokens = [...new Set(outcomes.filter((o) => o.tokenId).map((o) => o.tokenId))];
+    Promise.all(
+      uniqueTokens.map((tid) =>
+        fetch(`/api/polymarket/price-history?token_id=${tid}`)
+          .then((r) => r.json())
+          .then((d) => ({ tid, history: d.history || [] }))
+          .catch(() => ({ tid, history: [] }))
+      )
+    ).then((results) => {
+      if (cancelled) return;
+      const historyMap: Record<string, { t: number; p: number }[]> = {};
+      for (const r of results) historyMap[r.tid] = r.history;
+
+      const series = outcomes.map((o) => {
+        if (o.tokenId && historyMap[o.tokenId]) return historyMap[o.tokenId];
+        const base = historyMap[firstToken];
+        if (base) return base.map((pt) => ({ t: pt.t, p: 1 - pt.p }));
+        return [];
+      });
+      setSeriesData(series);
+      setLoading(false);
+    });
+    return () => { cancelled = true; };
+  }, [outcomes]);
+
+  const currentPcts = useMemo(() =>
+    seriesData.map((s) => (s.length > 0 ? Math.round(s[s.length - 1].p * 100) : 0)),
+    [seriesData]
+  );
+
+  if (loading) return <div className="h-[120px] flex items-center justify-center text-[10px] text-[#484f58]">Loading chart...</div>;
+  if (seriesData.every((s) => s.length < 2)) return <div className="h-[120px] flex items-center justify-center text-[10px] text-[#484f58]">No history</div>;
+
+  const refSeries = seriesData.reduce((a, b) => (a.length >= b.length ? a : b), []);
+  const W = 400, H = 120;
+  const allPrices = seriesData.flatMap((s) => s.map((pt) => pt.p));
+  const pMin = Math.min(...allPrices), pMax = Math.max(...allPrices);
+  const pRange = pMax - pMin || 0.01;
+
+  const paths = seriesData.map((series) => {
+    if (series.length < 2) return "";
+    return series.map((pt, i) => {
+      const x = (i / (series.length - 1)) * W;
+      const y = H - 4 - ((pt.p - pMin) / pRange) * (H - 8);
+      return `${i === 0 ? "M" : "L"}${x.toFixed(1)},${y.toFixed(1)}`;
+    }).join(" ");
+  });
+
+  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    const el = e.currentTarget;
+    const rect = el.getBoundingClientRect();
+    const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    const values = seriesData.map((series, i) => {
+      const idx = Math.round(ratio * (series.length - 1));
+      const clamped = Math.max(0, Math.min(series.length - 1, idx));
+      const price = series[clamped]?.p ?? 0;
+      const yPct = ((price - pMin) / pRange) * 100;
+      return { name: outcomes[i].name, price, yPct, color: outcomes[i].color };
+    });
+    const refIdx = Math.round(ratio * (refSeries.length - 1));
+    const refPt = refSeries[Math.max(0, Math.min(refSeries.length - 1, refIdx))];
+    const date = refPt ? new Date(refPt.t * 1000).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "";
+    setHover({ xPct: ratio * 100, values, date });
+  };
+
+  return (
+    <div>
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mb-2">
+        {outcomes.map((o, i) => (
+          <div key={i} className="flex items-center gap-1.5">
+            <span className="w-2 h-2 rounded-full" style={{ backgroundColor: o.color }} />
+            <span className="text-[11px] text-[#adbac7]">{o.name}</span>
+            <span className="text-[11px] font-semibold text-[#e6edf3]">{currentPcts[i]}%</span>
+          </div>
+        ))}
+      </div>
+      <div className="relative h-[120px] cursor-crosshair" onMouseMove={handleMouseMove} onMouseLeave={() => setHover(null)}>
+        <svg ref={svgRef} viewBox={`0 0 ${W} ${H}`} className="absolute inset-0 w-full h-full" preserveAspectRatio="none">
+          {paths.map((d, i) => d && (
+            <path key={i} d={d} fill="none" stroke={outcomes[i].color} strokeWidth={2} vectorEffect="non-scaling-stroke" opacity={0.9} />
+          ))}
+        </svg>
+        {hover && (
+          <>
+            <div className="absolute top-0 bottom-0 w-px pointer-events-none" style={{ left: `${hover.xPct}%`, background: "repeating-linear-gradient(to bottom, #484f58 0px, #484f58 3px, transparent 3px, transparent 6px)" }} />
+            {hover.values.map((v, i) => (
+              <div key={i} className="absolute w-[9px] h-[9px] rounded-full pointer-events-none border-2 border-[#0d1117]" style={{ left: `${hover.xPct}%`, bottom: `${v.yPct}%`, backgroundColor: v.color, transform: "translate(-50%, 50%)" }} />
+            ))}
+            <div className="absolute pointer-events-none bg-[#1c2128] border border-[#30363d] rounded px-2 py-1.5 text-[11px] whitespace-nowrap z-10" style={{ left: `${hover.xPct}%`, bottom: -4, transform: `translateY(100%) ${hover.xPct > 75 ? "translateX(-100%)" : hover.xPct < 25 ? "" : "translateX(-50%)"}` }}>
+              {hover.values.map((v, i) => (
+                <div key={i} className="flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: v.color }} />
+                  <span className="font-semibold tabular-nums" style={{ color: v.color }}>{(v.price * 100).toFixed(1)}%</span>
+                </div>
+              ))}
+              <div className="text-[#484f58] text-[10px] mt-0.5">{hover.date}</div>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 /* ─── Sports market types ─── */
 interface SportsMarket {
   id: string;
@@ -730,7 +863,7 @@ function TradableMarketsTab({ allMarkets, events, onBought }: {
 
   const leagues: SportsLeague[] = leaguesData?.leagues || [];
 
-  const { data: allSportsData } = useQuery({
+  const { data: allSportsData, isLoading: sportsLoading } = useQuery({
     queryKey: ["sports-all-trade", leagues.map((l) => l.code).join(",")],
     queryFn: async () => {
       if (leagues.length === 0) return [];
@@ -913,19 +1046,28 @@ function TradableMarketsTab({ allMarkets, events, onBought }: {
         {/* Expandable Detail */}
         {isExpanded && (
           <div className="px-4 py-3 bg-[#0d1117] border-b border-[#21262d] space-y-3">
-            {tokenId && <MiniPriceChart tokenId={tokenId} />}
+            {/* Multi-outcome chart for sports, single-line for others */}
+            {market.category === "Sports" && tokenId ? (
+              <SportsTradeChart market={market} />
+            ) : tokenId ? (
+              <MiniPriceChart tokenId={tokenId} />
+            ) : null}
             <div className="grid grid-cols-3 gap-3 text-xs">
               <div>
                 <p className="text-[#484f58]">Volume</p>
                 <p className="text-[#e6edf3]">{formatVolume(market.volume)}</p>
               </div>
               <div>
-                <p className="text-[#484f58]">End Date</p>
-                <p className="text-[#e6edf3]">{market.endDate ? new Date(market.endDate).toLocaleDateString() : "N/A"}</p>
+                <p className="text-[#484f58]">{market.category === "Sports" ? "Game Time" : "End Date"}</p>
+                <p className="text-[#e6edf3]">
+                  {market.category === "Sports" && (market as MarketWithPrices & { _gameTime?: string })._gameTime
+                    ? new Date((market as MarketWithPrices & { _gameTime: string })._gameTime).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })
+                    : market.endDate ? new Date(market.endDate).toLocaleDateString() : "N/A"}
+                </p>
               </div>
               <div>
-                <p className="text-[#484f58]">24h Volume</p>
-                <p className="text-[#e6edf3]">{formatVolume(market.volume24hr)}</p>
+                <p className="text-[#484f58]">{market.category === "Sports" ? "Markets" : "24h Volume"}</p>
+                <p className="text-[#e6edf3]">{market.category === "Sports" ? "Moneyline" : formatVolume(market.volume24hr)}</p>
               </div>
             </div>
             {(market.eventSlug || market.slug) && (
@@ -982,7 +1124,9 @@ function TradableMarketsTab({ allMarkets, events, onBought }: {
           <h3 className="text-sm font-semibold text-white">🏟️ Live Sports Markets</h3>
           <span className="text-[10px] text-[#484f58]">{sportsMarkets.length} markets</span>
         </div>
-        {sportsMarkets.length === 0 ? (
+        {sportsLoading || (leagues.length > 0 && !allSportsData) ? (
+          <p className="text-sm text-[#484f58] text-center py-8">Loading sports markets...</p>
+        ) : sportsMarkets.length === 0 ? (
           <p className="text-sm text-[#484f58] text-center py-8">No live sports markets right now</p>
         ) : !sportsPricesReady ? (
           <p className="text-sm text-[#484f58] text-center py-8">Loading live prices...</p>
