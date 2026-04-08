@@ -325,7 +325,7 @@ function PortfolioTab({ allMarkets, onSwitchTab }: { allMarkets: MarketWithPrice
       })
       .filter((t) => t.tokenId);
   }, [positions, allMarkets]);
-  const { getPrice: getPositionLivePrice } = usePositionLivePrices(priceTargets);
+  const { getPrice: getPositionLivePrice, ready: positionPricesReady } = usePositionLivePrices(priceTargets);
   const [closingId, setClosingId] = useState<string | null>(null);
   const [pendingClose, setPendingClose] = useState<{ pos: DbPosition; livePrice: number } | null>(null);
 
@@ -356,8 +356,8 @@ function PortfolioTab({ allMarkets, onSwitchTab }: { allMarkets: MarketWithPrice
   };
 
   const getLivePrice = (pos: DbPosition): number | null => {
-    // avgPrice is the price paid for the chosen outcome.
-    // For Yes: avgPrice = yesPrice. For No: avgPrice = noPrice.
+    // Wait for CLOB prices before showing any price — prevents stale fallback bugs
+    if (!positionPricesReady) return null;
     const isYes = pos.outcome === "Yes" || pos.outcome === "Up";
     const fallbackYes = isYes ? pos.avgPrice : 1 - pos.avgPrice;
     const fallbackNo = isYes ? 1 - pos.avgPrice : pos.avgPrice;

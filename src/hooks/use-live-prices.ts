@@ -74,12 +74,13 @@ export function useLivePrices(markets: MarketWithPrices[]) {
  */
 export function usePositionLivePrices(targets: PriceTarget[]) {
   const [prices, setPrices] = useState<Record<string, { yesPrice: number; noPrice: number }>>({});
+  const [ready, setReady] = useState(false);
   const targetsRef = useRef(targets);
   targetsRef.current = targets;
 
   const fetchPrices = useCallback(async () => {
     const current = targetsRef.current;
-    if (current.length === 0) return;
+    if (current.length === 0) { setReady(true); return; }
 
     const updates: Record<string, { yesPrice: number; noPrice: number }> = {};
 
@@ -101,9 +102,11 @@ export function usePositionLivePrices(targets: PriceTarget[]) {
     if (Object.keys(updates).length > 0) {
       setPrices((prev) => ({ ...prev, ...updates }));
     }
+    setReady(true);
   }, []);
 
   useEffect(() => {
+    setReady(false);
     fetchPrices();
     const interval = setInterval(fetchPrices, 15000);
     return () => clearInterval(interval);
@@ -117,5 +120,5 @@ export function usePositionLivePrices(targets: PriceTarget[]) {
     [prices]
   );
 
-  return { prices, getPrice };
+  return { prices, getPrice, ready };
 }
