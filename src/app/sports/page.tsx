@@ -1,50 +1,183 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 import { LoginButton } from "@/components/layout/login-modal";
 import Link from "next/link";
 
-/* ─── Inline Mini Price Chart (for expanded game cards) ─── */
-function SportsMiniChart({ tokenId }: { tokenId: string }) {
-  const [history, setHistory] = useState<{ t: number; p: number }[]>([]);
+/* ─── Color palette for multi-outcome charts ─── */
+const CHART_COLORS = ["#4d8fea", "#8b949e", "#58a6ff", "#da3633", "#3fb950"];
+
+interface ChartOutcome {
+  name: string;
+  tokenId: string;       // empty string = derive from first outcome (1 - p)
+  color: string;
+}
+
+/* ─── Multi-Outcome Price Chart (SVG with hover, matching trade page style) ─── */
+function SportsMultiChart({ outcomes }: { outcomes: ChartOutcome[] }) {
+  const svgRef = useRef<SVGSVGElement>(null);
+  const [seriesData, setSeriesData] = useState<{ t: number; p: number }[][]>([]);
   const [loading, setLoading] = useState(true);
+  const [hover, setHover] = useState<{ xPct: number; values: { name: string; price: number; yPct: number; color: string }[]; date: string } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    fetch(`/api/polymarket/price-history?token_id=${tokenId}`)
-      .then((r) => r.json())
-      .then((data) => { if (!cancelled && data.history?.length) setHistory(data.history); })
-      .catch(() => {})
-      .finally(() => { if (!cancelled) setLoading(false); });
+
+    const fetchable = outcomes.map((o) => ({ tokenId: o.tokenId }));
+    const firstFetch = fetchable.find((f) => f.tokenId !== "");
+    if (!firstFetch) { setLoading(false); return; }
+
+    const uniqueTokens = [...new Set(fetchable.filter((f) => f.tokenId !== "").map((f) => f.tokenId))];
+    Promise.all(
+      uniqueTokens.map((tid) =>
+        fetch(`/api/polymarket/price-history?token_id=${tid}`)
+          .then((r) => r.json())
+          .then((d) => ({ tid, history: d.history || [] }))
+          .catch(() => ({ tid, history: [] }))
+      )
+    ).then((results) => {
+      if (cancelled) return;
+      const historyMap: Record<string, { t: number; p: number }[]> = {};
+      for (const r of results) historyMap[r.tid] = r.history;
+
+      const series: { t: number; p: number }[][] = outcomes.map((o) => {
+        if (o.tokenId && historyMap[o.tokenId]) return historyMap[o.tokenId];
+        const base = historyMap[firstFetch.tokenId];
+        if (base) return base.map((pt) => ({ t: pt.t, p: 1 - pt.p }));
+        return [];
+      });
+
+      setSeriesData(series);
+      setLoading(false);
+    });
+
     return () => { cancelled = true; };
-  }, [tokenId]);
+  }, [outcomes]);
 
-  if (loading) return <div className="h-[60px] flex items-center justify-center text-[10px] text-[#484f58]">Loading chart...</div>;
-  if (history.length < 2) return <div className="h-[60px] flex items-center justify-center text-[10px] text-[#484f58]">No history</div>;
+  const currentPcts = useMemo(() =>
+    seriesData.map((s) => (s.length > 0 ? Math.round(s[s.length - 1].p * 100) : 0)),
+    [seriesData]
+  );
 
-  const W = 300, H = 60;
-  const prices = history.map((h) => h.p);
-  const min = Math.min(...prices), max = Math.max(...prices);
-  const range = max - min || 0.01;
-  const points = prices.map((p, i) => `${(i / (prices.length - 1)) * W},${H - 2 - ((p - min) / range) * (H - 4)}`);
-  const linePath = `M${points.join(" L")}`;
-  const areaPath = `${linePath} L${W},${H} L0,${H} Z`;
-  const isUp = prices[prices.length - 1] >= prices[0];
-  const color = isUp ? "#3fb950" : "#f85149";
+  if (loading) return <div className="h-[120px] flex items-center justify-center text-[10px] text-[#484f58]">Loading chart...</div>;
+  if (seriesData.length === 0 || seriesData.every((s) => s.length < 2))
+    return <div className="h-[120px] flex items-center justify-center text-[10px] text-[#484f58]">No history</div>;
+
+  // Use the longest series as the reference for X axis
+  const refSeries = seriesData.reduce((a, b) => (a.length >= b.length ? a : b), []);
+  const W = 400, H = 120;
+  const allPrices = seriesData.flatMap((s) => s.map((pt) => pt.p));
+  const pMin = Math.min(...allPrices), pMax = Math.max(...allPrices);
+  const pRange = pMax - pMin || 0.01;
+
+  // Build SVG paths for each series
+  const paths = seriesData.map((series) => {
+    if (series.length < 2) return "";
+    return series.map((pt, i) => {
+      const x = (i / (series.length - 1)) * W;
+      const y = H - 4 - ((pt.p - pMin) / pRange) * (H - 8);
+      return `${i === 0 ? "M" : "L"}${x.toFixed(1)},${y.toFixed(1)}`;
+    }).join(" ");
+  });
+
+  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    const el = e.currentTarget;
+    const rect = el.getBoundingClientRect();
+    const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    const xPos = ratio * W;
+
+    const values = seriesData.map((series, i) => {
+      const idx = Math.round(ratio * (series.length - 1));
+      const clamped = Math.max(0, Math.min(series.length - 1, idx));
+      const price = series[clamped]?.p ?? 0;
+      const yPct = ((price - pMin) / pRange) * 100; // 0% = bottom, 100% = top
+      return { name: outcomes[i].name, price, yPct, color: outcomes[i].color };
+    });
+
+    const refIdx = Math.round(ratio * (refSeries.length - 1));
+    const refPt = refSeries[Math.max(0, Math.min(refSeries.length - 1, refIdx))];
+    const date = refPt ? new Date(refPt.t * 1000).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "";
+
+    setHover({ xPct: ratio * 100, values, date });
+  };
 
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-[60px]" preserveAspectRatio="none">
-      <defs>
-        <linearGradient id={`sg-${tokenId.slice(0, 8)}`} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor={color} stopOpacity={0.25} />
-          <stop offset="100%" stopColor={color} stopOpacity={0} />
-        </linearGradient>
-      </defs>
-      <path d={areaPath} fill={`url(#sg-${tokenId.slice(0, 8)})`} />
-      <path d={linePath} fill="none" stroke={color} strokeWidth={1.5} vectorEffect="non-scaling-stroke" />
-    </svg>
+    <div>
+      {/* Legend */}
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mb-2">
+        {outcomes.map((o, i) => (
+          <div key={i} className="flex items-center gap-1.5">
+            <span className="w-2 h-2 rounded-full" style={{ backgroundColor: o.color }} />
+            <span className="text-[11px] text-[#adbac7]">{o.name}</span>
+            <span className="text-[11px] font-semibold text-[#e6edf3]">{currentPcts[i]}%</span>
+          </div>
+        ))}
+      </div>
+
+      {/* Chart */}
+      <div
+        className="relative h-[120px] cursor-crosshair"
+        onMouseMove={handleMouseMove}
+        onMouseLeave={() => setHover(null)}
+      >
+        {/* SVG — only the data lines */}
+        <svg
+          ref={svgRef}
+          viewBox={`0 0 ${W} ${H}`}
+          className="absolute inset-0 w-full h-full"
+          preserveAspectRatio="none"
+        >
+          {paths.map((d, i) => d && (
+            <path key={i} d={d} fill="none" stroke={outcomes[i].color} strokeWidth={2} vectorEffect="non-scaling-stroke" opacity={0.9} />
+          ))}
+        </svg>
+
+        {/* HTML hover elements — not distorted */}
+        {hover && (
+          <>
+            {/* Vertical crosshair line */}
+            <div
+              className="absolute top-0 bottom-0 w-px pointer-events-none"
+              style={{ left: `${hover.xPct}%`, background: "repeating-linear-gradient(to bottom, #484f58 0px, #484f58 3px, transparent 3px, transparent 6px)" }}
+            />
+
+            {/* Dots on each line */}
+            {hover.values.map((v, i) => (
+              <div
+                key={i}
+                className="absolute w-[9px] h-[9px] rounded-full pointer-events-none border-2 border-[#0d1117]"
+                style={{
+                  left: `${hover.xPct}%`,
+                  bottom: `${v.yPct}%`,
+                  backgroundColor: v.color,
+                  transform: "translate(-50%, 50%)",
+                }}
+              />
+            ))}
+
+            {/* Tooltip — positioned below chart */}
+            <div
+              className="absolute pointer-events-none bg-[#1c2128] border border-[#30363d] rounded px-2 py-1.5 text-[11px] whitespace-nowrap z-10"
+              style={{
+                left: `${hover.xPct}%`,
+                bottom: -4,
+                transform: `translateY(100%) ${hover.xPct > 75 ? "translateX(-100%)" : hover.xPct < 25 ? "" : "translateX(-50%)"}`,
+              }}
+            >
+              {hover.values.map((v, i) => (
+                <div key={i} className="flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: v.color }} />
+                  <span className="font-semibold tabular-nums" style={{ color: v.color }}>{(v.price * 100).toFixed(1)}%</span>
+                </div>
+              ))}
+              <div className="text-[#484f58] text-[10px] mt-0.5">{hover.date}</div>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -215,8 +348,7 @@ function TeamRow({ name, mlPrice, spreadLabel, spreadPrice, totalLabel, totalPri
 }
 
 /* ─── Game Card (Polymarket-style) ─── */
-function GameCard({ event, index, sport }: { event: SportEvent; index: number; sport: string }) {
-  const [expanded, setExpanded] = useState(false);
+function GameCard({ event, index, sport, expanded, onToggle }: { event: SportEvent; index: number; sport: string; expanded: boolean; onToggle: () => void }) {
   const [teamA, teamB] = parseTeams(event.title);
   const { moneyline, spread, total, totalMarkets } = extractKeyMarkets(event);
   const vol = formatVol(event.volume || event.markets.reduce((s, m) => s + m.volume, 0));
@@ -224,9 +356,28 @@ function GameCard({ event, index, sport }: { event: SportEvent; index: number; s
   const gameStart = new Date(event.gameStartTime).getTime();
   const isLive = gameStart <= Date.now() && (Date.now() - gameStart) < 4 * 60 * 60 * 1000;
 
-  // Get first clobTokenId for the price chart
-  let chartTokenId = "";
-  if (moneyline?.clobTokenIds?.[0]) chartTokenId = moneyline.clobTokenIds[0];
+  // Build multi-outcome chart data
+  const chartOutcomes: ChartOutcome[] = useMemo(() => {
+    if (event.negRisk) {
+      // negRisk (soccer): each market is a separate outcome
+      // Collect main outcome markets (skip spreads, totals, props)
+      const mainMarkets = event.markets.filter((m) => {
+        const q = m.question.toLowerCase();
+        return !q.includes("spread") && !q.includes("o/u") && !q.includes("halftime") && !q.includes("exact") && !q.includes(":");
+      }).slice(0, 4); // max 4 outcomes
+      return mainMarkets.map((m, i) => ({
+        name: m.groupItemTitle || m.outcomes[0] || `Outcome ${i + 1}`,
+        tokenId: m.clobTokenIds[0] || "",
+        color: CHART_COLORS[i % CHART_COLORS.length],
+      }));
+    }
+    // Binary market: 2 teams from moneyline
+    if (!moneyline?.clobTokenIds?.[0]) return [];
+    return [
+      { name: teamA || moneyline.outcomes[0] || "Team A", tokenId: moneyline.clobTokenIds[0], color: CHART_COLORS[0] },
+      { name: teamB || moneyline.outcomes[1] || "Team B", tokenId: moneyline.clobTokenIds[1] || "", color: CHART_COLORS[1] },
+    ];
+  }, [event, moneyline, teamA, teamB]);
 
   // Moneyline prices
   const mlPriceA = moneyline?.prices[0] ?? 0.5;
@@ -254,20 +405,24 @@ function GameCard({ event, index, sport }: { event: SportEvent; index: number; s
     totalUnder = { label: `U ${val}`, price: total.prices[1] ?? 0.5 };
   }
 
+  const handleCardClick = (e: React.MouseEvent) => {
+    // Don't toggle if clicking a link
+    if ((e.target as HTMLElement).closest("a")) return;
+    onToggle();
+  };
+
   return (
     <div
       className={cn(
-        "rounded-lg border bg-[#161b22] overflow-hidden animate-fade-in-up transition-all duration-200",
+        "rounded-lg border bg-[#161b22] overflow-hidden animate-fade-in-up transition-all duration-200 cursor-pointer",
         isLive ? "border-[#f85149]/30 hover:shadow-[0_0_20px_rgba(248,81,73,0.1)]" : "border-[#21262d] hover:border-[#30363d] hover:shadow-[0_0_20px_rgba(88,166,255,0.08)]",
         expanded && "ring-1 ring-[#58a6ff]/20"
       )}
       style={{ animationDelay: `${index * 50}ms`, animationFillMode: "backwards" }}
+      onClick={handleCardClick}
     >
-      {/* Header — clickable to expand */}
-      <div
-        className="flex items-center justify-between px-4 py-2 border-b border-[#21262d] cursor-pointer hover:bg-[#1c2128]/50 transition-colors"
-        onClick={() => setExpanded(!expanded)}
-      >
+      {/* Header */}
+      <div className="flex items-center justify-between px-4 py-2 border-b border-[#21262d]">
         <div className="flex items-center gap-2">
           <svg className={cn("w-3 h-3 text-[#484f58] transition-transform flex-shrink-0", expanded && "rotate-90")} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
           {isLive && <span className="text-[10px] font-bold text-[#f85149] bg-[#f85149]/10 px-1.5 py-0.5 rounded animate-glow-red">LIVE</span>}
@@ -314,18 +469,16 @@ function GameCard({ event, index, sport }: { event: SportEvent; index: number; s
         gameLink={`/sports/game?eventId=${event.id}&sport=${sport}`}
       />
 
-      {/* Expanded Section */}
+      {/* Expanded Section — chart + stats */}
       {expanded && (
         <div className="border-t border-[#21262d] bg-[#0d1117] px-4 py-3 space-y-3 animate-fade-in-up">
-          {/* Price Chart */}
-          {chartTokenId && (
+          {chartOutcomes.length > 0 && (
             <div>
               <p className="text-[10px] text-[#484f58] uppercase tracking-wider mb-1">Price History</p>
-              <SportsMiniChart tokenId={chartTokenId} />
+              <SportsMultiChart outcomes={chartOutcomes} />
             </div>
           )}
 
-          {/* Quick Stats */}
           <div className="grid grid-cols-3 gap-3 text-xs">
             <div>
               <p className="text-[#484f58]">Volume</p>
@@ -340,8 +493,6 @@ function GameCard({ event, index, sport }: { event: SportEvent; index: number; s
               <p className="text-[#e6edf3] font-medium">{time}</p>
             </div>
           </div>
-
-          {/* View Full Game */}
           <Link
             href={`/sports/game?eventId=${event.id}&sport=${sport}`}
             className="inline-flex items-center gap-1.5 text-xs text-[#58a6ff] hover:underline"
@@ -380,6 +531,7 @@ function GameSkeleton() {
 export default function SportsPage() {
   const [selectedSport, setSelectedSport] = useState<string>("mlb");
   const [view, setView] = useState<"live" | "upcoming">("upcoming");
+  const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const { data: leaguesData } = useQuery({
     queryKey: ["sports-leagues"],
@@ -531,7 +683,7 @@ export default function SportsPage() {
           ) : view === "live" ? (
             liveEvents.length > 0 ? (
               <div className="space-y-3">
-                {liveEvents.map((e, i) => <GameCard key={e.id} event={e} index={i} sport={selectedSport} />)}
+                {liveEvents.map((e, i) => <GameCard key={e.id} event={e} index={i} sport={selectedSport} expanded={expandedId === e.id} onToggle={() => setExpandedId(expandedId === e.id ? null : e.id)} />)}
               </div>
             ) : (
               <div className="rounded-lg border border-[#21262d] bg-[#161b22] p-16 text-center">
@@ -545,7 +697,7 @@ export default function SportsPage() {
                 <div key={group.date}>
                   <p className="text-sm font-semibold text-[#e6edf3] mb-3">{formatDateHeader(group.events[0].gameStartTime)}</p>
                   <div className="space-y-3">
-                    {group.events.map((e, i) => <GameCard key={e.id} event={e} index={i} sport={selectedSport} />)}
+                    {group.events.map((e, i) => <GameCard key={e.id} event={e} index={i} sport={selectedSport} expanded={expandedId === e.id} onToggle={() => setExpandedId(expandedId === e.id ? null : e.id)} />)}
                   </div>
                 </div>
               ))}
