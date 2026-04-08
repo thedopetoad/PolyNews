@@ -3,8 +3,8 @@
 import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
-import { POLYMARKET_BASE_URL } from "@/lib/constants";
 import { LoginButton } from "@/components/layout/login-modal";
+import Link from "next/link";
 
 interface League {
   code: string;
@@ -108,7 +108,7 @@ function abbrev(name: string): string {
 }
 
 /* ─── Team Row ─── */
-function TeamRow({ name, mlPrice, spreadLabel, spreadPrice, totalLabel, totalPrice, highlight, eventSlug }: {
+function TeamRow({ name, mlPrice, spreadLabel, spreadPrice, totalLabel, totalPrice, highlight, gameLink }: {
   name: string;
   mlPrice: number;
   spreadLabel?: string;
@@ -116,7 +116,7 @@ function TeamRow({ name, mlPrice, spreadLabel, spreadPrice, totalLabel, totalPri
   totalLabel?: string;
   totalPrice?: number;
   highlight: boolean;
-  eventSlug: string;
+  gameLink: string;
 }) {
   const tag = abbrev(name);
   const pct = Math.round(mlPrice * 100);
@@ -135,10 +135,8 @@ function TeamRow({ name, mlPrice, spreadLabel, spreadPrice, totalLabel, totalPri
       </div>
 
       {/* Moneyline */}
-      <a
-        href={`${POLYMARKET_BASE_URL}/event/${eventSlug}`}
-        target="_blank"
-        rel="noopener noreferrer"
+      <Link
+        href={gameLink}
         className={cn(
           "w-24 text-center py-1.5 rounded-md text-xs font-semibold tabular-nums transition-all",
           highlight
@@ -147,7 +145,7 @@ function TeamRow({ name, mlPrice, spreadLabel, spreadPrice, totalLabel, totalPri
         )}
       >
         {tag} {pct}¢
-      </a>
+      </Link>
 
       {/* Spread */}
       <div className="w-24 text-center hidden md:block">
@@ -175,7 +173,7 @@ function TeamRow({ name, mlPrice, spreadLabel, spreadPrice, totalLabel, totalPri
 }
 
 /* ─── Game Card (Polymarket-style) ─── */
-function GameCard({ event, index }: { event: SportEvent; index: number }) {
+function GameCard({ event, index, sport }: { event: SportEvent; index: number; sport: string }) {
   const [teamA, teamB] = parseTeams(event.title);
   const { moneyline, spread, total, totalMarkets } = extractKeyMarkets(event);
   const vol = formatVol(event.volume || event.markets.reduce((s, m) => s + m.volume, 0));
@@ -224,14 +222,12 @@ function GameCard({ event, index }: { event: SportEvent; index: number }) {
           <span className="text-[11px] text-[#484f58]">{time}</span>
           {vol && <span className="text-[11px] text-[#484f58]">{vol} Vol.</span>}
         </div>
-        <a
-          href={`${POLYMARKET_BASE_URL}/event/${event.slug}`}
-          target="_blank"
-          rel="noopener noreferrer"
+        <Link
+          href={`/sports/game?eventId=${event.id}&sport=${sport}`}
           className="text-[10px] text-[#58a6ff] hover:underline flex items-center gap-1"
         >
           <span className="text-[#484f58]">{totalMarkets}</span> Game View &rsaquo;
-        </a>
+        </Link>
       </div>
 
       {/* Column Headers */}
@@ -251,7 +247,7 @@ function GameCard({ event, index }: { event: SportEvent; index: number }) {
         totalLabel={totalOver?.label}
         totalPrice={totalOver?.price}
         highlight={aIsFavorite}
-        eventSlug={event.slug}
+        gameLink={`/sports/game?eventId=${event.id}&sport=${sport}`}
       />
 
       {/* Team B */}
@@ -263,7 +259,7 @@ function GameCard({ event, index }: { event: SportEvent; index: number }) {
         totalLabel={totalUnder?.label}
         totalPrice={totalUnder?.price}
         highlight={!aIsFavorite}
-        eventSlug={event.slug}
+        gameLink={`/sports/game?eventId=${event.id}&sport=${sport}`}
       />
     </div>
   );
@@ -446,7 +442,7 @@ export default function SportsPage() {
           ) : view === "live" ? (
             liveEvents.length > 0 ? (
               <div className="space-y-3">
-                {liveEvents.map((e, i) => <GameCard key={e.id} event={e} index={i} />)}
+                {liveEvents.map((e, i) => <GameCard key={e.id} event={e} index={i} sport={selectedSport} />)}
               </div>
             ) : (
               <div className="rounded-lg border border-[#21262d] bg-[#161b22] p-16 text-center">
@@ -460,7 +456,7 @@ export default function SportsPage() {
                 <div key={group.date}>
                   <p className="text-sm font-semibold text-[#e6edf3] mb-3">{formatDateHeader(group.events[0].gameStartTime)}</p>
                   <div className="space-y-3">
-                    {group.events.map((e, i) => <GameCard key={e.id} event={e} index={i} />)}
+                    {group.events.map((e, i) => <GameCard key={e.id} event={e} index={i} sport={selectedSport} />)}
                   </div>
                 </div>
               ))}
