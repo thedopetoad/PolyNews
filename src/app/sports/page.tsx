@@ -725,12 +725,19 @@ export default function SportsPage() {
   const now = Date.now();
   const FOUR_HOURS = 4 * 60 * 60 * 1000;
 
+  // Check if game looks settled (any outcome >= 95%)
+  const isSettled = (e: SportEvent) => {
+    const { moneyline } = extractKeyMarkets(e);
+    if (!moneyline) return false;
+    return moneyline.prices.some((p) => p >= 0.95);
+  };
+
   // All live events across all sports (for live tab)
   const allLiveEvents = useMemo(() => {
     if (!allLiveData) return [];
     return (allLiveData as (SportEvent & { _sport: string; _league: League })[]).filter((e) => {
       const gs = new Date(e.gameStartTime).getTime();
-      return gs <= now && (now - gs) < FOUR_HOURS;
+      return gs <= now && (now - gs) < FOUR_HOURS && !isSettled(e);
     });
   }, [allLiveData, now]);
 
@@ -749,10 +756,10 @@ export default function SportsPage() {
     return groups;
   }, [allLiveEvents]);
 
-  // Selected sport events (for upcoming tab)
+  // Selected sport events
   const liveEvents = events.filter((e) => {
     const gs = new Date(e.gameStartTime).getTime();
-    return gs <= now && (now - gs) < FOUR_HOURS;
+    return gs <= now && (now - gs) < FOUR_HOURS && !isSettled(e);
   });
 
   const upcomingEvents = events.filter((e) => {
