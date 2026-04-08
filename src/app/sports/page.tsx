@@ -349,92 +349,134 @@ function TeamRow({ name, mlPrice, spreadLabel, spreadPrice, totalLabel, totalPri
 
 /* ─── Live Radio Player ─── */
 function LiveRadioPlayer({ teamA, teamB }: { teamA: string; teamB: string }) {
-  const [station, setStation] = useState<{ name: string; streamUrl: string } | null>(null);
+  const [station, setStation] = useState<{ name: string; url: string } | null>(null);
   const [loading, setLoading] = useState(true);
+  const [muted, setMuted] = useState(false);
   const [playing, setPlaying] = useState(false);
   const [selectedTeam, setSelectedTeam] = useState<"home" | "away">("home");
   const audioRef = useRef<HTMLAudioElement>(null);
 
   const currentTeam = selectedTeam === "home" ? teamA : teamB;
 
+  // Fetch station and auto-play
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    setStation(null);
     setPlaying(false);
-    if (audioRef.current) { audioRef.current.pause(); audioRef.current.src = ""; }
+    const audio = audioRef.current;
+    if (audio) { audio.pause(); audio.removeAttribute("src"); audio.load(); }
 
     fetch(`/api/sports/radio?team=${encodeURIComponent(currentTeam)}`)
       .then((r) => r.json())
       .then((data) => {
-        if (!cancelled && data.station) setStation(data.station);
+        if (cancelled || !data.station) return;
+        setStation(data.station);
+        setLoading(false);
+        // Auto-play
+        if (audio) {
+          audio.src = data.station.url;
+          audio.volume = 0.5;
+          audio.muted = false;
+          setMuted(false);
+          const playPromise = audio.play();
+          if (playPromise) {
+            playPromise.then(() => {
+              if (!cancelled) setPlaying(true);
+            }).catch(() => {
+              // Autoplay blocked — that's ok, user can click the button
+              if (!cancelled) setPlaying(false);
+            });
+          }
+        }
       })
-      .catch(() => {})
-      .finally(() => { if (!cancelled) setLoading(false); });
-    return () => { cancelled = true; };
+      .catch(() => { if (!cancelled) setLoading(false); });
+
+    return () => {
+      cancelled = true;
+      if (audio) { audio.pause(); audio.removeAttribute("src"); audio.load(); }
+    };
   }, [currentTeam]);
 
-  const togglePlay = () => {
+  const toggleMute = () => {
     const audio = audioRef.current;
-    if (!audio || !station) return;
-    if (playing) {
-      audio.pause();
-      setPlaying(false);
+    if (!audio) return;
+
+    if (!playing) {
+      // First click — start playing
+      if (station) {
+        audio.src = station.url;
+        audio.volume = 0.5;
+        audio.muted = false;
+        audio.play().then(() => { setPlaying(true); setMuted(false); }).catch(() => {});
+      }
+      return;
+    }
+
+    if (muted) {
+      audio.muted = false;
+      setMuted(false);
     } else {
-      audio.src = station.streamUrl;
-      audio.play().catch(() => setPlaying(false));
-      setPlaying(true);
+      audio.muted = true;
+      setMuted(true);
     }
   };
 
   return (
-    <div className="flex items-center gap-2 bg-[#161b22] rounded-md px-3 py-2 border border-[#21262d]" onClick={(e) => e.stopPropagation()}>
-      {/* Radio icon */}
-      <svg className="w-3.5 h-3.5 text-[#f85149] flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.536 8.464a5 5 0 010 7.072M18.364 5.636a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707A1 1 0 0112 5.586V18.414a1 1 0 01-1.707.707L5.586 15z" />
-      </svg>
+    <div className="flex items-center gap-2.5 bg-[#161b22] rounded-md px-3 py-2 border border-[#21262d]" onClick={(e) => e.stopPropagation()}>
+      {/* Pulsing volume button */}
+      <button
+        onClick={toggleMute}
+        className={cn(
+          "w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 transition-all",
+          playing && !muted
+            ? "bg-[#f85149]/20 text-[#f85149] animate-pulse shadow-[0_0_12px_rgba(248,81,73,0.4)]"
+            : "bg-[#21262d] text-[#484f58] hover:text-[#adbac7] hover:bg-[#30363d]"
+        )}
+      >
+        {playing && !muted ? (
+          /* Speaker with waves */
+          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M15.536 8.464a5 5 0 010 7.072M18.364 5.636a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707A1 1 0 0112 5.586V18.414a1 1 0 01-1.707.707L5.586 15z" />
+          </svg>
+        ) : (
+          /* Speaker muted / off */
+          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707A1 1 0 0112 5.586V18.414a1 1 0 01-1.707.707L5.586 15z" />
+            <path strokeLinecap="round" strokeLinejoin="round" d="M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2" />
+          </svg>
+        )}
+      </button>
 
       {/* Team toggle */}
       <div className="flex gap-1">
         <button
-          className={cn("text-[10px] px-1.5 py-0.5 rounded", selectedTeam === "home" ? "bg-[#21262d] text-[#e6edf3]" : "text-[#484f58] hover:text-[#adbac7]")}
+          className={cn("text-[10px] px-1.5 py-0.5 rounded transition-colors", selectedTeam === "home" ? "bg-[#21262d] text-[#e6edf3]" : "text-[#484f58] hover:text-[#adbac7]")}
           onClick={() => setSelectedTeam("home")}
         >
           {abbrev(teamA)}
         </button>
         <button
-          className={cn("text-[10px] px-1.5 py-0.5 rounded", selectedTeam === "away" ? "bg-[#21262d] text-[#e6edf3]" : "text-[#484f58] hover:text-[#adbac7]")}
+          className={cn("text-[10px] px-1.5 py-0.5 rounded transition-colors", selectedTeam === "away" ? "bg-[#21262d] text-[#e6edf3]" : "text-[#484f58] hover:text-[#adbac7]")}
           onClick={() => setSelectedTeam("away")}
         >
           {abbrev(teamB)}
         </button>
       </div>
 
-      {/* Station info + play */}
+      {/* Station name */}
       {loading ? (
-        <span className="text-[10px] text-[#484f58]">Finding station...</span>
+        <span className="text-[10px] text-[#484f58]">Connecting...</span>
       ) : station ? (
-        <>
-          <span className="text-[10px] text-[#adbac7] truncate max-w-[120px]">{station.name}</span>
-          <button
-            onClick={togglePlay}
-            className={cn(
-              "ml-auto w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 transition-colors",
-              playing ? "bg-[#f85149]/20 text-[#f85149]" : "bg-[#238636]/20 text-[#3fb950] hover:bg-[#238636]/30"
-            )}
-          >
-            {playing ? (
-              <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24"><rect x="6" y="4" width="4" height="16" /><rect x="14" y="4" width="4" height="16" /></svg>
-            ) : (
-              <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z" /></svg>
-            )}
-          </button>
-        </>
+        <span className="text-[10px] text-[#adbac7] truncate">{station.name}</span>
       ) : (
-        <span className="text-[10px] text-[#484f58]">No station found</span>
+        <span className="text-[10px] text-[#484f58]">No station</span>
       )}
 
-      <audio ref={audioRef} />
+      {playing && !muted && (
+        <span className="text-[9px] text-[#f85149] font-medium ml-auto flex-shrink-0">LIVE</span>
+      )}
+
+      <audio ref={audioRef} crossOrigin="anonymous" />
     </div>
   );
 }
