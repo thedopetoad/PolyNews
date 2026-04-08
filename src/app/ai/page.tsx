@@ -198,6 +198,12 @@ export default function AIConsensusPage() {
         Powered by 100,000 AI agents across 3 debate rounds.{" "}
         <Link href="/docs#ai-consensus" className="text-[#58a6ff] hover:underline">How does this work?</Link>
       </p>
+
+      <div className="mt-8 rounded-lg border border-[#21262d] bg-[#161b22] p-6 text-center relative z-10">
+        <h3 className="text-lg font-semibold text-white mb-1">Super Swarm</h3>
+        <p className="text-sm text-[#768390] mb-3">Next-gen AI consensus with MiroFish integration</p>
+        <Link href="/ai-beta" className="text-sm text-[#58a6ff] hover:underline">Coming Soon →</Link>
+      </div>
     </div>
   );
 }

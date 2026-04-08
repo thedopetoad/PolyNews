@@ -89,7 +89,7 @@ function GameRow({ event }: { event: SportEvent }) {
   const time = formatGameTime(event.gameStartTime);
   const vol = formatVol(event.volume || event.markets.reduce((s, m) => s + m.volume, 0));
   const gameStart = new Date(event.gameStartTime).getTime();
-  const isLive = gameStart <= Date.now() && (Date.now() - gameStart) < 6 * 60 * 60 * 1000;
+  const isLive = gameStart <= Date.now() && (Date.now() - gameStart) < 4 * 60 * 60 * 1000;
 
   // Build outcomes list
   let outcomes: { label: string; price: number }[] = [];
@@ -189,15 +189,23 @@ export default function SportsPage() {
   const leagues: League[] = leaguesData?.leagues || [];
   const events: SportEvent[] = eventsData?.events || [];
 
-  // Separate live and upcoming based on actual game start time
+  // Separate live, upcoming, and past games based on actual game start time
   const now = Date.now();
+  const FOUR_HOURS = 4 * 60 * 60 * 1000;
+
   const liveEvents = events.filter((e) => {
     const gameStart = new Date(e.gameStartTime).getTime();
-    const gameEnd = new Date(e.endDate).getTime();
-    // Game is live if it started and hasn't ended yet, and started within last 6 hours (reasonable game duration)
-    return gameStart <= now && gameEnd > now && (now - gameStart) < 6 * 60 * 60 * 1000;
+    // Live = started within the last 4 hours (max game duration)
+    return gameStart <= now && (now - gameStart) < FOUR_HOURS;
   });
-  const upcomingEvents = events.filter((e) => !liveEvents.includes(e));
+
+  const upcomingEvents = events.filter((e) => {
+    const gameStart = new Date(e.gameStartTime).getTime();
+    // Upcoming = hasn't started yet
+    return gameStart > now;
+  });
+
+  // Past games (started > 4 hours ago) are hidden
 
   const selectedLeague = leagues.find((l) => l.code === selectedSport);
 
@@ -263,7 +271,7 @@ export default function SportsPage() {
             <span className="text-2xl">{selectedLeague?.emoji}</span>
             <h2 className="text-lg font-semibold text-white">{selectedLeague?.name || selectedSport.toUpperCase()}</h2>
             <span className="text-[11px] text-[#484f58] bg-[#161b22] px-2 py-0.5 rounded-full border border-[#21262d]">
-              {events.length} {events.length === 1 ? "game" : "games"}
+              {liveEvents.length + upcomingEvents.length} {liveEvents.length + upcomingEvents.length === 1 ? "game" : "games"}
             </span>
           </div>
 
@@ -278,7 +286,7 @@ export default function SportsPage() {
 
             {eventsLoading ? (
               Array.from({ length: 6 }).map((_, i) => <RowSkeleton key={i} />)
-            ) : events.length > 0 ? (
+            ) : (liveEvents.length + upcomingEvents.length) > 0 ? (
               <>
                 {liveEvents.length > 0 && (
                   <>
