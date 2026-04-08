@@ -3,6 +3,7 @@
 import { useMemo, useState, useEffect, useCallback, useRef } from "react";
 import { usePolymarketEvents } from "@/hooks/use-polymarket";
 import { useUser, DbPosition } from "@/hooks/use-user";
+import { useQuery } from "@tanstack/react-query";
 import {
   parseMarketPrices,
   formatPercentage,
@@ -632,6 +633,65 @@ function PortfolioTab({ allMarkets, onSwitchTab }: { allMarkets: MarketWithPrice
 }
 
 /* ─── Tradable Markets Tab ─── */
+/* ─── Sports market types ─── */
+interface SportsMarket {
+  id: string;
+  question: string;
+  slug: string;
+  groupItemTitle: string;
+  outcomes: string[];
+  prices: number[];
+  clobTokenIds: string[];
+  volume: number;
+  endDate: string;
+}
+
+interface SportsEvent {
+  id: string;
+  title: string;
+  slug: string;
+  image: string;
+  gameStartTime: string;
+  endDate: string;
+  volume: number;
+  liquidity: number;
+  markets: SportsMarket[];
+  negRisk: boolean;
+  espnLive?: boolean;
+}
+
+interface SportsLeague {
+  code: string;
+  name: string;
+  emoji: string;
+}
+
+function sportsToTradeable(event: SportsEvent, market: SportsMarket, leagueEmoji: string, leagueName: string): MarketWithPrices & { _sportLabel: string; _isLive: boolean; _gameTime: string } {
+  return {
+    id: market.id,
+    question: market.question,
+    slug: market.slug,
+    endDate: market.endDate,
+    outcomes: JSON.stringify(market.outcomes),
+    outcomePrices: JSON.stringify(market.prices.map(String)),
+    clobTokenIds: JSON.stringify(market.clobTokenIds),
+    volume: String(market.volume),
+    eventSlug: event.slug,
+    category: "Sports",
+    yesPrice: market.prices[0] || 0.5,
+    noPrice: market.prices[1] || (1 - (market.prices[0] || 0.5)),
+    parsedOutcomes: market.outcomes.length > 0 ? market.outcomes : ["Yes", "No"],
+    // Defaults for unused PolymarketMarket fields
+    conditionId: "", liquidity: "0", volume24hr: "0", active: true, closed: false,
+    marketMakerAddress: "", image: event.image || "", icon: "", description: "",
+    groupItemTitle: market.groupItemTitle, enableOrderBook: true,
+    // Sports-specific metadata
+    _sportLabel: `${leagueEmoji} ${leagueName}`,
+    _isLive: event.espnLive === true,
+    _gameTime: event.gameStartTime,
+  };
+}
+
 function TradableMarketsTab({ allMarkets, events, onBought }: {
   allMarkets: MarketWithPrices[];
   events: PolymarketEvent[];
@@ -657,6 +717,87 @@ function TradableMarketsTab({ allMarkets, events, onBought }: {
   const consensusMarkets = useMemo(() => getTopConsensusMarkets(events), [events]);
   const { getPrice, ready: pricesReady } = useLivePrices(consensusMarkets);
 
+  // ─── Fetch sports markets from all leagues ───
+  const { data: leaguesData } = useQuery({
+    queryKey: ["sports-leagues-trade"],
+    queryFn: async () => {
+      const res = await fetch("/api/sports/leagues");
+      if (!res.ok) return { leagues: [] };
+      return res.json();
+    },
+    staleTime: 30 * 60 * 1000,
+  });
+
+  const leagues: SportsLeague[] = leaguesData?.leagues || [];
+
+  const { data: allSportsData } = useQuery({
+    queryKey: ["sports-all-trade", leagues.map((l) => l.code).join(",")],
+    queryFn: async () => {
+      if (leagues.length === 0) return [];
+      const results = await Promise.all(
+        leagues.map(async (l) => {
+          try {
+            const res = await fetch(`/api/sports/events?sport=${l.code}`);
+            if (!res.ok) return [];
+            const data = await res.json();
+            return ((data.events || []) as SportsEvent[]).map((e) => ({ event: e, league: l }));
+          } catch { return []; }
+        })
+      );
+      return results.flat();
+    },
+    enabled: leagues.length > 0,
+    staleTime: 2 * 60 * 1000,
+    refetchInterval: 2 * 60 * 1000,
+  });
+
+  // Transform sports events into tradeable MarketWithPrices
+  const sportsMarkets = useMemo(() => {
+    if (!allSportsData || allSportsData.length === 0) return [];
+    const now = Date.now();
+    const twentyFourHours = 24 * 60 * 60 * 1000;
+
+    const markets: (MarketWithPrices & { _sportLabel: string; _isLive: boolean; _gameTime: string })[] = [];
+
+    for (const { event, league } of allSportsData) {
+      const gs = new Date(event.gameStartTime).getTime();
+      // Only include live games or games starting within 24 hours
+      const isLive = event.espnLive === true;
+      const isUpcoming = gs > now && gs - now < twentyFourHours;
+      if (!isLive && !isUpcoming) continue;
+
+      // Get moneyline market (main bet — skip spreads, totals, props)
+      let moneyline: SportsMarket | null = null;
+      for (const m of event.markets) {
+        const q = m.question.toLowerCase();
+        if (!q.includes("spread") && !q.includes("o/u") && !q.includes(":") && !q.includes("halftime") && !q.includes("exact")) {
+          moneyline = m;
+          break;
+        }
+      }
+      // Fallback for negRisk events
+      if (!moneyline && event.markets.length > 0) moneyline = event.markets[0];
+      if (!moneyline || !moneyline.clobTokenIds[0]) continue;
+
+      // Skip settled markets
+      if (moneyline.prices.some((p) => p >= 0.95)) continue;
+
+      markets.push(sportsToTradeable(event, moneyline, league.emoji, league.name));
+    }
+
+    // Sort: live games first, then by start time
+    markets.sort((a, b) => {
+      if (a._isLive && !b._isLive) return -1;
+      if (!a._isLive && b._isLive) return 1;
+      return new Date(a._gameTime).getTime() - new Date(b._gameTime).getTime();
+    });
+
+    return markets;
+  }, [allSportsData]);
+
+  // Live prices for sports markets
+  const { getPrice: getSportsPrice, ready: sportsPricesReady } = useLivePrices(sportsMarkets);
+
   // Fetch consensus results for the AI markets
   useEffect(() => {
     if (consensusMarkets.length === 0) return;
@@ -676,7 +817,9 @@ function TradableMarketsTab({ allMarkets, events, onBought }: {
     });
   }, [consensusMarkets.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const selectedLive = selectedMarket ? getPrice(selectedMarket) : null;
+  // Use the right price getter depending on which section the selected market is from
+  const isSportsMarket = selectedMarket ? sportsMarkets.some((m) => m.id === selectedMarket.id) : false;
+  const selectedLive = selectedMarket ? (isSportsMarket ? getSportsPrice(selectedMarket) : getPrice(selectedMarket)) : null;
   const price = selectedLive ? (outcome === "Yes" ? selectedLive.yesPrice : selectedLive.noPrice) : 0;
   const shares = parseFloat(amount) || 0;
   const cost = shares * price;
@@ -717,10 +860,11 @@ function TradableMarketsTab({ allMarkets, events, onBought }: {
     }
   };
 
-  const renderMarketRow = (market: MarketWithPrices, label: string, consensus?: ConsensusResult, rowIndex?: number) => {
+  const renderMarketRow = (market: MarketWithPrices, label: string, priceGetter: (m: MarketWithPrices) => { yesPrice: number; noPrice: number }, consensus?: ConsensusResult, rowIndex?: number) => {
     const isExpanded = expandedMarketId === market.id;
     let tokenId = "";
     try { const ids = JSON.parse(market.clobTokenIds || "[]"); tokenId = ids[0] || ""; } catch {}
+    const liveP = priceGetter(market);
 
     return (
       <div key={market.id} className="animate-fade-in-up" style={{ animationDelay: `${(rowIndex ?? 0) * 50}ms`, animationFillMode: "backwards" }}>
@@ -748,8 +892,8 @@ function TradableMarketsTab({ allMarkets, events, onBought }: {
 
           {/* Live odds */}
           <div className="flex gap-2 flex-shrink-0">
-            <span className="text-xs font-semibold text-[#3fb950] tabular-nums">Yes {formatPercentage(getPrice(market).yesPrice)}</span>
-            <span className="text-xs font-semibold text-[#f85149] tabular-nums">No {formatPercentage(getPrice(market).noPrice)}</span>
+            <span className="text-xs font-semibold text-[#3fb950] tabular-nums">Yes {formatPercentage(liveP.yesPrice)}</span>
+            <span className="text-xs font-semibold text-[#f85149] tabular-nums">No {formatPercentage(liveP.noPrice)}</span>
           </div>
 
           {/* Trade button */}
@@ -828,7 +972,28 @@ function TradableMarketsTab({ allMarkets, events, onBought }: {
         {consensusMarkets.length === 0 || !pricesReady ? (
           <p className="text-sm text-[#484f58] text-center py-8">Loading live prices...</p>
         ) : (
-          consensusMarkets.map((m, idx) => renderMarketRow(m, "AI Pick", consensusResults[m.id], idx))
+          consensusMarkets.map((m, idx) => renderMarketRow(m, "AI Pick", getPrice, consensusResults[m.id], idx))
+        )}
+      </div>
+
+      {/* Live Sports Markets */}
+      <div className="rounded-lg border border-[#21262d] bg-[#161b22] overflow-hidden">
+        <div className="px-4 py-2.5 border-b border-[#21262d] flex items-center justify-between">
+          <h3 className="text-sm font-semibold text-white">🏟️ Live Sports Markets</h3>
+          <span className="text-[10px] text-[#484f58]">{sportsMarkets.length} markets</span>
+        </div>
+        {sportsMarkets.length === 0 ? (
+          <p className="text-sm text-[#484f58] text-center py-8">No live sports markets right now</p>
+        ) : !sportsPricesReady ? (
+          <p className="text-sm text-[#484f58] text-center py-8">Loading live prices...</p>
+        ) : (
+          sportsMarkets.map((m, idx) => {
+            const sm = m as MarketWithPrices & { _sportLabel: string; _isLive: boolean };
+            const label = sm._isLive
+              ? `🔴 LIVE · ${sm._sportLabel}`
+              : sm._sportLabel;
+            return renderMarketRow(m, label, getSportsPrice, undefined, idx);
+          })
         )}
       </div>
 
