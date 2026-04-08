@@ -841,22 +841,26 @@ export default function SportsPage() {
       </div>
 
       <div className="flex gap-6">
-        {/* Sidebar — League List */}
-        <div className="hidden lg:block w-48 flex-shrink-0">
-          <p className="text-[10px] text-[#484f58] uppercase tracking-wider font-medium mb-2 px-2">All Sports</p>
+        {/* Sidebar — League List (Polymarket style) */}
+        <div className="hidden lg:block w-52 flex-shrink-0">
+          <p className="text-[10px] text-[#484f58] uppercase tracking-wider font-medium mb-3 px-2">All Sports</p>
           <div className="space-y-0.5">
             {leagues.map((league) => (
               <button
                 key={league.code}
                 onClick={() => setSelectedSport(league.code)}
                 className={cn(
-                  "w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-colors text-left",
+                  "w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-[13px] transition-all text-left group",
                   selectedSport === league.code
-                    ? "bg-[#1c2128] text-white font-medium"
-                    : "text-[#768390] hover:text-[#adbac7] hover:bg-[#161b22]"
+                    ? "bg-[#1c2128] text-white font-medium border border-[#30363d]"
+                    : "text-[#768390] hover:text-[#e6edf3] hover:bg-[#161b22]"
                 )}
               >
-                <span className="text-base w-5 text-center">{league.emoji}</span>
+                {league.image ? (
+                  <img src={league.image} alt={league.name} className="w-5 h-5 rounded-sm object-contain flex-shrink-0" />
+                ) : (
+                  <span className="text-base w-5 text-center flex-shrink-0">{league.emoji}</span>
+                )}
                 <span className="truncate">{league.name}</span>
               </button>
             ))}
@@ -874,11 +878,15 @@ export default function SportsPage() {
                 className={cn(
                   "flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium whitespace-nowrap flex-shrink-0 transition-colors",
                   selectedSport === league.code
-                    ? "bg-[#238636] text-white"
+                    ? "bg-[#1c2128] text-white border border-[#30363d]"
                     : "bg-[#161b22] text-[#768390] border border-[#21262d]"
                 )}
               >
-                <span>{league.emoji}</span>
+                {league.image ? (
+                  <img src={league.image} alt={league.name} className="w-4 h-4 rounded-sm object-contain" />
+                ) : (
+                  <span>{league.emoji}</span>
+                )}
                 <span>{league.name}</span>
               </button>
             ))}
@@ -886,7 +894,11 @@ export default function SportsPage() {
 
           {/* League Header */}
           <div className="flex items-center gap-3 mb-4">
-            <span className="text-2xl">{selectedLeague?.emoji}</span>
+            {selectedLeague?.image ? (
+              <img src={selectedLeague.image} alt={selectedLeague.name} className="w-7 h-7 rounded object-contain" />
+            ) : (
+              <span className="text-2xl">{selectedLeague?.emoji}</span>
+            )}
             <h2 className="text-lg font-semibold text-white">{selectedLeague?.name || selectedSport.toUpperCase()}</h2>
           </div>
 
@@ -901,7 +913,11 @@ export default function SportsPage() {
                 {liveByLeague.map((group) => (
                   <div key={group.sport}>
                     <div className="flex items-center gap-2 mb-3">
-                      <span className="text-base">{group.league.emoji}</span>
+                      {group.league.image ? (
+                        <img src={group.league.image} alt={group.league.name} className="w-5 h-5 rounded-sm object-contain" />
+                      ) : (
+                        <span className="text-base">{group.league.emoji}</span>
+                      )}
                       <p className="text-sm font-semibold text-[#e6edf3]">{group.league.name}</p>
                       <span className="text-[10px] text-[#484f58] bg-[#21262d] px-1.5 py-0.5 rounded">{group.events.length}</span>
                     </div>
