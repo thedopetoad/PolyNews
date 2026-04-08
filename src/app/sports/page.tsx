@@ -1,10 +1,52 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 import { LoginButton } from "@/components/layout/login-modal";
 import Link from "next/link";
+
+/* ─── Inline Mini Price Chart (for expanded game cards) ─── */
+function SportsMiniChart({ tokenId }: { tokenId: string }) {
+  const [history, setHistory] = useState<{ t: number; p: number }[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`/api/polymarket/price-history?token_id=${tokenId}`)
+      .then((r) => r.json())
+      .then((data) => { if (!cancelled && data.history?.length) setHistory(data.history); })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [tokenId]);
+
+  if (loading) return <div className="h-[60px] flex items-center justify-center text-[10px] text-[#484f58]">Loading chart...</div>;
+  if (history.length < 2) return <div className="h-[60px] flex items-center justify-center text-[10px] text-[#484f58]">No history</div>;
+
+  const W = 300, H = 60;
+  const prices = history.map((h) => h.p);
+  const min = Math.min(...prices), max = Math.max(...prices);
+  const range = max - min || 0.01;
+  const points = prices.map((p, i) => `${(i / (prices.length - 1)) * W},${H - 2 - ((p - min) / range) * (H - 4)}`);
+  const linePath = `M${points.join(" L")}`;
+  const areaPath = `${linePath} L${W},${H} L0,${H} Z`;
+  const isUp = prices[prices.length - 1] >= prices[0];
+  const color = isUp ? "#3fb950" : "#f85149";
+
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-[60px]" preserveAspectRatio="none">
+      <defs>
+        <linearGradient id={`sg-${tokenId.slice(0, 8)}`} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={color} stopOpacity={0.25} />
+          <stop offset="100%" stopColor={color} stopOpacity={0} />
+        </linearGradient>
+      </defs>
+      <path d={areaPath} fill={`url(#sg-${tokenId.slice(0, 8)})`} />
+      <path d={linePath} fill="none" stroke={color} strokeWidth={1.5} vectorEffect="non-scaling-stroke" />
+    </svg>
+  );
+}
 
 interface League {
   code: string;
@@ -174,12 +216,17 @@ function TeamRow({ name, mlPrice, spreadLabel, spreadPrice, totalLabel, totalPri
 
 /* ─── Game Card (Polymarket-style) ─── */
 function GameCard({ event, index, sport }: { event: SportEvent; index: number; sport: string }) {
+  const [expanded, setExpanded] = useState(false);
   const [teamA, teamB] = parseTeams(event.title);
   const { moneyline, spread, total, totalMarkets } = extractKeyMarkets(event);
   const vol = formatVol(event.volume || event.markets.reduce((s, m) => s + m.volume, 0));
   const time = formatTime(event.gameStartTime);
   const gameStart = new Date(event.gameStartTime).getTime();
   const isLive = gameStart <= Date.now() && (Date.now() - gameStart) < 4 * 60 * 60 * 1000;
+
+  // Get first clobTokenId for the price chart
+  let chartTokenId = "";
+  if (moneyline?.clobTokenIds?.[0]) chartTokenId = moneyline.clobTokenIds[0];
 
   // Moneyline prices
   const mlPriceA = moneyline?.prices[0] ?? 0.5;
@@ -210,14 +257,19 @@ function GameCard({ event, index, sport }: { event: SportEvent; index: number; s
   return (
     <div
       className={cn(
-        "rounded-lg border bg-[#161b22] overflow-hidden animate-fade-in-up",
-        isLive ? "border-[#f85149]/30" : "border-[#21262d]"
+        "rounded-lg border bg-[#161b22] overflow-hidden animate-fade-in-up transition-all duration-200",
+        isLive ? "border-[#f85149]/30 hover:shadow-[0_0_20px_rgba(248,81,73,0.1)]" : "border-[#21262d] hover:border-[#30363d] hover:shadow-[0_0_20px_rgba(88,166,255,0.08)]",
+        expanded && "ring-1 ring-[#58a6ff]/20"
       )}
       style={{ animationDelay: `${index * 50}ms`, animationFillMode: "backwards" }}
     >
-      {/* Header */}
-      <div className="flex items-center justify-between px-4 py-2 border-b border-[#21262d]">
+      {/* Header — clickable to expand */}
+      <div
+        className="flex items-center justify-between px-4 py-2 border-b border-[#21262d] cursor-pointer hover:bg-[#1c2128]/50 transition-colors"
+        onClick={() => setExpanded(!expanded)}
+      >
         <div className="flex items-center gap-2">
+          <svg className={cn("w-3 h-3 text-[#484f58] transition-transform flex-shrink-0", expanded && "rotate-90")} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
           {isLive && <span className="text-[10px] font-bold text-[#f85149] bg-[#f85149]/10 px-1.5 py-0.5 rounded animate-glow-red">LIVE</span>}
           <span className="text-[11px] text-[#484f58]">{time}</span>
           {vol && <span className="text-[11px] text-[#484f58]">{vol} Vol.</span>}
@@ -261,6 +313,43 @@ function GameCard({ event, index, sport }: { event: SportEvent; index: number; s
         highlight={!aIsFavorite}
         gameLink={`/sports/game?eventId=${event.id}&sport=${sport}`}
       />
+
+      {/* Expanded Section */}
+      {expanded && (
+        <div className="border-t border-[#21262d] bg-[#0d1117] px-4 py-3 space-y-3 animate-fade-in-up">
+          {/* Price Chart */}
+          {chartTokenId && (
+            <div>
+              <p className="text-[10px] text-[#484f58] uppercase tracking-wider mb-1">Price History</p>
+              <SportsMiniChart tokenId={chartTokenId} />
+            </div>
+          )}
+
+          {/* Quick Stats */}
+          <div className="grid grid-cols-3 gap-3 text-xs">
+            <div>
+              <p className="text-[#484f58]">Volume</p>
+              <p className="text-[#e6edf3] font-medium">{vol || "—"}</p>
+            </div>
+            <div>
+              <p className="text-[#484f58]">Markets</p>
+              <p className="text-[#e6edf3] font-medium">{totalMarkets}</p>
+            </div>
+            <div>
+              <p className="text-[#484f58]">Game Time</p>
+              <p className="text-[#e6edf3] font-medium">{time}</p>
+            </div>
+          </div>
+
+          {/* View Full Game */}
+          <Link
+            href={`/sports/game?eventId=${event.id}&sport=${sport}`}
+            className="inline-flex items-center gap-1.5 text-xs text-[#58a6ff] hover:underline"
+          >
+            View all markets &rsaquo;
+          </Link>
+        </div>
+      )}
     </div>
   );
 }
