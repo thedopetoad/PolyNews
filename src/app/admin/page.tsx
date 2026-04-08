@@ -153,6 +153,9 @@ export default function AdminPage() {
   const [data, setData] = useState<AdminData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [editingUser, setEditingUser] = useState<string | null>(null);
+  const [editBalance, setEditBalance] = useState("");
+  const [actionLoading, setActionLoading] = useState(false);
 
   const fetchAdmin = useCallback(async () => {
     if (!connectedAddress) return;
@@ -177,6 +180,27 @@ export default function AdminPage() {
   useEffect(() => {
     if (isAdmin) fetchAdmin();
   }, [isAdmin, fetchAdmin]);
+
+  const adminAction = async (action: string, userId: string, balance?: number) => {
+    if (!connectedAddress) return;
+    setActionLoading(true);
+    try {
+      const res = await fetch("/api/admin", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${connectedAddress}`,
+        },
+        body: JSON.stringify({ action, userId, balance }),
+      });
+      if (res.ok) {
+        setEditingUser(null);
+        setEditBalance("");
+        fetchAdmin();
+      }
+    } catch {}
+    setActionLoading(false);
+  };
 
   // Not connected or not admin
   if (!connectedAddress || !isAdmin) {
@@ -436,7 +460,8 @@ export default function AdminPage() {
                 <th className="pb-2 pr-4">Balance</th>
                 <th className="pb-2 pr-4">IP</th>
                 <th className="pb-2 pr-4">Referred</th>
-                <th className="pb-2">Joined</th>
+                <th className="pb-2 pr-4">Joined</th>
+                <th className="pb-2">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -456,7 +481,36 @@ export default function AdminPage() {
                     </span>
                   </td>
                   <td className="py-2 pr-4 text-[#e6edf3]">
-                    {u.balance.toLocaleString()}
+                    {editingUser === u.id ? (
+                      <div className="flex items-center gap-1">
+                        <input
+                          type="number"
+                          value={editBalance}
+                          onChange={(e) => setEditBalance(e.target.value)}
+                          className="w-20 bg-[#0d1117] border border-[#30363d] rounded px-1.5 py-0.5 text-xs text-white"
+                          autoFocus
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") adminAction("setBalance", u.id, parseFloat(editBalance));
+                            if (e.key === "Escape") setEditingUser(null);
+                          }}
+                        />
+                        <button
+                          onClick={() => adminAction("setBalance", u.id, parseFloat(editBalance))}
+                          disabled={actionLoading}
+                          className="text-[10px] text-[#3fb950] hover:underline"
+                        >
+                          Save
+                        </button>
+                      </div>
+                    ) : (
+                      <span
+                        className="cursor-pointer hover:text-[#58a6ff]"
+                        onClick={() => { setEditingUser(u.id); setEditBalance(String(u.balance)); }}
+                        title="Click to edit"
+                      >
+                        {u.balance.toLocaleString()}
+                      </span>
+                    )}
                   </td>
                   <td className="py-2 pr-4 font-mono text-xs text-[#768390]">
                     {u.signupIp || "-"}
@@ -464,8 +518,17 @@ export default function AdminPage() {
                   <td className="py-2 pr-4 text-xs text-[#768390]">
                     {u.referredBy || "-"}
                   </td>
-                  <td className="py-2 text-[#484f58] text-xs">
+                  <td className="py-2 pr-4 text-[#484f58] text-xs">
                     {timeAgo(u.createdAt)}
+                  </td>
+                  <td className="py-2">
+                    <button
+                      onClick={() => adminAction("resetBalance", u.id)}
+                      disabled={actionLoading}
+                      className="text-[10px] px-2 py-0.5 rounded bg-[#f85149]/10 text-[#f85149] hover:bg-[#f85149]/20 disabled:opacity-50"
+                    >
+                      Reset
+                    </button>
                   </td>
                 </tr>
               ))}

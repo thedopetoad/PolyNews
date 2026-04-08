@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb, users, airdrops, trades } from "@/db";
-import { sql, desc, gt, count } from "drizzle-orm";
+import { sql, desc, gt, count, eq } from "drizzle-orm";
 
 // Only these addresses can access the admin dashboard
 const ADMIN_ADDRESSES = [
@@ -225,6 +225,62 @@ export async function GET(request: NextRequest) {
     });
   } catch (e) {
     console.error("Admin API error:", e);
+    return NextResponse.json({ error: "Database error" }, { status: 500 });
+  }
+}
+
+// POST /api/admin - Admin actions (set balance, reset user)
+export async function POST(request: NextRequest) {
+  if (!isAdmin(request)) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  try {
+    const body = await request.json();
+    const { action, userId, balance } = body;
+
+    if (!userId || typeof userId !== "string") {
+      return NextResponse.json({ error: "userId required" }, { status: 400 });
+    }
+
+    const db = getDb();
+    const targetId = userId.toLowerCase();
+
+    if (action === "setBalance") {
+      if (typeof balance !== "number" || balance < 0) {
+        return NextResponse.json({ error: "Invalid balance" }, { status: 400 });
+      }
+
+      const [updated] = await db
+        .update(users)
+        .set({ balance })
+        .where(eq(users.id, targetId))
+        .returning();
+
+      if (!updated) {
+        return NextResponse.json({ error: "User not found" }, { status: 404 });
+      }
+
+      return NextResponse.json({ success: true, user: { id: updated.id, balance: updated.balance } });
+    }
+
+    if (action === "resetBalance") {
+      const [updated] = await db
+        .update(users)
+        .set({ balance: 1000 })
+        .where(eq(users.id, targetId))
+        .returning();
+
+      if (!updated) {
+        return NextResponse.json({ error: "User not found" }, { status: 404 });
+      }
+
+      return NextResponse.json({ success: true, user: { id: updated.id, balance: updated.balance } });
+    }
+
+    return NextResponse.json({ error: "Unknown action" }, { status: 400 });
+  } catch (e) {
+    console.error("Admin POST error:", e);
     return NextResponse.json({ error: "Database error" }, { status: 500 });
   }
 }
