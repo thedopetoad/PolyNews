@@ -657,10 +657,57 @@ export default function SportsPage() {
   const leagues: League[] = leaguesData?.leagues || [];
   const events: SportEvent[] = eventsData?.events || [];
 
+  // Fetch ALL leagues for live tab
+  const { data: allLiveData, isLoading: allLiveLoading } = useQuery({
+    queryKey: ["sports-all-live", leagues.map((l) => l.code).join(",")],
+    queryFn: async () => {
+      if (leagues.length === 0) return [];
+      const results = await Promise.all(
+        leagues.map(async (l) => {
+          try {
+            const res = await fetch(`/api/sports/events?sport=${l.code}`);
+            if (!res.ok) return [];
+            const data = await res.json();
+            return ((data.events || []) as SportEvent[]).map((e) => ({ ...e, _sport: l.code, _league: l }));
+          } catch { return []; }
+        })
+      );
+      return results.flat();
+    },
+    enabled: view === "live" && leagues.length > 0,
+    staleTime: 2 * 60 * 1000,
+    refetchInterval: 2 * 60 * 1000,
+  });
+
   // Separate live and upcoming
   const now = Date.now();
   const FOUR_HOURS = 4 * 60 * 60 * 1000;
 
+  // All live events across all sports (for live tab)
+  const allLiveEvents = useMemo(() => {
+    if (!allLiveData) return [];
+    return (allLiveData as (SportEvent & { _sport: string; _league: League })[]).filter((e) => {
+      const gs = new Date(e.gameStartTime).getTime();
+      return gs <= now && (now - gs) < FOUR_HOURS;
+    });
+  }, [allLiveData, now]);
+
+  // Live count for badge (from all sports)
+  const totalLiveCount = allLiveEvents.length;
+
+  // Group live events by sport
+  const liveByLeague = useMemo(() => {
+    const groups: { league: League; sport: string; events: SportEvent[] }[] = [];
+    for (const e of allLiveEvents) {
+      const ext = e as SportEvent & { _sport: string; _league: League };
+      const existing = groups.find((g) => g.sport === ext._sport);
+      if (existing) { existing.events.push(e); }
+      else { groups.push({ league: ext._league, sport: ext._sport, events: [e] }); }
+    }
+    return groups;
+  }, [allLiveEvents]);
+
+  // Selected sport events (for upcoming tab)
   const liveEvents = events.filter((e) => {
     const gs = new Date(e.gameStartTime).getTime();
     return gs <= now && (now - gs) < FOUR_HOURS;
@@ -710,7 +757,7 @@ export default function SportsPage() {
               : "bg-[#161b22] text-[#768390] border border-[#21262d] hover:text-[#adbac7]"
           )}
         >
-          Live {liveEvents.length > 0 && <span className="ml-1.5 text-[10px] bg-[#f85149] text-white px-1.5 py-0.5 rounded-full">{liveEvents.length}</span>}
+          Live {totalLiveCount > 0 && <span className="ml-1.5 text-[10px] bg-[#f85149] text-white px-1.5 py-0.5 rounded-full">{totalLiveCount}</span>}
         </button>
         <button
           onClick={() => setView("upcoming")}
@@ -776,14 +823,25 @@ export default function SportsPage() {
           </div>
 
           {/* Games */}
-          {eventsLoading ? (
-            <div className="space-y-3">
-              {Array.from({ length: 4 }).map((_, i) => <GameSkeleton key={i} />)}
-            </div>
-          ) : view === "live" ? (
-            liveEvents.length > 0 ? (
+          {view === "live" ? (
+            allLiveLoading ? (
               <div className="space-y-3">
-                {liveEvents.map((e, i) => <GameCard key={e.id} event={e} index={i} sport={selectedSport} expanded={expandedId === e.id} onToggle={() => setExpandedId(expandedId === e.id ? null : e.id)} />)}
+                {Array.from({ length: 4 }).map((_, i) => <GameSkeleton key={i} />)}
+              </div>
+            ) : liveByLeague.length > 0 ? (
+              <div className="space-y-6">
+                {liveByLeague.map((group) => (
+                  <div key={group.sport}>
+                    <div className="flex items-center gap-2 mb-3">
+                      <span className="text-base">{group.league.emoji}</span>
+                      <p className="text-sm font-semibold text-[#e6edf3]">{group.league.name}</p>
+                      <span className="text-[10px] text-[#484f58] bg-[#21262d] px-1.5 py-0.5 rounded">{group.events.length}</span>
+                    </div>
+                    <div className="space-y-3">
+                      {group.events.map((e, i) => <GameCard key={e.id} event={e} index={i} sport={group.sport} expanded={expandedId === e.id} onToggle={() => setExpandedId(expandedId === e.id ? null : e.id)} />)}
+                    </div>
+                  </div>
+                ))}
               </div>
             ) : (
               <div className="rounded-lg border border-[#21262d] bg-[#161b22] p-16 text-center">
@@ -791,6 +849,10 @@ export default function SportsPage() {
                 <button onClick={() => setView("upcoming")} className="text-sm text-[#58a6ff] hover:underline mt-2">View upcoming</button>
               </div>
             )
+          ) : eventsLoading ? (
+            <div className="space-y-3">
+              {Array.from({ length: 4 }).map((_, i) => <GameSkeleton key={i} />)}
+            </div>
           ) : grouped.length > 0 ? (
             <div className="space-y-6">
               {grouped.map((group) => (
