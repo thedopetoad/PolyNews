@@ -857,7 +857,7 @@ export default function SportsPage() {
                 )}
               >
                 {league.image ? (
-                  <img src={league.image} alt={league.name} className="w-5 h-5 rounded object-contain flex-shrink-0 bg-[#2d333b] p-[2px]" />
+                  <img src={league.image} alt={league.name} className="w-5 h-5 rounded-sm object-contain flex-shrink-0" />
                 ) : (
                   <span className="text-base w-5 text-center flex-shrink-0">{league.emoji}</span>
                 )}
@@ -883,7 +883,7 @@ export default function SportsPage() {
                 )}
               >
                 {league.image ? (
-                  <img src={league.image} alt={league.name} className="w-4 h-4 rounded object-contain bg-[#2d333b] p-[1px]" />
+                  <img src={league.image} alt={league.name} className="w-4 h-4 rounded-sm object-contain" />
                 ) : (
                   <span>{league.emoji}</span>
                 )}
@@ -895,7 +895,7 @@ export default function SportsPage() {
           {/* League Header */}
           <div className="flex items-center gap-3 mb-4">
             {selectedLeague?.image ? (
-              <img src={selectedLeague.image} alt={selectedLeague.name} className="w-7 h-7 rounded object-contain bg-[#2d333b] p-[2px]" />
+              <img src={selectedLeague.image} alt={selectedLeague.name} className="w-7 h-7 rounded object-contain" />
             ) : (
               <span className="text-2xl">{selectedLeague?.emoji}</span>
             )}
@@ -914,7 +914,7 @@ export default function SportsPage() {
                   <div key={group.sport}>
                     <div className="flex items-center gap-2 mb-3">
                       {group.league.image ? (
-                        <img src={group.league.image} alt={group.league.name} className="w-5 h-5 rounded object-contain bg-[#2d333b] p-[1px]" />
+                        <img src={group.league.image} alt={group.league.name} className="w-5 h-5 rounded-sm object-contain" />
                       ) : (
                         <span className="text-base">{group.league.emoji}</span>
                       )}
