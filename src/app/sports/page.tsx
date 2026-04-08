@@ -352,6 +352,7 @@ function TeamRow({ name, mlPrice, spreadLabel, spreadPrice, totalLabel, totalPri
 function LiveRadioPlayer({ teamA, teamB }: { teamA: string; teamB: string }) {
   const [station, setStation] = useState<{ name: string; url: string } | null>(null);
   const [loading, setLoading] = useState(true);
+  const [buffering, setBuffering] = useState(false);
   const [muted, setMuted] = useState(false);
   const [playing, setPlaying] = useState(false);
   const [selectedTeam, setSelectedTeam] = useState<"home" | "away">("home");
@@ -359,7 +360,7 @@ function LiveRadioPlayer({ teamA, teamB }: { teamA: string; teamB: string }) {
 
   const currentTeam = selectedTeam === "home" ? teamA : teamB;
 
-  // Cleanup audio on unmount or team change
+  // Cleanup audio on unmount
   useEffect(() => {
     return () => {
       if (audioRef.current) {
@@ -370,11 +371,12 @@ function LiveRadioPlayer({ teamA, teamB }: { teamA: string; teamB: string }) {
     };
   }, []);
 
-  // Fetch station when team changes
+  // Fetch station + preload audio when team changes
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     setPlaying(false);
+    setBuffering(false);
 
     // Stop current audio
     if (audioRef.current) {
@@ -387,7 +389,22 @@ function LiveRadioPlayer({ teamA, teamB }: { teamA: string; teamB: string }) {
       .then((r) => r.json())
       .then((data) => {
         if (cancelled) return;
-        if (data.station) setStation(data.station);
+        if (data.station) {
+          setStation(data.station);
+          // Preload: create audio element and start buffering in background
+          const proxyUrl = `/api/sports/radio/stream?url=${encodeURIComponent(data.station.url)}`;
+          const audio = new Audio();
+          audio.preload = "auto";
+          audio.src = proxyUrl;
+          audio.volume = 0.5;
+          audioRef.current = audio;
+
+          audio.addEventListener("error", () => {
+            setPlaying(false);
+            setBuffering(false);
+            console.error("Radio stream error:", audio.error?.message);
+          });
+        }
         setLoading(false);
       })
       .catch(() => { if (!cancelled) setLoading(false); });
@@ -395,31 +412,32 @@ function LiveRadioPlayer({ teamA, teamB }: { teamA: string; teamB: string }) {
   }, [currentTeam]);
 
   const toggleMute = () => {
-    if (!station) return;
+    if (!station || !audioRef.current) return;
+    const audio = audioRef.current;
 
-    // Not playing yet — create audio and start (proxy through our API to fix MIME/CORS)
-    if (!playing || !audioRef.current) {
-      const proxyUrl = `/api/sports/radio/stream?url=${encodeURIComponent(station.url)}`;
-      const audio = new Audio(proxyUrl);
-      audio.volume = 0.5;
-      audioRef.current = audio;
+    // Not playing yet — start playback (audio is preloaded)
+    if (!playing) {
+      setBuffering(true);
 
-      audio.addEventListener("error", () => {
+      // Listen for actual audio output
+      const onPlaying = () => {
+        setBuffering(false);
+        setPlaying(true);
+        setMuted(false);
+        audio.removeEventListener("playing", onPlaying);
+      };
+      audio.addEventListener("playing", onPlaying);
+
+      audio.play().catch((err) => {
+        console.error("Radio play failed:", err);
         setPlaying(false);
-        console.error("Radio stream error:", audio.error?.message);
+        setBuffering(false);
+        audio.removeEventListener("playing", onPlaying);
       });
-
-      audio.play()
-        .then(() => { setPlaying(true); setMuted(false); })
-        .catch((err) => {
-          console.error("Radio play failed:", err);
-          setPlaying(false);
-        });
       return;
     }
 
     // Already playing — toggle mute
-    const audio = audioRef.current;
     if (muted) {
       audio.muted = false;
       setMuted(false);
@@ -434,14 +452,23 @@ function LiveRadioPlayer({ teamA, teamB }: { teamA: string; teamB: string }) {
       {/* Pulsing volume button */}
       <button
         onClick={toggleMute}
+        disabled={buffering}
         className={cn(
           "w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 transition-all",
-          playing && !muted
-            ? "bg-[#f85149]/20 text-[#f85149] animate-pulse shadow-[0_0_12px_rgba(248,81,73,0.4)]"
-            : "bg-[#21262d] text-[#484f58] hover:text-[#adbac7] hover:bg-[#30363d]"
+          buffering
+            ? "bg-[#58a6ff]/20 text-[#58a6ff]"
+            : playing && !muted
+              ? "bg-[#f85149]/20 text-[#f85149] animate-pulse shadow-[0_0_12px_rgba(248,81,73,0.4)]"
+              : "bg-[#21262d] text-[#484f58] hover:text-[#adbac7] hover:bg-[#30363d]"
         )}
       >
-        {playing && !muted ? (
+        {buffering ? (
+          /* Spinner */
+          <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+          </svg>
+        ) : playing && !muted ? (
           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M15.536 8.464a5 5 0 010 7.072M18.364 5.636a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707A1 1 0 0112 5.586V18.414a1 1 0 01-1.707.707L5.586 15z" />
           </svg>
@@ -469,7 +496,7 @@ function LiveRadioPlayer({ teamA, teamB }: { teamA: string; teamB: string }) {
         </button>
       </div>
 
-      {/* Station name */}
+      {/* Station name + status */}
       {loading ? (
         <span className="text-[10px] text-[#484f58]">Connecting...</span>
       ) : station ? (
@@ -478,7 +505,10 @@ function LiveRadioPlayer({ teamA, teamB }: { teamA: string; teamB: string }) {
         <span className="text-[10px] text-[#484f58]">No station</span>
       )}
 
-      {playing && !muted && (
+      {buffering && (
+        <span className="text-[9px] text-[#58a6ff] font-medium ml-auto flex-shrink-0">Buffering...</span>
+      )}
+      {playing && !muted && !buffering && (
         <span className="text-[9px] text-[#f85149] font-medium ml-auto flex-shrink-0">LIVE</span>
       )}
     </div>
