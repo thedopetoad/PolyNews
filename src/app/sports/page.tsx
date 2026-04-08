@@ -212,6 +212,7 @@ interface SportEvent {
   liquidity: number;
   markets: Market[];
   negRisk: boolean;
+  espnLive?: boolean;
 }
 
 function formatVol(n: number): string {
@@ -487,8 +488,7 @@ function GameCard({ event, index, sport, expanded, onToggle }: { event: SportEve
   const { moneyline, spread, total, totalMarkets } = extractKeyMarkets(event);
   const vol = formatVol(event.volume || event.markets.reduce((s, m) => s + m.volume, 0));
   const time = formatTime(event.gameStartTime);
-  const gameStart = new Date(event.gameStartTime).getTime();
-  const isLive = gameStart <= Date.now() && (Date.now() - gameStart) < 4 * 60 * 60 * 1000;
+  const isLive = event.espnLive === true;
 
   // Build multi-outcome chart data
   const chartOutcomes: ChartOutcome[] = useMemo(() => {
@@ -723,23 +723,12 @@ export default function SportsPage() {
 
   // Separate live and upcoming
   const now = Date.now();
-  const FOUR_HOURS = 4 * 60 * 60 * 1000;
 
-  // Check if game looks settled (any outcome >= 95%)
-  const isSettled = (e: SportEvent) => {
-    const { moneyline } = extractKeyMarkets(e);
-    if (!moneyline) return false;
-    return moneyline.prices.some((p) => p >= 0.95);
-  };
-
-  // All live events across all sports (for live tab)
+  // All live events across all sports (for live tab) — uses ESPN status
   const allLiveEvents = useMemo(() => {
     if (!allLiveData) return [];
-    return (allLiveData as (SportEvent & { _sport: string; _league: League })[]).filter((e) => {
-      const gs = new Date(e.gameStartTime).getTime();
-      return gs <= now && (now - gs) < FOUR_HOURS && !isSettled(e);
-    });
-  }, [allLiveData, now]);
+    return (allLiveData as (SportEvent & { _sport: string; _league: League })[]).filter((e) => e.espnLive === true);
+  }, [allLiveData]);
 
   // Live count for badge (from all sports)
   const totalLiveCount = allLiveEvents.length;
@@ -757,14 +746,11 @@ export default function SportsPage() {
   }, [allLiveEvents]);
 
   // Selected sport events
-  const liveEvents = events.filter((e) => {
-    const gs = new Date(e.gameStartTime).getTime();
-    return gs <= now && (now - gs) < FOUR_HOURS && !isSettled(e);
-  });
+  const liveEvents = events.filter((e) => e.espnLive === true);
 
   const upcomingEvents = events.filter((e) => {
     const gs = new Date(e.gameStartTime).getTime();
-    return gs > now;
+    return gs > now || (!e.espnLive && gs <= now);
   });
 
   // Group upcoming by date

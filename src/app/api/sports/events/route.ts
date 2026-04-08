@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 const GAMMA_API = "https://gamma-api.polymarket.com";
 const CLOB_API = "https://clob.polymarket.com";
+const ESPN_API = "https://site.api.espn.com/apis/site/v2/sports";
 
 // Map sport codes to series IDs
 const SERIES_MAP: Record<string, string> = {
@@ -9,6 +10,45 @@ const SERIES_MAP: Record<string, string> = {
   epl: "10188", lal: "10193", bun: "10194", ucl: "10204",
   ufc: "10500", ipl: "44", mls: "10189", ncaab: "39",
 };
+
+// Map sport codes to ESPN paths
+const ESPN_SPORT_MAP: Record<string, string> = {
+  mlb: "baseball/mlb", nba: "basketball/nba", nfl: "football/nfl",
+  nhl: "hockey/nhl", ncaab: "basketball/mens-college-basketball",
+  mls: "soccer/usa.1", epl: "soccer/eng.1", lal: "soccer/esp.1",
+  bun: "soccer/ger.1", ucl: "soccer/uefa.champions", ufc: "mma/ufc",
+};
+
+// Fetch ESPN scoreboard and return set of live game title keywords
+async function getESPNLiveGames(sport: string): Promise<Set<string>> {
+  const liveTeams = new Set<string>();
+  const espnPath = ESPN_SPORT_MAP[sport];
+  if (!espnPath) return liveTeams;
+
+  try {
+    const res = await fetch(`${ESPN_API}/${espnPath}/scoreboard`, {
+      next: { revalidate: 60 },
+    });
+    if (!res.ok) return liveTeams;
+    const data = await res.json();
+
+    for (const event of data.events || []) {
+      const comp = event.competitions?.[0];
+      if (!comp) continue;
+      const statusName = comp.status?.type?.name;
+      if (statusName === "STATUS_IN_PROGRESS") {
+        // Add all team names from this live game
+        for (const t of comp.competitors || []) {
+          const name = (t.team?.displayName || "").toLowerCase();
+          const short = (t.team?.shortDisplayName || "").toLowerCase();
+          if (name) liveTeams.add(name);
+          if (short) liveTeams.add(short);
+        }
+      }
+    }
+  } catch {}
+  return liveTeams;
+}
 
 interface ParsedMarket {
   id: string;
@@ -33,6 +73,7 @@ interface ParsedEvent {
   liquidity: number;
   markets: ParsedMarket[];
   negRisk: boolean;
+  espnLive?: boolean;
 }
 
 async function getClobPrice(tokenId: string): Promise<number | null> {
@@ -138,6 +179,18 @@ export async function GET(request: NextRequest) {
     });
 
     await Promise.all(enrichPromises);
+
+    // Check ESPN for actually live games
+    const liveTeams = await getESPNLiveGames(sport);
+    if (liveTeams.size > 0) {
+      for (const event of events) {
+        const titleWords = event.title.toLowerCase().split(/\s+/);
+        // Match if any significant word from the event title matches a live team
+        event.espnLive = titleWords.some(
+          (w) => w.length > 3 && [...liveTeams].some((team) => team.includes(w))
+        );
+      }
+    }
 
     return NextResponse.json({ events, sport });
   } catch (err) {
