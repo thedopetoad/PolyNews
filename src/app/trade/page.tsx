@@ -316,7 +316,12 @@ function PortfolioTab({ allMarkets, onSwitchTab }: { allMarkets: MarketWithPrice
             try { const ids = JSON.parse(market.clobTokenIds); tokenId = ids[0] || ""; } catch {}
           }
         }
-        return { id: pos.marketId, tokenId, fallbackYes: pos.avgPrice, fallbackNo: 1 - pos.avgPrice };
+        // avgPrice is the price paid for the chosen outcome.
+        // For Yes positions: avgPrice = yesPrice. For No positions: avgPrice = noPrice.
+        const isYes = pos.outcome === "Yes" || pos.outcome === "Up";
+        const fallbackYes = isYes ? pos.avgPrice : 1 - pos.avgPrice;
+        const fallbackNo = isYes ? 1 - pos.avgPrice : pos.avgPrice;
+        return { id: pos.marketId, tokenId, fallbackYes, fallbackNo };
       })
       .filter((t) => t.tokenId);
   }, [positions, allMarkets]);
