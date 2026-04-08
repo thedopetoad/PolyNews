@@ -356,8 +356,13 @@ function PortfolioTab({ allMarkets, onSwitchTab }: { allMarkets: MarketWithPrice
   };
 
   const getLivePrice = (pos: DbPosition): number | null => {
-    const live = getPositionLivePrice(pos.marketId, pos.avgPrice, 1 - pos.avgPrice);
-    return pos.outcome === "Yes" || pos.outcome === "Up" ? live.yesPrice : live.noPrice;
+    // avgPrice is the price paid for the chosen outcome.
+    // For Yes: avgPrice = yesPrice. For No: avgPrice = noPrice.
+    const isYes = pos.outcome === "Yes" || pos.outcome === "Up";
+    const fallbackYes = isYes ? pos.avgPrice : 1 - pos.avgPrice;
+    const fallbackNo = isYes ? 1 - pos.avgPrice : pos.avgPrice;
+    const live = getPositionLivePrice(pos.marketId, fallbackYes, fallbackNo);
+    return isYes ? live.yesPrice : live.noPrice;
   };
 
   const handleClose = (pos: DbPosition) => {
