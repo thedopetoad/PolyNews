@@ -255,11 +255,26 @@ function MiniPriceChart({ tokenId }: { tokenId: string }) {
 
 /* ─── Expandable Position Detail ─── */
 function PositionDetail({ pos, livePrice }: { pos: DbPosition; livePrice: number | null }) {
+  // Detect sports positions by "vs." in the market question
+  const isSportsPosition = /\s+vs\.?\s+/i.test(pos.marketQuestion);
+
+  // Build a fake MarketWithPrices for the SportsTradeChart if it's a sports position
+  const sportsChartMarket = useMemo(() => {
+    if (!isSportsPosition || !pos.clobTokenId) return null;
+    const teams = pos.marketQuestion.split(/\s+vs\.?\s+/i).map((s) => s.trim());
+    return {
+      outcomes: JSON.stringify(teams.length >= 2 ? teams : ["Yes", "No"]),
+      clobTokenIds: JSON.stringify([pos.clobTokenId]),
+    } as MarketWithPrices;
+  }, [isSportsPosition, pos.clobTokenId, pos.marketQuestion]);
+
   return (
     <div className="px-4 py-3 bg-[#0d1117] border-t border-[#21262d] space-y-3">
-      {pos.clobTokenId && (
+      {isSportsPosition && sportsChartMarket ? (
+        <SportsTradeChart market={sportsChartMarket} />
+      ) : pos.clobTokenId ? (
         <MiniPriceChart tokenId={pos.clobTokenId} />
-      )}
+      ) : null}
 
       <div className="grid grid-cols-3 gap-3 text-xs">
         <div>
