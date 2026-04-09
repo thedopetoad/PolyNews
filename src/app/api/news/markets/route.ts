@@ -94,17 +94,19 @@ export async function POST(request: NextRequest) {
       messages: [
         {
           role: "system",
-          content: `Match news headlines to prediction markets. For each headline, find the MOST relevant prediction market.
+          content: `Match news headlines to prediction markets. Find the BEST matching market for EACH headline.
 
 Return JSON array: [{"h": headlineIndex, "m": marketIndex}]
 
-RULES:
-- Match headlines about Iran/war to Iran/war markets
-- Match headlines about elections to election markets
-- Match headlines about crypto to crypto markets
-- Only match if directly relevant — same topic, same entity
-- Skip headlines with no relevant market
-- Return valid JSON array only`,
+MATCHING RULES:
+- Iran war headlines → match to Iran war/ceasefire/regime/military markets
+- Israel/Lebanon/Gaza headlines → match to Israel/Middle East conflict markets
+- Trump/NATO/politics headlines → match to Trump/election/political markets
+- Ukraine/Russia headlines → match to Ukraine/ceasefire/NATO markets
+- Crypto headlines → match to Bitcoin/crypto markets
+- Be GENEROUS with matching — if a headline is about Iran and there's ANY Iran-related market, match it
+- Match as many headlines as possible — aim for 8+ matches out of 15 headlines
+- Return valid JSON array only, no explanation`,
         },
         {
           role: "user",

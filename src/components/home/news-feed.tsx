@@ -221,7 +221,7 @@ export function NewsFeed({ className }: { className?: string }) {
 
       {/* Floating Market Panel — appears on hover, positioned to the left of the news feed */}
       {hoveredMarket && (
-        <div className="absolute right-full top-16 mr-3 w-64 z-50 pointer-events-auto hidden xl:block animate-fade-in-up">
+        <div className="absolute left-full top-16 ml-3 w-64 z-50 pointer-events-auto hidden lg:block animate-fade-in-up">
           <a
             href={`${POLYMARKET_BASE_URL}/event/${hoveredMarket.eventSlug}`}
             target="_blank"
