@@ -148,6 +148,131 @@ const sections: DocSection[] = [
     ),
   },
   {
+    id: "sports",
+    title: "Sports Betting",
+    content: (
+      <div className="space-y-3">
+        <p>Browse live and upcoming sports markets from Polymarket with real-time odds.</p>
+        <h4 className="font-semibold text-[#e6edf3] mt-2">Supported Leagues</h4>
+        <p>MLB, NBA, NFL, NHL, Premier League, La Liga, Bundesliga, Champions League, UFC, IPL, MLS, NCAAB &mdash; with more added regularly.</p>
+        <h4 className="font-semibold text-[#e6edf3] mt-2">Game Cards</h4>
+        <ul className="list-disc pl-5 space-y-1.5">
+          <li><strong className="text-[#e6edf3]">Team rows</strong> &mdash; Each game shows both teams with abbreviation badges, moneyline odds, spread, and total columns.</li>
+          <li><strong className="text-[#e6edf3]">Expandable</strong> &mdash; Click a game card to see price history chart, volume, and a link to the full game detail page.</li>
+          <li><strong className="text-[#e6edf3]">Live detection</strong> &mdash; Games within 4 hours of their <code className="text-[#d29922] text-xs">gameStartTime</code> show a red LIVE badge.</li>
+        </ul>
+        <h4 className="font-semibold text-[#e6edf3] mt-2">Game Detail Page</h4>
+        <p>Click &ldquo;Game View&rdquo; on any game to see the full detail page with:</p>
+        <ul className="list-disc pl-5 space-y-1.5">
+          <li><strong className="text-[#e6edf3]">ESPN live scoreboard</strong> &mdash; Team logos, abbreviations, records, and live score from ESPN&apos;s free API (refreshes every 30s).</li>
+          <li><strong className="text-[#e6edf3]">All market types</strong> &mdash; Moneyline, Spread, Total (Over/Under), and Player Props from Polymarket.</li>
+          <li><strong className="text-[#e6edf3]">Live odds</strong> &mdash; Enriched with CLOB midpoint prices for accuracy.</li>
+        </ul>
+        <h4 className="font-semibold text-[#e6edf3] mt-2">Data Sources</h4>
+        <div className="bg-[#0d1117] rounded-lg border border-[#21262d] divide-y divide-[#21262d] mt-2">
+          <div className="p-3">
+            <p className="text-xs"><strong className="text-[#58a6ff]">Gamma API</strong> &mdash; <code className="text-[10px] text-[#768390]">gamma-api.polymarket.com/events?series_id=X</code> &mdash; market data, outcomes, prices, slugs.</p>
+          </div>
+          <div className="p-3">
+            <p className="text-xs"><strong className="text-[#58a6ff]">CLOB API</strong> &mdash; <code className="text-[10px] text-[#768390]">clob.polymarket.com/midpoint?token_id=X</code> &mdash; real-time midpoint prices.</p>
+          </div>
+          <div className="p-3">
+            <p className="text-xs"><strong className="text-[#58a6ff]">ESPN API</strong> &mdash; <code className="text-[10px] text-[#768390]">site.api.espn.com/apis/site/v2/sports/...</code> &mdash; live scores, team logos, records. Free, no key needed.</p>
+          </div>
+        </div>
+      </div>
+    ),
+  },
+  {
+    id: "architecture",
+    title: "Technical Architecture",
+    content: (
+      <div className="space-y-3">
+        <p>For team members working on the codebase. PolyStream is a Next.js 16 app deployed on Vercel with a Neon PostgreSQL database.</p>
+
+        <h4 className="font-semibold text-[#e6edf3] mt-2">Stack</h4>
+        <div className="bg-[#0d1117] rounded-lg border border-[#21262d] divide-y divide-[#21262d]">
+          {[
+            ["Frontend", "Next.js 16 (App Router), React 19, Tailwind CSS 4, shadcn/ui"],
+            ["Auth", "RainbowKit + wagmi (wallets), Web3Auth (Google login)"],
+            ["Database", "Neon PostgreSQL via Drizzle ORM"],
+            ["AI", "OpenAI GPT-4o-mini (consensus, market matching, live market selection)"],
+            ["Markets", "Polymarket Gamma API (events) + CLOB API (live prices)"],
+            ["News", "RSS (BBC, NYT, Al Jazeera, Guardian, Sky News) + Telegram scraping"],
+            ["Scores", "ESPN free API (live scores, team logos)"],
+            ["Deploy", "Vercel (auto-deploys from GitHub on push to master)"],
+          ].map(([label, value]) => (
+            <div key={label} className="flex gap-3 p-3 text-xs">
+              <span className="text-[#58a6ff] font-medium w-20 flex-shrink-0">{label}</span>
+              <span className="text-[#adbac7]">{value}</span>
+            </div>
+          ))}
+        </div>
+
+        <h4 className="font-semibold text-[#e6edf3] mt-2">Key API Routes</h4>
+        <div className="bg-[#0d1117] rounded-lg border border-[#21262d] divide-y divide-[#21262d]">
+          {[
+            ["/api/news", "GET — RSS + Telegram headlines, 5-min cache"],
+            ["/api/news/markets", "POST — AI headline→market matching (cursor-based incremental). GET — cached results"],
+            ["/api/markets/live", "GET — AI-selected markets matching live news, 15-min cache"],
+            ["/api/polymarket/events", "GET — market data from Gamma API with CLOB enrichment"],
+            ["/api/polymarket/prices", "GET — single CLOB midpoint price lookup"],
+            ["/api/polymarket/price-history", "GET — historical price data for charts"],
+            ["/api/sports/leagues", "GET — curated league list with ESPN logos"],
+            ["/api/sports/events", "GET — games per league with parsed markets"],
+            ["/api/sports/game", "GET — full game detail with ESPN scores + all markets"],
+            ["/api/consensus", "POST — 3-round AI debate for a market question"],
+            ["/api/trade", "POST — paper trade execution (buy/sell)"],
+            ["/api/airdrop", "POST — daily AIRDROP claim"],
+            ["/api/leaderboard", "GET — top 50 users by balance"],
+            ["/api/admin", "GET/POST — admin dashboard (restricted to owner wallet)"],
+            ["/api/user", "GET/POST/PATCH — user CRUD + display name"],
+          ].map(([route, desc]) => (
+            <div key={route} className="flex gap-3 p-2.5 text-xs">
+              <code className="text-[#d29922] font-mono w-44 flex-shrink-0 text-[10px]">{route}</code>
+              <span className="text-[#768390]">{desc}</span>
+            </div>
+          ))}
+        </div>
+
+        <h4 className="font-semibold text-[#e6edf3] mt-2">How Related Markets Work (for devs)</h4>
+        <p className="text-xs text-[#768390]">The headline→market pipeline processes 3 headlines every 60 seconds using a cursor-based system:</p>
+        <ol className="list-decimal pl-5 space-y-1 text-xs text-[#adbac7]">
+          <li>Frontend POSTs all 15 headline titles to <code className="text-[#d29922]">/api/news/markets</code></li>
+          <li>API loads cache from DB (<code className="text-[#d29922]">consensus_cache</code> table, key <code className="text-[#d29922]">news-mkt-v14</code>)</li>
+          <li>Cursor advances: headlines[cursor..cursor+3] are the current batch</li>
+          <li><strong className="text-[#e6edf3]">GPT extracts keywords</strong> from each headline (cheap text call, no web search)</li>
+          <li><strong className="text-[#e6edf3]">Gamma API search</strong> with keywords across 200 events &mdash; returns REAL verified market slugs</li>
+          <li><strong className="text-[#e6edf3]">GPT validates</strong> each headline↔market pair, rejects bad matches</li>
+          <li>Results cached in DB with cursor position. Frontend polls every 60s to process next batch</li>
+          <li>Cap: 20 headlines max. Each headline gets up to 3 markets.</li>
+        </ol>
+
+        <h4 className="font-semibold text-[#e6edf3] mt-2">Environment Variables</h4>
+        <p className="text-xs text-[#768390]">Required in <code className="text-[#d29922]">.env.local</code> (get from team lead, never commit to git):</p>
+        <div className="bg-[#0d1117] rounded-lg border border-[#21262d] p-3 font-mono text-[10px] text-[#768390] space-y-0.5">
+          <p>DATABASE_URL=postgresql://...</p>
+          <p>OPENAI_API_KEY=sk-...</p>
+          <p>YOUTUBE_API_KEY=AIza...</p>
+          <p>NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=...</p>
+          <p>NEXT_PUBLIC_WEB3AUTH_CLIENT_ID=...</p>
+          <p>POLYMARKET_BUILDER_API_KEY=... (for future sports betting)</p>
+          <p>POLYMARKET_BUILDER_SECRET=...</p>
+          <p>POLYMARKET_BUILDER_PASSPHRASE=...</p>
+        </div>
+
+        <h4 className="font-semibold text-[#e6edf3] mt-2">Team Workflow</h4>
+        <ol className="list-decimal pl-5 space-y-1 text-xs text-[#adbac7]">
+          <li><code className="text-[#d29922]">git clone</code> the repo, <code className="text-[#d29922]">npm install</code>, add <code className="text-[#d29922]">.env.local</code></li>
+          <li><code className="text-[#d29922]">npm run dev</code> to test locally</li>
+          <li><code className="text-[#d29922]">npm run build</code> to verify before pushing</li>
+          <li><code className="text-[#d29922]">git push</code> to master &mdash; Vercel auto-deploys</li>
+          <li>Schema changes: only the team lead runs <code className="text-[#d29922]">npx drizzle-kit push</code></li>
+        </ol>
+      </div>
+    ),
+  },
+  {
     id: "builder-program",
     title: "Builder Program",
     content: (
@@ -155,7 +280,7 @@ const sections: DocSection[] = [
         <p>PolyStream participates in Polymarket&apos;s Builder Program for third-party integration.</p>
         <ul className="list-disc pl-5 space-y-1.5">
           <li>Markets link directly to Polymarket for real trading.</li>
-          <li>Future: trade directly from PolyStream via the Builder API.</li>
+          <li>Future: trade directly from PolyStream via the Builder API (credentials stored in env vars, ready for integration).</li>
           <li>All market data comes from Polymarket&apos;s Gamma API in real time.</li>
         </ul>
       </div>
