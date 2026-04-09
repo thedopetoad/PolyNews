@@ -242,10 +242,12 @@ export async function GET() {
     const [cached] = await db.select().from(consensusCache).where(eq(consensusCache.id, CACHE_KEY)).limit(1);
     if (cached) {
       const data: CachedData = JSON.parse(cached.result);
-      return NextResponse.json({ links: data.links, remaining: 0 });
+      // Always return remaining > 0 so the frontend keeps polling via POST
+      const remaining = data.processedTitles.length < 20 ? 1 : 0;
+      return NextResponse.json({ links: data.links, remaining });
     }
-    return NextResponse.json({ links: [] });
+    return NextResponse.json({ links: [], remaining: 1 });
   } catch {
-    return NextResponse.json({ links: [] });
+    return NextResponse.json({ links: [], remaining: 1 });
   }
 }
