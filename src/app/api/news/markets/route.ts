@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
+import crypto from "crypto";
 import { getDb, consensusCache } from "@/db";
 import { eq } from "drizzle-orm";
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const GAMMA_API = "https://gamma-api.polymarket.com";
-const CACHE_KEY_PREFIX = "news-mkt-v5-";
-const CACHE_TTL_MS = 10 * 60 * 1000;
+const CACHE_KEY_PREFIX = "news-mkt-v6-";
 
 interface MarketLink {
   headlineIndex: number;
@@ -63,9 +63,12 @@ export async function POST(request: NextRequest) {
     if (headlines.length === 0) return NextResponse.json({ links: [] });
 
     const db = getDb();
-    const cacheKey = CACHE_KEY_PREFIX + headlines[0]?.slice(0, 20).replace(/\W/g, "");
 
-    // Check cache
+    // Cache key = hash of all headline titles. New headline = new key = fresh search
+    const headlineHash = crypto.createHash("sha256").update(headlines.join("|")).digest("hex").slice(0, 16);
+    const cacheKey = CACHE_KEY_PREFIX + headlineHash;
+
+    // Check cache — if headlines haven't changed, return cached result (no TTL needed)
     const [cached] = await db
       .select()
       .from(consensusCache)
@@ -73,10 +76,7 @@ export async function POST(request: NextRequest) {
       .limit(1);
 
     if (cached) {
-      const age = Date.now() - new Date(cached.createdAt).getTime();
-      if (age < CACHE_TTL_MS) {
-        return NextResponse.json(JSON.parse(cached.result));
-      }
+      return NextResponse.json(JSON.parse(cached.result));
     }
 
     // PASS 0: Web search Polymarket for markets related to headline topics
@@ -268,10 +268,7 @@ export async function GET() {
       .limit(1);
 
     if (rows.length > 0) {
-      const age = Date.now() - new Date(rows[0].createdAt).getTime();
-      if (age < CACHE_TTL_MS) {
-        return NextResponse.json(JSON.parse(rows[0].result));
-      }
+      return NextResponse.json(JSON.parse(rows[0].result));
     }
     return NextResponse.json({ links: [] });
   } catch {
