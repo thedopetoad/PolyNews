@@ -98,6 +98,7 @@ IMPORTANT:
 - Do NOT make up markets or slugs
 - Include the "topics" field so I can match back to headlines
 - Find at least 20 unique markets across all topics
+- DIVERSITY: Do NOT return the same market with different dates (e.g. "ceasefire by April 7" and "ceasefire by April 10" are the SAME market — only pick the one with the nearest future date)
 - Return ONLY valid JSON`,
     });
 
@@ -140,6 +141,7 @@ VALIDATION RULES — a match is ONLY valid if:
 ❌ "Ponzi scheme watches" → "Treasury yield" (UNRELATED)
 
 If NO market is relevant to a headline, SKIP IT. Do not force bad matches.
+DIVERSITY: Each headline's 3 markets should be about DIFFERENT aspects/questions — not the same question with different dates.
 
 Return JSON: [{"h": 0, "m": [2, 5, 8]}, {"h": 1, "m": [0, 3]}]
 Where "h" is headline index and "m" is array of market indices.

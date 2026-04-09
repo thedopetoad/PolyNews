@@ -3,7 +3,6 @@
 import { useEffect, useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useNewsStore, NewsHeadline } from "@/stores/use-news-store";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 import { POLYMARKET_BASE_URL } from "@/lib/constants";
 
@@ -12,7 +11,6 @@ const NEWS_CATEGORIES = ["All", "OSINT", "Iran", "Ukraine", "Crypto", "Finance",
 
 interface MarketLink {
   headlineIndex: number;
-  marketId: string;
   question: string;
   slug: string;
   eventSlug: string;
@@ -32,11 +30,36 @@ function timeAgo(dateStr: string): string {
   return `${days}d ago`;
 }
 
+/* ─── Market Pills (inline, for mobile + expanded) ─── */
+function MarketPills({ markets }: { markets: MarketLink[] }) {
+  return (
+    <div className="mt-2 space-y-1.5">
+      {markets.map((market, i) => (
+        <a
+          key={i}
+          href={`${POLYMARKET_BASE_URL}/event/${market.eventSlug}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={(e) => e.stopPropagation()}
+          className="flex items-center gap-2 px-2.5 py-2 rounded-md bg-[#0d1117] border border-[#21262d] hover:border-[#30363d] hover:shadow-[0_0_8px_rgba(210,153,34,0.1)] transition-all"
+        >
+          <svg className="w-3 h-3 text-[#d29922] flex-shrink-0" fill="currentColor" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" /></svg>
+          <span className="text-[10px] text-[#adbac7] truncate flex-1">{market.question}</span>
+          <span className="text-[10px] font-semibold text-[#3fb950] tabular-nums flex-shrink-0">
+            {Math.round(market.yesPrice * 100)}¢
+          </span>
+        </a>
+      ))}
+    </div>
+  );
+}
+
 export function NewsFeed({ className }: { className?: string }) {
   const { headlines, setHeadlines, setKeywords, setLoading } = useNewsStore();
   const [activeSource, setActiveSource] = useState<string>("All");
   const [activeCategory, setActiveCategory] = useState<string>("All");
   const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
+  const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
 
   const { data, isLoading } = useQuery({
     queryKey: ["news-headlines"],
@@ -49,7 +72,6 @@ export function NewsFeed({ className }: { className?: string }) {
     refetchInterval: 5 * 60 * 1000,
   });
 
-  // POST headlines to get market matches (only when headlines are loaded)
   const headlineTitles = useMemo(() => headlines.slice(0, 15).map((h) => h.title), [headlines]);
 
   const { data: marketLinksData } = useQuery({
@@ -65,13 +87,12 @@ export function NewsFeed({ className }: { className?: string }) {
       return res.json();
     },
     enabled: headlineTitles.length > 0,
-    staleTime: 10 * 60 * 1000,
-    refetchInterval: 10 * 60 * 1000,
+    staleTime: 30 * 60 * 1000,
+    refetchInterval: 30 * 60 * 1000,
   });
 
   const marketLinks: MarketLink[] = marketLinksData?.links || [];
 
-  // Group multiple markets per headline
   const linkMap = useMemo(() => {
     const map = new Map<number, MarketLink[]>();
     for (const link of marketLinks) {
@@ -89,36 +110,26 @@ export function NewsFeed({ className }: { className?: string }) {
   useEffect(() => {
     if (data?.headlines) {
       setHeadlines(data.headlines);
-      const allKeywords = data.headlines.flatMap(
-        (h: NewsHeadline) => h.keywords
-      );
+      const allKeywords = data.headlines.flatMap((h: NewsHeadline) => h.keywords);
       setKeywords([...new Set(allKeywords)] as string[]);
     }
   }, [data, setHeadlines, setKeywords]);
 
   const filtered = useMemo(() => {
     let result = headlines;
-    if (activeSource !== "All") {
-      result = result.filter((h) => h.source === activeSource);
-    }
-    if (activeCategory !== "All") {
-      result = result.filter((h) => h.categories?.includes(activeCategory));
-    }
+    if (activeSource !== "All") result = result.filter((h) => h.source === activeSource);
+    if (activeCategory !== "All") result = result.filter((h) => h.categories?.includes(activeCategory));
     return result;
   }, [headlines, activeSource, activeCategory]);
 
   const headlineWithIndex = useMemo(() => {
-    return filtered.map((h) => {
-      const origIdx = headlines.indexOf(h);
-      return { headline: h, origIdx };
-    });
+    return filtered.map((h) => ({ headline: h, origIdx: headlines.indexOf(h) }));
   }, [filtered, headlines]);
 
-  // Get hovered markets (up to 3)
   const hoveredMarkets = hoveredIdx !== null ? linkMap.get(hoveredIdx) || null : null;
 
   return (
-    <div className={cn("rounded-lg border border-[#21262d] bg-[#161b22] overflow-visible flex flex-col relative", className)}>
+    <div className={cn("rounded-lg border border-[#21262d] bg-[#161b22] overflow-hidden flex flex-col relative", className)}>
       <div className="px-4 py-2.5 border-b border-[#21262d] flex items-center justify-between">
         <h3 className="text-sm font-semibold text-white">Breaking news</h3>
         {data?.source === "mock" && (
@@ -127,16 +138,14 @@ export function NewsFeed({ className }: { className?: string }) {
       </div>
 
       {/* Source filter tabs */}
-      <div className="flex gap-1 px-3 py-1.5 border-b border-[#21262d] overflow-x-auto">
+      <div className="flex gap-1 px-3 py-1.5 border-b border-[#21262d] overflow-x-auto" style={{ scrollbarWidth: "none" }}>
         {NEWS_SOURCES.map((src) => (
           <button
             key={src}
             onClick={() => setActiveSource(src)}
             className={cn(
               "px-2 py-1 rounded text-[10px] font-medium transition-colors whitespace-nowrap",
-              activeSource === src
-                ? "bg-[#58a6ff]/15 text-[#58a6ff]"
-                : "text-[#484f58] hover:text-[#768390]"
+              activeSource === src ? "bg-[#58a6ff]/15 text-[#58a6ff]" : "text-[#484f58] hover:text-[#768390]"
             )}
           >
             {src}
@@ -145,16 +154,14 @@ export function NewsFeed({ className }: { className?: string }) {
       </div>
 
       {/* Category filter tabs */}
-      <div className="flex gap-1 px-3 py-1.5 border-b border-[#21262d] overflow-x-auto">
+      <div className="flex gap-1 px-3 py-1.5 border-b border-[#21262d] overflow-x-auto" style={{ scrollbarWidth: "none" }}>
         {NEWS_CATEGORIES.map((cat) => (
           <button
             key={cat}
             onClick={() => setActiveCategory(cat)}
             className={cn(
               "px-2 py-1 rounded text-[10px] font-medium transition-colors whitespace-nowrap",
-              activeCategory === cat
-                ? "bg-[#d29922]/15 text-[#d29922]"
-                : "text-[#484f58] hover:text-[#768390]"
+              activeCategory === cat ? "bg-[#d29922]/15 text-[#d29922]" : "text-[#484f58] hover:text-[#768390]"
             )}
           >
             {cat}
@@ -162,29 +169,37 @@ export function NewsFeed({ className }: { className?: string }) {
         ))}
       </div>
 
-      <ScrollArea className="flex-1 min-h-0">
+      {/* Headlines */}
+      <div className="flex-1 min-h-0 overflow-y-auto" style={{ scrollbarWidth: "thin", scrollbarColor: "#21262d transparent" }}>
         <div className="divide-y divide-[#21262d]">
           {headlineWithIndex.map(({ headline, origIdx }, idx) => {
-            const hasMarket = (linkMap.get(origIdx)?.length || 0) > 0;
+            const markets = linkMap.get(origIdx) || [];
+            const hasMarket = markets.length > 0;
+            const isExpanded = expandedIdx === origIdx;
 
             return (
-              <a
+              <div
                 key={idx}
-                href={headline.url}
-                target="_blank"
-                rel="noopener noreferrer"
                 className={cn(
-                  "block px-4 py-3 transition-colors animate-fade-in-up relative",
-                  hoveredIdx === origIdx ? "bg-[#1c2128]" : "hover:bg-[#1c2128]",
+                  "px-4 py-3 transition-colors animate-fade-in-up cursor-pointer",
+                  (hoveredIdx === origIdx || isExpanded) ? "bg-[#1c2128]" : "hover:bg-[#1c2128]",
                   hasMarket && "border-l-2 border-l-[#d29922]/50"
                 )}
                 style={{ animationDelay: `${idx * 30}ms`, animationFillMode: "backwards" }}
                 onMouseEnter={() => hasMarket && setHoveredIdx(origIdx)}
                 onMouseLeave={() => setHoveredIdx(null)}
+                onClick={() => hasMarket && setExpandedIdx(isExpanded ? null : origIdx)}
               >
-                <p className="text-[13px] text-[#e6edf3] leading-snug line-clamp-2">
-                  {headline.title}
-                </p>
+                <a
+                  href={headline.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <p className="text-[13px] text-[#e6edf3] leading-snug line-clamp-2">
+                    {headline.title}
+                  </p>
+                </a>
                 <div className="flex items-center gap-2 mt-1.5">
                   <span className="text-[11px] text-[#484f58]">{headline.source}</span>
                   {headline.publishedAt && (
@@ -193,36 +208,34 @@ export function NewsFeed({ className }: { className?: string }) {
                   {headline.keywords.length > 0 && (
                     <div className="flex gap-1">
                       {headline.keywords.slice(0, 3).map((kw) => (
-                        <span
-                          key={kw}
-                          className="text-[10px] text-[#58a6ff] bg-[#58a6ff]/10 px-1.5 py-0.5 rounded"
-                        >
-                          {kw}
-                        </span>
+                        <span key={kw} className="text-[10px] text-[#58a6ff] bg-[#58a6ff]/10 px-1.5 py-0.5 rounded">{kw}</span>
                       ))}
                     </div>
                   )}
                   {hasMarket && (
-                    <span className="text-[9px] text-[#d29922] ml-auto">📊</span>
+                    <span className="text-[9px] text-[#d29922] ml-auto">{isExpanded ? "▼" : "▶"} {markets.length}</span>
                   )}
                 </div>
-              </a>
+
+                {/* Mobile/tablet: inline expanded markets */}
+                {isExpanded && hasMarket && (
+                  <div className="lg:hidden">
+                    <MarketPills markets={markets} />
+                  </div>
+                )}
+              </div>
             );
           })}
           {filtered.length === 0 && !isLoading && (
-            <p className="text-sm text-[#484f58] text-center py-12">
-              No headlines available
-            </p>
+            <p className="text-sm text-[#484f58] text-center py-12">No headlines available</p>
           )}
           {isLoading && (
-            <p className="text-sm text-[#484f58] text-center py-12">
-              Loading...
-            </p>
+            <p className="text-sm text-[#484f58] text-center py-12">Loading...</p>
           )}
         </div>
-      </ScrollArea>
+      </div>
 
-      {/* Floating Market Panel — appears on hover, shows up to 3 related markets */}
+      {/* Desktop: floating hover panel on the right */}
       {hoveredMarkets && hoveredMarkets.length > 0 && (
         <div className="absolute left-full top-16 ml-3 w-72 z-50 pointer-events-auto hidden lg:block animate-fade-in-up">
           <div className="rounded-lg border border-[#30363d] bg-[#161b22] shadow-2xl shadow-black/50 overflow-hidden">
@@ -232,7 +245,7 @@ export function NewsFeed({ className }: { className?: string }) {
             </div>
             {hoveredMarkets.map((market, i) => (
               <a
-                key={market.marketId}
+                key={i}
                 href={`${POLYMARKET_BASE_URL}/event/${market.eventSlug}`}
                 target="_blank"
                 rel="noopener noreferrer"
@@ -241,17 +254,11 @@ export function NewsFeed({ className }: { className?: string }) {
                   i < hoveredMarkets.length - 1 && "border-b border-[#21262d]"
                 )}
               >
-                <p className="text-[11px] text-[#e6edf3] font-medium leading-snug mb-1.5">
-                  {market.question}
-                </p>
+                <p className="text-[11px] text-[#e6edf3] font-medium leading-snug mb-1.5">{market.question}</p>
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <span className="text-[10px] font-semibold text-[#3fb950] tabular-nums">
-                      Yes {Math.round(market.yesPrice * 100)}¢
-                    </span>
-                    <span className="text-[10px] font-semibold text-[#f85149] tabular-nums">
-                      No {Math.round((1 - market.yesPrice) * 100)}¢
-                    </span>
+                    <span className="text-[10px] font-semibold text-[#3fb950] tabular-nums">Yes {Math.round(market.yesPrice * 100)}¢</span>
+                    <span className="text-[10px] font-semibold text-[#f85149] tabular-nums">No {Math.round((1 - market.yesPrice) * 100)}¢</span>
                   </div>
                   <span className="text-[9px] text-[#58a6ff]">Trade →</span>
                 </div>
