@@ -94,11 +94,13 @@ Return a JSON array of ALL unique markets found:
 The "topics" field should list which search keywords this market matched.
 
 IMPORTANT:
-- Only return markets that ACTUALLY EXIST on polymarket.com
-- Do NOT make up markets or slugs
+- Only return markets that ACTUALLY EXIST on polymarket.com RIGHT NOW
+- Copy the EXACT slug from the Polymarket URL — do NOT make up or guess slugs
+- Only include markets that are ACTIVE and NOT yet resolved
+- Do NOT include markets with dates that have already passed (today is ${new Date().toISOString().slice(0, 10)})
 - Include the "topics" field so I can match back to headlines
 - Find at least 20 unique markets across all topics
-- DIVERSITY: Do NOT return the same market with different dates (e.g. "ceasefire by April 7" and "ceasefire by April 10" are the SAME market — only pick the one with the nearest future date)
+- DIVERSITY: Do NOT return the same market with different dates — only pick the one with the nearest FUTURE date
 - Return ONLY valid JSON`,
     });
 
@@ -163,9 +165,9 @@ Return ONLY valid JSON.`,
       finalMatches = [];
     }
 
-    // Build deduplicated links
+    // Build deduplicated links and validate slugs exist on Polymarket
     const seenSlugs = new Set<string>();
-    const links: MarketLink[] = [];
+    const candidateLinks: { headlineIndex: number; market: typeof foundMarkets[0] }[] = [];
 
     for (const match of finalMatches) {
       if (match.h < 0 || match.h >= headlines.length || !Array.isArray(match.m)) continue;
@@ -173,18 +175,37 @@ Return ONLY valid JSON.`,
         if (mi < 0 || mi >= foundMarkets.length) continue;
         const market = foundMarkets[mi];
         const slugKey = market.slug?.toLowerCase() || "";
-        if (seenSlugs.has(slugKey)) continue;
+        if (!slugKey || seenSlugs.has(slugKey)) continue;
         seenSlugs.add(slugKey);
-
-        links.push({
-          headlineIndex: match.h,
-          question: market.q,
-          slug: market.slug,
-          eventSlug: market.slug,
-          yesPrice: (market.yes || 50) / 100,
-        });
+        candidateLinks.push({ headlineIndex: match.h, market });
       }
     }
+
+    // Validate slugs exist by checking Gamma API (batch check)
+    const validatedLinks = await Promise.all(
+      candidateLinks.map(async (c) => {
+        try {
+          const res = await fetch(`https://gamma-api.polymarket.com/events?slug=${c.market.slug}&limit=1`);
+          if (res.ok) {
+            const events = await res.json();
+            if (Array.isArray(events) && events.length > 0 && events[0].active && !events[0].closed) {
+              return c; // Valid
+            }
+          }
+        } catch {}
+        return null; // Invalid
+      })
+    );
+
+    const links: MarketLink[] = validatedLinks
+      .filter((c): c is NonNullable<typeof c> => c !== null)
+      .map((c) => ({
+        headlineIndex: c.headlineIndex,
+        question: c.market.q,
+        slug: c.market.slug,
+        eventSlug: c.market.slug,
+        yesPrice: (c.market.yes || 50) / 100,
+      }));
 
     const result = { links, updatedAt: new Date().toISOString() };
     const resultJson = JSON.stringify(result);

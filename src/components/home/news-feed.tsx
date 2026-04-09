@@ -194,7 +194,17 @@ export function NewsFeed({ className }: { className?: string }) {
 
                 {/* Expanded: horizontal scrollable market cards */}
                 {isExpanded && hasMarket && (
-                  <div className="mt-2 -mx-1 overflow-x-auto flex gap-2 pb-1" style={{ scrollbarWidth: "thin", scrollbarColor: "#21262d transparent" }}>
+                  <div
+                    className="mt-2 -mx-1 overflow-x-auto flex gap-2 pb-1"
+                    style={{ scrollbarWidth: "thin", scrollbarColor: "#21262d transparent" }}
+                    onWheel={(e) => {
+                      // Capture vertical scroll and convert to horizontal
+                      if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) {
+                        e.stopPropagation();
+                        e.currentTarget.scrollLeft += e.deltaY;
+                      }
+                    }}
+                  >
                     {markets.map((market, i) => (
                       <a
                         key={i}
