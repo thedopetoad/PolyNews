@@ -50,7 +50,6 @@ export const NAV_LINKS = [
   { href: "/sports", label: "Sports" },
   { href: "/trade", label: "Paper Trade" },
   { href: "/ai", label: "AI Consensus" },
-  { href: "/docs", label: "Docs" },
 ] as const;
 
 export const KEYWORD_DICTIONARY = [
