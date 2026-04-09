@@ -192,6 +192,34 @@ export async function GET(request: NextRequest) {
 
     await Promise.all(enrichPromises);
 
+    // Deduplicate by team matchup — keep the event closest to now
+    // Handles both "A vs B" and "B vs A" as the same matchup
+    function matchupKey(title: string): string {
+      const parts = title.toLowerCase().split(/\s+vs\.?\s+/i).map((s) => s.trim());
+      if (parts.length >= 2) return [parts[0], parts[1]].sort().join(" | ");
+      return title.toLowerCase();
+    }
+    const seen = new Map<string, number>();
+    for (let i = 0; i < events.length; i++) {
+      const key = matchupKey(events[i].title);
+      if (seen.has(key)) {
+        const prevIdx = seen.get(key)!;
+        const prevStart = new Date(events[prevIdx].gameStartTime).getTime();
+        const curStart = new Date(events[i].gameStartTime).getTime();
+        const now = Date.now();
+        const prevDist = Math.abs(prevStart - now);
+        const curDist = Math.abs(curStart - now);
+        if (curDist < prevDist) {
+          events[prevIdx] = events[i];
+          seen.set(key, prevIdx);
+        }
+        events.splice(i, 1);
+        i--;
+      } else {
+        seen.set(key, i);
+      }
+    }
+
     // Check ESPN for actually live games — require BOTH teams to match the SAME ESPN game
     const liveGames = await getESPNLiveGames(sport);
     if (liveGames.length > 0) {
