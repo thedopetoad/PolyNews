@@ -8,7 +8,7 @@ import { SwarmVisualization } from "@/components/ai/swarm-visualization";
 
 export default function HomePage() {
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-8 relative">
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-8 relative overflow-x-clip">
       {/* Plexus background */}
       <div className="fixed inset-0 pointer-events-none z-0 opacity-40">
         <SwarmVisualization className="h-screen" />
