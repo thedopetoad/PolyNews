@@ -82,7 +82,14 @@ export async function POST(request: NextRequest) {
       ? JSON.parse(cached.result)
       : { links: [], processedHashes: [], cursor: 0, updatedAt: "" };
 
-    // Use cursor-based processing: always process headlines[cursor] to headlines[cursor + BATCH_SIZE]
+    // Check if headlines have changed (new news cycle) — reset cache if so
+    const firstHash = hashTitle(headlines[0]);
+    const headlinesChanged = existing.processedHashes.length > 0 && !existing.processedHashes.includes(firstHash);
+    if (headlinesChanged) {
+      existing = { links: [], processedHashes: [], cursor: 0, updatedAt: "" };
+    }
+
+    // Use cursor-based processing
     const cursor = existing.cursor;
     if (cursor >= headlines.length || existing.processedHashes.length >= MAX_TOTAL) {
       return NextResponse.json({ links: existing.links, remaining: 0 });
