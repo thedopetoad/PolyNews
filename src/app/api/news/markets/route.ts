@@ -1,11 +1,11 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
 import { getDb, consensusCache } from "@/db";
 import { eq } from "drizzle-orm";
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const GAMMA_API = "https://gamma-api.polymarket.com";
-const CACHE_KEY = "news-market-links";
+const CACHE_KEY = "news-market-links-v3";
 const CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
 
 interface MarketLink {
@@ -17,7 +17,7 @@ interface MarketLink {
   yesPrice: number;
 }
 
-async function fetchMarketPool(): Promise<{ id: string; question: string; slug: string; eventSlug: string; lastTradePrice?: number }[]> {
+async function fetchMarketPool() {
   const offsets = [0, 50, 100];
   const results = await Promise.allSettled(
     offsets.map(async (offset) => {
@@ -52,15 +52,24 @@ async function fetchMarketPool(): Promise<{ id: string; question: string; slug: 
   return markets;
 }
 
-export async function GET() {
+// POST accepts headlines from the client
+export async function POST(request: NextRequest) {
   try {
+    const body = await request.json();
+    const headlines: string[] = (body.headlines || []).slice(0, 15);
+
+    if (headlines.length === 0) {
+      return NextResponse.json({ links: [] });
+    }
+
     const db = getDb();
 
-    // Check cache
+    // Check cache (keyed by first headline to detect staleness)
+    const cacheKey = CACHE_KEY + "-" + headlines[0]?.slice(0, 30).replace(/\W/g, "");
     const [cached] = await db
       .select()
       .from(consensusCache)
-      .where(eq(consensusCache.id, CACHE_KEY))
+      .where(eq(consensusCache.id, cacheKey))
       .limit(1);
 
     if (cached) {
@@ -70,59 +79,32 @@ export async function GET() {
       }
     }
 
-    // Fetch headlines directly from RSS (avoid internal fetch issues on Vercel)
-    const rssFeeds = [
-      { url: "https://feeds.bbci.co.uk/news/world/rss.xml", name: "BBC" },
-      { url: "https://rss.nytimes.com/services/xml/rss/nyt/World.xml", name: "NYT" },
-      { url: "https://www.aljazeera.com/xml/rss/all.xml", name: "Al Jazeera" },
-    ];
-    const feedResults = await Promise.allSettled(
-      rssFeeds.map(async (feed) => {
-        const r = await fetch(feed.url, { next: { revalidate: 300 }, headers: { "User-Agent": "PolyStream/1.0" } });
-        if (!r.ok) return [];
-        const xml = await r.text();
-        const titles: string[] = [];
-        const regex = /<title><!\[CDATA\[(.*?)\]\]>|<title>([^<]+)<\/title>/g;
-        let m;
-        while ((m = regex.exec(xml)) !== null) {
-          const t = (m[1] || m[2] || "").replace(/<[^>]*>/g, "").trim();
-          if (t.length > 20 && !t.includes("BBC") && !t.includes("NYT") && !t.includes("World")) titles.push(t);
-        }
-        return titles.slice(0, 5);
-      })
-    );
-    const headlines: { title: string }[] = feedResults
-      .filter((r): r is PromiseFulfilledResult<string[]> => r.status === "fulfilled")
-      .flatMap((r) => r.value)
-      .slice(0, 15)
-      .map((title) => ({ title }));
-
-    if (headlines.length === 0) return NextResponse.json({ links: [] });
-
     // Fetch market pool
     const allMarkets = await fetchMarketPool();
     if (allMarkets.length === 0) return NextResponse.json({ links: [] });
 
     // Build compact lists
-    const headlineList = headlines.map((h, i) => `${i}: ${h.title}`).join("\n");
+    const headlineList = headlines.map((h, i) => `${i}: ${h}`).join("\n");
     const marketList = allMarkets.slice(0, 150).map((m, i) => `${i}: ${m.question}`).join("\n");
 
-    // Ask GPT to match headlines to markets
+    // Ask GPT to match
     const completion = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       temperature: 0.1,
       messages: [
         {
           role: "system",
-          content: `You match news headlines to prediction markets. For each headline, find the SINGLE most relevant prediction market (if any).
+          content: `Match news headlines to prediction markets. For each headline, find the MOST relevant prediction market.
 
-Return a JSON array of objects: [{"h": headlineIndex, "m": marketIndex}]
+Return JSON array: [{"h": headlineIndex, "m": marketIndex}]
 
 RULES:
-- Only match if the headline is DIRECTLY about the same topic as the market
-- Skip headlines with no relevant market (don't force matches)
-- Maximum one market per headline
-- Return valid JSON only, nothing else`,
+- Match headlines about Iran/war to Iran/war markets
+- Match headlines about elections to election markets
+- Match headlines about crypto to crypto markets
+- Only match if directly relevant — same topic, same entity
+- Skip headlines with no relevant market
+- Return valid JSON array only`,
         },
         {
           role: "user",
@@ -134,13 +116,14 @@ RULES:
     const responseText = completion.choices[0]?.message?.content?.trim() || "[]";
     let matches: { h: number; m: number }[] = [];
     try {
-      matches = JSON.parse(responseText);
+      // Handle GPT sometimes wrapping in ```json ... ```
+      const cleaned = responseText.replace(/```json\n?|\n?```/g, "").trim();
+      matches = JSON.parse(cleaned);
       if (!Array.isArray(matches)) matches = [];
     } catch {
       matches = [];
     }
 
-    // Build market links
     const topMarkets = allMarkets.slice(0, 150);
     const links: MarketLink[] = matches
       .filter((match) => match.h >= 0 && match.h < headlines.length && match.m >= 0 && match.m < topMarkets.length)
@@ -164,18 +147,44 @@ RULES:
       await db
         .update(consensusCache)
         .set({ result: resultJson, createdAt: new Date() })
-        .where(eq(consensusCache.id, CACHE_KEY));
+        .where(eq(consensusCache.id, cacheKey));
     } else {
       await db.insert(consensusCache).values({
-        id: CACHE_KEY,
+        id: cacheKey,
         marketQuestion: "news-market-links",
         result: resultJson,
+      }).onConflictDoUpdate({
+        target: consensusCache.id,
+        set: { result: resultJson, createdAt: new Date() },
       });
     }
 
     return NextResponse.json(result);
   } catch (err) {
     console.error("News markets error:", err);
+    return NextResponse.json({ links: [] });
+  }
+}
+
+// GET returns cached links (if available)
+export async function GET() {
+  try {
+    const db = getDb();
+    // Return any recent cache
+    const rows = await db
+      .select()
+      .from(consensusCache)
+      .where(eq(consensusCache.marketQuestion, "news-market-links"))
+      .limit(1);
+
+    if (rows.length > 0) {
+      const age = Date.now() - new Date(rows[0].createdAt).getTime();
+      if (age < CACHE_TTL_MS) {
+        return NextResponse.json(JSON.parse(rows[0].result));
+      }
+    }
+    return NextResponse.json({ links: [] });
+  } catch {
     return NextResponse.json({ links: [] });
   }
 }

@@ -49,13 +49,22 @@ export function NewsFeed({ className }: { className?: string }) {
     refetchInterval: 5 * 60 * 1000,
   });
 
+  // POST headlines to get market matches (only when headlines are loaded)
+  const headlineTitles = useMemo(() => headlines.slice(0, 15).map((h) => h.title), [headlines]);
+
   const { data: marketLinksData } = useQuery({
-    queryKey: ["news-market-links"],
+    queryKey: ["news-market-links", headlineTitles[0]],
     queryFn: async () => {
-      const res = await fetch("/api/news/markets");
+      if (headlineTitles.length === 0) return { links: [] };
+      const res = await fetch("/api/news/markets", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ headlines: headlineTitles }),
+      });
       if (!res.ok) return { links: [] };
       return res.json();
     },
+    enabled: headlineTitles.length > 0,
     staleTime: 10 * 60 * 1000,
     refetchInterval: 10 * 60 * 1000,
   });
