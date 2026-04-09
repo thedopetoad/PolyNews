@@ -122,9 +122,14 @@ export function NewsFeed({ className }: { className?: string }) {
     return result;
   }, [headlines, activeSource, activeCategory]);
 
+  // Map filtered headlines to their index in the FIRST 15 (what was sent to the API)
+  const first15 = headlines.slice(0, 15);
   const headlineWithIndex = useMemo(() => {
-    return filtered.map((h) => ({ headline: h, origIdx: headlines.indexOf(h) }));
-  }, [filtered, headlines]);
+    return filtered.map((h) => {
+      const apiIdx = first15.indexOf(h); // Index in the 15 sent to API (-1 if not in first 15)
+      return { headline: h, apiIdx };
+    });
+  }, [filtered, first15]);
 
   const hoveredMarkets = hoveredIdx !== null ? linkMap.get(hoveredIdx) || null : null;
 
@@ -172,23 +177,23 @@ export function NewsFeed({ className }: { className?: string }) {
       {/* Headlines */}
       <div className="flex-1 min-h-0 overflow-y-auto" style={{ scrollbarWidth: "thin", scrollbarColor: "#21262d transparent" }}>
         <div className="divide-y divide-[#21262d]">
-          {headlineWithIndex.map(({ headline, origIdx }, idx) => {
-            const markets = linkMap.get(origIdx) || [];
+          {headlineWithIndex.map(({ headline, apiIdx }, idx) => {
+            const markets = (apiIdx >= 0 ? linkMap.get(apiIdx) : undefined) || [];
             const hasMarket = markets.length > 0;
-            const isExpanded = expandedIdx === origIdx;
+            const isExpanded = expandedIdx === apiIdx;
 
             return (
               <div
                 key={idx}
                 className={cn(
                   "px-4 py-3 transition-colors animate-fade-in-up cursor-pointer",
-                  (hoveredIdx === origIdx || isExpanded) ? "bg-[#1c2128]" : "hover:bg-[#1c2128]",
+                  (hoveredIdx === apiIdx || isExpanded) ? "bg-[#1c2128]" : "hover:bg-[#1c2128]",
                   hasMarket && "border-l-2 border-l-[#d29922]/50"
                 )}
                 style={{ animationDelay: `${idx * 30}ms`, animationFillMode: "backwards" }}
-                onMouseEnter={() => hasMarket && setHoveredIdx(origIdx)}
+                onMouseEnter={() => hasMarket && setHoveredIdx(apiIdx)}
                 onMouseLeave={() => setHoveredIdx(null)}
-                onClick={() => hasMarket && setExpandedIdx(isExpanded ? null : origIdx)}
+                onClick={() => hasMarket && setExpandedIdx(isExpanded ? null : apiIdx)}
               >
                 <a
                   href={headline.url}
