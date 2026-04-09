@@ -73,12 +73,13 @@ export function NewsFeed({ className }: { className?: string }) {
 
   const marketLinks: MarketLink[] = marketLinksData?.links || [];
 
-  // Map by headline title for reliable matching across incremental updates
+  // Map by headline title (fuzzy: first 40 chars lowercase for resilience to title edits)
   const linkByTitle = useMemo(() => {
     const map = new Map<string, MarketLink[]>();
     for (const link of marketLinks) {
-      const key = (link as unknown as { headlineTitle?: string }).headlineTitle || "";
-      if (!key) continue;
+      const rawTitle = (link as unknown as { headlineTitle?: string }).headlineTitle || "";
+      if (!rawTitle) continue;
+      const key = rawTitle.replace(/[^\w\s]/g, "").toLowerCase().slice(0, 40);
       const existing = map.get(key) || [];
       existing.push(link);
       map.set(key, existing);
@@ -107,7 +108,8 @@ export function NewsFeed({ className }: { className?: string }) {
 
   const headlineWithMarkets = useMemo(() => {
     return filtered.map((h) => {
-      const markets = linkByTitle.get(h.title) || [];
+      const key = h.title.replace(/[^\w\s]/g, "").toLowerCase().slice(0, 40);
+      const markets = linkByTitle.get(key) || [];
       return { headline: h, markets };
     });
   }, [filtered, linkByTitle]);
