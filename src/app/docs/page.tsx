@@ -34,12 +34,29 @@ const sections: DocSection[] = [
     content: (
       <div className="space-y-3">
         <p>The home page combines a live video feed with real-time headline analysis to surface relevant prediction markets.</p>
-        <ul className="list-disc pl-5 space-y-1.5">
-          <li><strong className="text-[#e6edf3]">Live Stream</strong> &mdash; Multiple 24/7 news channels to choose from.</li>
-          <li><strong className="text-[#e6edf3]">Headline Analysis</strong> &mdash; Keywords extracted from headlines are matched against active Polymarket markets.</li>
-          <li><strong className="text-[#e6edf3]">Market Ticker</strong> &mdash; Matched markets scroll below the stream with live prices.</li>
-        </ul>
-        <p>A real-time audio transcription pipeline is planned for a future release.</p>
+        <h4 className="font-semibold text-[#e6edf3] mt-2">Live Stream</h4>
+        <p>Watch 7 live 24/7 news channels (Al Jazeera, FOX, ABC, CBS, Sky News, France 24, DW News) with a 4x multi-view mode.</p>
+        <h4 className="font-semibold text-[#e6edf3] mt-2">Breaking News Feed</h4>
+        <p>Headlines from 6 sources (BBC, NYT, Al Jazeera, Guardian, Sky News) plus OSINT intelligence from Telegram channels, updated every 5 minutes. Filter by source or category (Iran, Ukraine, Crypto, Finance, Politics, Tech).</p>
+        <h4 className="font-semibold text-[#e6edf3] mt-2">AI-Powered Related Markets</h4>
+        <p>Each headline is automatically matched to relevant Polymarket prediction markets using a 3-step AI pipeline:</p>
+        <div className="bg-[#0d1117] rounded-lg border border-[#21262d] divide-y divide-[#21262d] mt-2 mb-2">
+          <div className="p-3">
+            <p className="text-[#d29922] font-medium text-xs">Step 1: Keyword Extraction</p>
+            <p className="text-xs mt-1">GPT-4o-mini reads each headline and extracts search keywords. &ldquo;Iran War Cease-Fire Tested&rdquo; becomes [&ldquo;iran&rdquo;, &ldquo;ceasefire&rdquo;, &ldquo;strait&rdquo;, &ldquo;hormuz&rdquo;].</p>
+          </div>
+          <div className="p-3">
+            <p className="text-[#d29922] font-medium text-xs">Step 2: Market Search</p>
+            <p className="text-xs mt-1">Those keywords are searched against 200+ active Polymarket events via the Gamma API. Only real, verified markets with active slugs are returned &mdash; no hallucinated URLs.</p>
+          </div>
+          <div className="p-3">
+            <p className="text-[#d29922] font-medium text-xs">Step 3: AI Validation</p>
+            <p className="text-xs mt-1">GPT validates each headline&ndash;market pair: &ldquo;Is this market actually about the same topic?&rdquo; Bad matches like &ldquo;Iran war&rdquo; &rarr; &ldquo;Iran FIFA World Cup&rdquo; are rejected.</p>
+          </div>
+        </div>
+        <p>Headlines with matches show a gold <span className="text-[#d29922]">&#9733; See Related Markets</span> button. Click to expand and see up to 3 related markets with live Yes/No prices. Markets process incrementally &mdash; 3 headlines every 60 seconds, up to 20 total.</p>
+        <h4 className="font-semibold text-[#e6edf3] mt-2">AI Live Market Ticker</h4>
+        <p>Below the stream, an AI-selected ticker shows the 8&ndash;10 Polymarket events most relevant to the current news cycle. Powered by GPT-4o-mini analyzing live stream titles and RSS headlines against 200+ active markets. Refreshes every 15 minutes.</p>
       </div>
     ),
   },
