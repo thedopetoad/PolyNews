@@ -90,8 +90,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(JSON.parse(cached.result));
     }
 
-    // Process top 5 headlines ONE AT A TIME (sequential to avoid timeout)
-    const topHeadlines = headlines.slice(0, 5);
+    // Process top 3 headlines ONE AT A TIME (stay well under 60s Vercel limit)
+    const topHeadlines = headlines.slice(0, 3);
     const seenSlugs = new Set<string>();
     const links: MarketLink[] = [];
 

@@ -50,9 +50,16 @@ export function NewsFeed({ className }: { className?: string }) {
   const headlineTitles = useMemo(() => headlines.slice(0, 15).map((h) => h.title), [headlines]);
 
   const { data: marketLinksData } = useQuery({
-    queryKey: ["news-market-links", headlineTitles[0]],
+    queryKey: ["news-market-links", headlineTitles.slice(0, 3).join("|")],
     queryFn: async () => {
       if (headlineTitles.length === 0) return { links: [] };
+      // Try GET first (returns cached result instantly)
+      const cached = await fetch("/api/news/markets");
+      if (cached.ok) {
+        const data = await cached.json();
+        if (data.links?.length > 0) return data;
+      }
+      // No cache — POST to trigger fresh search
       const res = await fetch("/api/news/markets", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -62,8 +69,7 @@ export function NewsFeed({ className }: { className?: string }) {
       return res.json();
     },
     enabled: headlineTitles.length > 0,
-    staleTime: 30 * 60 * 1000,
-    refetchInterval: 30 * 60 * 1000,
+    staleTime: 5 * 60 * 1000,
   });
 
   const marketLinks: MarketLink[] = marketLinksData?.links || [];
@@ -197,13 +203,19 @@ export function NewsFeed({ className }: { className?: string }) {
                   <div
                     className="mt-2 -mx-1 overflow-x-auto flex gap-2 pb-1"
                     style={{ scrollbarWidth: "thin", scrollbarColor: "#21262d transparent" }}
-                    onWheel={(e) => {
-                      const el = e.currentTarget;
-                      const canScrollH = el.scrollWidth > el.clientWidth;
-                      if (canScrollH && Math.abs(e.deltaY) > 0) {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        el.scrollLeft += e.deltaY;
+                    ref={(el) => {
+                      if (!el) return;
+                      const handler = (e: WheelEvent) => {
+                        if (el.scrollWidth > el.clientWidth && e.deltaY !== 0) {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          el.scrollLeft += e.deltaY;
+                        }
+                      };
+                      el.addEventListener("wheel", handler, { passive: false });
+                      // Clean up on unmount via data attribute to avoid duplicates
+                      if (!el.dataset.wheelBound) {
+                        el.dataset.wheelBound = "1";
                       }
                     }}
                   >
