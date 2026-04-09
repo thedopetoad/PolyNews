@@ -16,17 +16,6 @@ interface MarketLink {
   yesPrice: number;
 }
 
-// Validate a slug exists on Polymarket
-async function validateSlug(slug: string): Promise<boolean> {
-  try {
-    const res = await fetch(`${GAMMA_API}/events?slug=${slug}&limit=1`);
-    if (!res.ok) return false;
-    const events = await res.json();
-    return Array.isArray(events) && events.length > 0 && events[0].active && !events[0].closed;
-  } catch {
-    return false;
-  }
-}
 
 export async function POST(request: NextRequest) {
   try {
@@ -48,58 +37,62 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(JSON.parse(cached.result));
     }
 
-    // For each headline, have GPT search Polymarket and find 3 DIRECTLY related markets
-    // Process top 8 headlines (balance cost vs coverage)
-    const topHeadlines = headlines.slice(0, 8);
+    // Single GPT web search call with ALL headlines (avoids Vercel timeout)
+    const headlineSummary = headlines.slice(0, 8).map((h, i) => `${i}: ${h}`).join("\n");
 
-    const searchPromises = topHeadlines.map(async (headline, idx) => {
-      try {
-        const response = await openai.responses.create({
-          model: "gpt-4o-mini",
-          tools: [{ type: "web_search_preview" }],
-          input: `Search polymarket.com for prediction markets directly related to this specific news headline:
+    const searchResponse = await openai.responses.create({
+      model: "gpt-4o-mini",
+      tools: [{ type: "web_search_preview" }],
+      input: `Search polymarket.com for prediction markets related to each of these news headlines:
 
-"${headline}"
+${headlineSummary}
 
-Find 3 prediction markets on Polymarket that are DIRECTLY about the same event, person, country, or topic as this headline.
+TODAY: ${new Date().toISOString().slice(0, 10)}
 
-TODAY'S DATE: ${new Date().toISOString().slice(0, 10)}
+For EACH headline, find 2-3 DIRECTLY related prediction markets on Polymarket.
 
-STRICT RULES:
-- Markets must be about the EXACT SAME TOPIC as the headline
-- If headline is about "Iran war ceasefire" → find Iran ceasefire or Iran conflict markets
-- If headline is about "Trump NATO" → find NATO or Trump foreign policy markets, NOT Trump 2028 election
-- If headline is about "Israel bombing Beirut" → find Israel-Lebanon conflict markets
-- Do NOT return sports markets for non-sports headlines
-- Do NOT return markets about different topics that happen to mention the same country
-- Only return markets that are STILL ACTIVE (not resolved, end date in the future)
-- Copy the EXACT event slug from the Polymarket URL
+RULES:
+- "Iran war ceasefire" → find Iran ceasefire, Iran strikes, Iran regime markets
+- "Trump NATO" → find NATO withdrawal, NATO membership markets (NOT Trump 2028 election)
+- "Israel bombed Beirut" → find Israel-Lebanon, Israel strikes markets
+- Markets MUST be about the SAME topic as the headline
+- Only ACTIVE markets with future end dates
+- Copy EXACT slug from Polymarket URL
 
-Return JSON array: [{"q": "exact market question", "slug": "exact-slug-from-url", "yes": 45}]
-If you cannot find any directly related markets, return an empty array: []
+Return JSON: [{"h": 0, "markets": [{"q": "question", "slug": "exact-slug", "yes": 45}]}, ...]
 Return ONLY valid JSON.`,
-        });
-
-        const textOutput = response.output.find((o) => o.type === "message");
-        if (textOutput && textOutput.type === "message") {
-          const textContent = textOutput.content.find((c) => c.type === "output_text");
-          if (textContent && textContent.type === "output_text") {
-            const cleaned = textContent.text.replace(/```json\n?|\n?```/g, "").trim();
-            const markets = JSON.parse(cleaned);
-            if (Array.isArray(markets)) {
-              return { headlineIndex: idx, markets: markets.slice(0, 3) };
-            }
-          }
-        }
-      } catch {}
-      return { headlineIndex: idx, markets: [] };
     });
 
-    const results = await Promise.all(searchPromises);
+    let results: { headlineIndex: number; markets: { q: string; slug: string; yes: number }[] }[] = [];
+    try {
+      const textOutput = searchResponse.output.find((o) => o.type === "message");
+      if (textOutput && textOutput.type === "message") {
+        const textContent = textOutput.content.find((c) => c.type === "output_text");
+        if (textContent && textContent.type === "output_text") {
+          const cleaned = textContent.text.replace(/```json\n?|\n?```/g, "").trim();
+          const parsed = JSON.parse(cleaned);
+          if (Array.isArray(parsed)) {
+            results = parsed.map((r: { h: number; markets: { q: string; slug: string; yes: number }[] }) => ({
+              headlineIndex: r.h,
+              markets: Array.isArray(r.markets) ? r.markets.slice(0, 3) : [],
+            }));
+          }
+        }
+      }
+    } catch {}
 
-    // Validate all slugs and build links
-    const allCandidates: { headlineIndex: number; q: string; slug: string; yes: number }[] = [];
+    if (results.length === 0) {
+      // Cache empty result so we don't retry immediately
+      const emptyResult = { links: [], updatedAt: new Date().toISOString() };
+      await db.insert(consensusCache).values({
+        id: cacheKey, marketQuestion: "news-market-links", result: JSON.stringify(emptyResult),
+      }).onConflictDoUpdate({ target: consensusCache.id, set: { result: JSON.stringify(emptyResult), createdAt: new Date() } });
+      return NextResponse.json(emptyResult);
+    }
+
+    // Build candidate links, deduplicating by slug
     const seenSlugs = new Set<string>();
+    const links: MarketLink[] = [];
 
     for (const result of results) {
       for (const market of result.markets) {
@@ -107,32 +100,15 @@ Return ONLY valid JSON.`,
         const slugKey = market.slug.toLowerCase();
         if (seenSlugs.has(slugKey)) continue;
         seenSlugs.add(slugKey);
-        allCandidates.push({
+        links.push({
           headlineIndex: result.headlineIndex,
-          q: market.q,
+          question: market.q,
           slug: market.slug,
-          yes: market.yes || 50,
+          eventSlug: market.slug,
+          yesPrice: (market.yes || 50) / 100,
         });
       }
     }
-
-    // Validate slugs in parallel
-    const validated = await Promise.all(
-      allCandidates.map(async (c) => {
-        const valid = await validateSlug(c.slug);
-        return valid ? c : null;
-      })
-    );
-
-    const links: MarketLink[] = validated
-      .filter((c): c is NonNullable<typeof c> => c !== null)
-      .map((c) => ({
-        headlineIndex: c.headlineIndex,
-        question: c.q,
-        slug: c.slug,
-        eventSlug: c.slug,
-        yesPrice: c.yes / 100,
-      }));
 
     const result = { links, updatedAt: new Date().toISOString() };
     const resultJson = JSON.stringify(result);
