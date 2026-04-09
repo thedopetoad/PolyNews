@@ -71,10 +71,13 @@ export function NewsFeed({ className }: { className?: string }) {
 
   const marketLinks: MarketLink[] = marketLinksData?.links || [];
 
+  // Group multiple markets per headline
   const linkMap = useMemo(() => {
-    const map = new Map<number, MarketLink>();
+    const map = new Map<number, MarketLink[]>();
     for (const link of marketLinks) {
-      map.set(link.headlineIndex, link);
+      const existing = map.get(link.headlineIndex) || [];
+      existing.push(link);
+      map.set(link.headlineIndex, existing);
     }
     return map;
   }, [marketLinks]);
@@ -111,8 +114,8 @@ export function NewsFeed({ className }: { className?: string }) {
     });
   }, [filtered, headlines]);
 
-  // Get hovered market
-  const hoveredMarket = hoveredIdx !== null ? linkMap.get(hoveredIdx) : null;
+  // Get hovered markets (up to 3)
+  const hoveredMarkets = hoveredIdx !== null ? linkMap.get(hoveredIdx) || null : null;
 
   return (
     <div className={cn("rounded-lg border border-[#21262d] bg-[#161b22] overflow-visible flex flex-col relative", className)}>
@@ -162,7 +165,7 @@ export function NewsFeed({ className }: { className?: string }) {
       <ScrollArea className="flex-1 min-h-0">
         <div className="divide-y divide-[#21262d]">
           {headlineWithIndex.map(({ headline, origIdx }, idx) => {
-            const hasMarket = linkMap.has(origIdx);
+            const hasMarket = (linkMap.get(origIdx)?.length || 0) > 0;
 
             return (
               <a
@@ -219,34 +222,42 @@ export function NewsFeed({ className }: { className?: string }) {
         </div>
       </ScrollArea>
 
-      {/* Floating Market Panel — appears on hover, positioned to the left of the news feed */}
-      {hoveredMarket && (
-        <div className="absolute left-full top-16 ml-3 w-64 z-50 pointer-events-auto hidden lg:block animate-fade-in-up">
-          <a
-            href={`${POLYMARKET_BASE_URL}/event/${hoveredMarket.eventSlug}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="block rounded-lg border border-[#30363d] bg-[#161b22] p-4 shadow-2xl shadow-black/50 hover:border-[#58a6ff]/30 hover:shadow-[0_0_20px_rgba(88,166,255,0.15)] transition-all"
-          >
-            <div className="flex items-center gap-1.5 mb-2">
+      {/* Floating Market Panel — appears on hover, shows up to 3 related markets */}
+      {hoveredMarkets && hoveredMarkets.length > 0 && (
+        <div className="absolute left-full top-16 ml-3 w-72 z-50 pointer-events-auto hidden lg:block animate-fade-in-up">
+          <div className="rounded-lg border border-[#30363d] bg-[#161b22] shadow-2xl shadow-black/50 overflow-hidden">
+            <div className="flex items-center gap-1.5 px-3 py-2 border-b border-[#21262d] bg-[#0d1117]">
               <svg className="w-3 h-3 text-[#d29922]" fill="currentColor" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" /></svg>
-              <span className="text-[10px] text-[#d29922] font-medium">Related Market</span>
+              <span className="text-[10px] text-[#d29922] font-medium">Related Markets</span>
             </div>
-            <p className="text-[12px] text-[#e6edf3] font-medium leading-snug mb-3">
-              {hoveredMarket.question}
-            </p>
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-semibold text-[#3fb950] tabular-nums">
-                  Yes {Math.round(hoveredMarket.yesPrice * 100)}¢
-                </span>
-                <span className="text-xs font-semibold text-[#f85149] tabular-nums">
-                  No {Math.round((1 - hoveredMarket.yesPrice) * 100)}¢
-                </span>
-              </div>
-              <span className="text-[9px] text-[#58a6ff]">Polymarket →</span>
-            </div>
-          </a>
+            {hoveredMarkets.map((market, i) => (
+              <a
+                key={market.marketId}
+                href={`${POLYMARKET_BASE_URL}/event/${market.eventSlug}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={cn(
+                  "block px-3 py-2.5 hover:bg-[#1c2128] transition-colors",
+                  i < hoveredMarkets.length - 1 && "border-b border-[#21262d]"
+                )}
+              >
+                <p className="text-[11px] text-[#e6edf3] font-medium leading-snug mb-1.5">
+                  {market.question}
+                </p>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-semibold text-[#3fb950] tabular-nums">
+                      Yes {Math.round(market.yesPrice * 100)}¢
+                    </span>
+                    <span className="text-[10px] font-semibold text-[#f85149] tabular-nums">
+                      No {Math.round((1 - market.yesPrice) * 100)}¢
+                    </span>
+                  </div>
+                  <span className="text-[9px] text-[#58a6ff]">Trade →</span>
+                </div>
+              </a>
+            ))}
+          </div>
         </div>
       )}
     </div>

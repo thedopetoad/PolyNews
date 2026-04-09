@@ -5,8 +5,8 @@ import { eq } from "drizzle-orm";
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const GAMMA_API = "https://gamma-api.polymarket.com";
-const CACHE_KEY = "news-market-links-v3";
-const CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
+const CACHE_KEY_PREFIX = "news-mkt-v5-";
+const CACHE_TTL_MS = 10 * 60 * 1000;
 
 interface MarketLink {
   headlineIndex: number;
@@ -18,7 +18,8 @@ interface MarketLink {
 }
 
 async function fetchMarketPool() {
-  const offsets = [0, 50, 100];
+  // Fetch 200 events sorted by volume
+  const offsets = [0, 50, 100, 150];
   const results = await Promise.allSettled(
     offsets.map(async (offset) => {
       const res = await fetch(
@@ -30,15 +31,18 @@ async function fetchMarketPool() {
     })
   );
 
-  const seenIds = new Set<string>();
+  const seenQuestions = new Set<string>();
   const markets: { id: string; question: string; slug: string; eventSlug: string; lastTradePrice?: number }[] = [];
 
   for (const result of results) {
     if (result.status !== "fulfilled") continue;
     for (const event of result.value) {
       for (const m of event.markets || []) {
-        if (seenIds.has(m.id) || m.closed || !m.active) continue;
-        seenIds.add(m.id);
+        if (m.closed || !m.active) continue;
+        // Deduplicate by question (many similar markets like "ceasefire by X date")
+        const qKey = m.question.replace(/\b(january|february|march|april|may|june|july|august|september|october|november|december|\d{1,2})\b/gi, "").trim();
+        if (seenQuestions.has(qKey)) continue;
+        seenQuestions.add(qKey);
         markets.push({
           id: m.id,
           question: m.question,
@@ -52,20 +56,16 @@ async function fetchMarketPool() {
   return markets;
 }
 
-// POST accepts headlines from the client
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const headlines: string[] = (body.headlines || []).slice(0, 15);
-
-    if (headlines.length === 0) {
-      return NextResponse.json({ links: [] });
-    }
+    if (headlines.length === 0) return NextResponse.json({ links: [] });
 
     const db = getDb();
+    const cacheKey = CACHE_KEY_PREFIX + headlines[0]?.slice(0, 20).replace(/\W/g, "");
 
-    // Check cache (keyed by first headline to detect staleness)
-    const cacheKey = CACHE_KEY + "-" + headlines[0]?.slice(0, 30).replace(/\W/g, "");
+    // Check cache
     const [cached] = await db
       .select()
       .from(consensusCache)
@@ -79,46 +79,44 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Fetch market pool
     const allMarkets = await fetchMarketPool();
     if (allMarkets.length === 0) return NextResponse.json({ links: [] });
 
-    // Build compact lists
     const headlineList = headlines.map((h, i) => `${i}: ${h}`).join("\n");
-    const marketList = allMarkets.slice(0, 150).map((m, i) => `${i}: ${m.question}`).join("\n");
+    const marketList = allMarkets.slice(0, 200).map((m, i) => `${i}: ${m.question}`).join("\n");
 
-    // Ask GPT to match
     const completion = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       temperature: 0.1,
       messages: [
         {
           role: "system",
-          content: `Match news headlines to prediction markets. Find the BEST matching market for EACH headline.
+          content: `You match news headlines to prediction markets. For EACH headline, find up to 3 relevant prediction markets.
 
-Return JSON array: [{"h": headlineIndex, "m": marketIndex}]
+Return a JSON array: [{"h": 0, "m": [12, 45, 67]}, {"h": 1, "m": [3, 89]}, ...]
 
-MATCHING RULES:
-- Iran war headlines → match to Iran war/ceasefire/regime/military markets
-- Israel/Lebanon/Gaza headlines → match to Israel/Middle East conflict markets
-- Trump/NATO/politics headlines → match to Trump/election/political markets
-- Ukraine/Russia headlines → match to Ukraine/ceasefire/NATO markets
-- Crypto headlines → match to Bitcoin/crypto markets
-- Be GENEROUS with matching — if a headline is about Iran and there's ANY Iran-related market, match it
-- Match as many headlines as possible — aim for 8+ matches out of 15 headlines
-- Return valid JSON array only, no explanation`,
+Where "h" is the headline index and "m" is an array of up to 3 market indices.
+
+IMPORTANT RULES:
+- "Iran War" headlines should match Iran ceasefire, Iran regime, US invade Iran, Iran leadership markets — NOT "Iran FIFA World Cup"
+- "Israel bombed" headlines should match Israel strikes, Israel conflict markets
+- "Trump NATO" headlines should match Trump election, NATO markets
+- "Ceasefire" headlines should match ceasefire markets
+- Ignore sports markets unless the headline is about sports
+- Be GENEROUS — if a headline mentions a country/topic and a market exists about that country/topic, MATCH IT
+- Return 1-3 markets per headline, ranked by relevance
+- Return VALID JSON only`,
         },
         {
           role: "user",
-          content: `HEADLINES:\n${headlineList}\n\nMARKETS:\n${marketList}`,
+          content: `NEWS HEADLINES:\n${headlineList}\n\nPREDICTION MARKETS:\n${marketList}`,
         },
       ],
     });
 
     const responseText = completion.choices[0]?.message?.content?.trim() || "[]";
-    let matches: { h: number; m: number }[] = [];
+    let matches: { h: number; m: number[] }[] = [];
     try {
-      // Handle GPT sometimes wrapping in ```json ... ```
       const cleaned = responseText.replace(/```json\n?|\n?```/g, "").trim();
       matches = JSON.parse(cleaned);
       if (!Array.isArray(matches)) matches = [];
@@ -126,40 +124,37 @@ MATCHING RULES:
       matches = [];
     }
 
-    const topMarkets = allMarkets.slice(0, 150);
-    const links: MarketLink[] = matches
-      .filter((match) => match.h >= 0 && match.h < headlines.length && match.m >= 0 && match.m < topMarkets.length)
-      .map((match) => {
-        const market = topMarkets[match.m];
-        return {
+    const topMarkets = allMarkets.slice(0, 200);
+    const links: MarketLink[] = [];
+
+    for (const match of matches) {
+      if (match.h < 0 || match.h >= headlines.length) continue;
+      const marketIndices = Array.isArray(match.m) ? match.m : [match.m];
+      for (const mi of marketIndices.slice(0, 3)) {
+        if (mi < 0 || mi >= topMarkets.length) continue;
+        const market = topMarkets[mi];
+        links.push({
           headlineIndex: match.h,
           marketId: market.id,
           question: market.question,
           slug: market.slug,
           eventSlug: market.eventSlug,
           yesPrice: market.lastTradePrice || 0.5,
-        };
-      });
+        });
+      }
+    }
 
     const result = { links, updatedAt: new Date().toISOString() };
-
-    // Cache
     const resultJson = JSON.stringify(result);
-    if (cached) {
-      await db
-        .update(consensusCache)
-        .set({ result: resultJson, createdAt: new Date() })
-        .where(eq(consensusCache.id, cacheKey));
-    } else {
-      await db.insert(consensusCache).values({
-        id: cacheKey,
-        marketQuestion: "news-market-links",
-        result: resultJson,
-      }).onConflictDoUpdate({
-        target: consensusCache.id,
-        set: { result: resultJson, createdAt: new Date() },
-      });
-    }
+
+    await db.insert(consensusCache).values({
+      id: cacheKey,
+      marketQuestion: "news-market-links",
+      result: resultJson,
+    }).onConflictDoUpdate({
+      target: consensusCache.id,
+      set: { result: resultJson, createdAt: new Date() },
+    });
 
     return NextResponse.json(result);
   } catch (err) {
@@ -168,11 +163,9 @@ MATCHING RULES:
   }
 }
 
-// GET returns cached links (if available)
 export async function GET() {
   try {
     const db = getDb();
-    // Return any recent cache
     const rows = await db
       .select()
       .from(consensusCache)
