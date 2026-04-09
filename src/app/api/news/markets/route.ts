@@ -85,7 +85,8 @@ export async function POST(request: NextRequest) {
     const headlineList = headlines.map((h, i) => `${i}: ${h}`).join("\n");
     const marketList = allMarkets.slice(0, 200).map((m, i) => `${i}: ${m.question}`).join("\n");
 
-    const completion = await openai.chat.completions.create({
+    // PASS 1: Match headlines to markets
+    const pass1 = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       temperature: 0.1,
       messages: [
@@ -93,55 +94,102 @@ export async function POST(request: NextRequest) {
           role: "system",
           content: `You match news headlines to prediction markets. For EACH headline, find up to 3 relevant prediction markets.
 
-Return a JSON array: [{"h": 0, "m": [12, 45, 67]}, {"h": 1, "m": [3, 89]}, ...]
+Return JSON: [{"h": 0, "m": [12, 45, 67]}, {"h": 1, "m": [3, 89]}, ...]
 
-Where "h" is the headline index and "m" is an array of up to 3 market indices.
-
-IMPORTANT RULES:
-- "Iran War" headlines should match Iran ceasefire, Iran regime, US invade Iran, Iran leadership markets — NOT "Iran FIFA World Cup"
-- "Israel bombed" headlines should match Israel strikes, Israel conflict markets
-- "Trump NATO" headlines should match Trump election, NATO markets
-- "Ceasefire" headlines should match ceasefire markets
-- Ignore sports markets unless the headline is about sports
-- Be GENEROUS — if a headline mentions a country/topic and a market exists about that country/topic, MATCH IT
-- Return 1-3 markets per headline, ranked by relevance
+RULES:
+- "Iran War" → Iran ceasefire, Iran regime, US invade Iran markets (NOT "Iran FIFA World Cup")
+- "Israel bombed" → Israel strikes, Israel conflict markets
+- "Trump/NATO" → Trump election, NATO leave markets
+- "Ceasefire" → ceasefire markets
+- Ignore sports markets unless headline is about sports
+- Match as many headlines as possible
 - Return VALID JSON only`,
         },
         {
           role: "user",
-          content: `NEWS HEADLINES:\n${headlineList}\n\nPREDICTION MARKETS:\n${marketList}`,
+          content: `HEADLINES:\n${headlineList}\n\nMARKETS:\n${marketList}`,
         },
       ],
     });
 
-    const responseText = completion.choices[0]?.message?.content?.trim() || "[]";
-    let matches: { h: number; m: number[] }[] = [];
+    const pass1Text = pass1.choices[0]?.message?.content?.trim() || "[]";
+    let rawMatches: { h: number; m: number[] }[] = [];
     try {
-      const cleaned = responseText.replace(/```json\n?|\n?```/g, "").trim();
-      matches = JSON.parse(cleaned);
-      if (!Array.isArray(matches)) matches = [];
+      rawMatches = JSON.parse(pass1Text.replace(/```json\n?|\n?```/g, "").trim());
+      if (!Array.isArray(rawMatches)) rawMatches = [];
     } catch {
-      matches = [];
+      rawMatches = [];
     }
 
+    // Build candidate pairs for validation
     const topMarkets = allMarkets.slice(0, 200);
-    const links: MarketLink[] = [];
-
-    for (const match of matches) {
+    const candidates: { h: number; headline: string; mi: number; question: string }[] = [];
+    for (const match of rawMatches) {
       if (match.h < 0 || match.h >= headlines.length) continue;
-      const marketIndices = Array.isArray(match.m) ? match.m : [match.m];
-      for (const mi of marketIndices.slice(0, 3)) {
-        if (mi < 0 || mi >= topMarkets.length) continue;
-        const market = topMarkets[mi];
-        links.push({
-          headlineIndex: match.h,
-          marketId: market.id,
-          question: market.question,
-          slug: market.slug,
-          eventSlug: market.eventSlug,
-          yesPrice: market.lastTradePrice || 0.5,
-        });
+      const indices = Array.isArray(match.m) ? match.m : [match.m];
+      for (const mi of indices.slice(0, 3)) {
+        if (mi >= 0 && mi < topMarkets.length) {
+          candidates.push({ h: match.h, headline: headlines[match.h], mi, question: topMarkets[mi].question });
+        }
       }
+    }
+
+    if (candidates.length === 0) return NextResponse.json({ links: [], updatedAt: new Date().toISOString() });
+
+    // PASS 2: Validate — ask GPT to confirm each match is actually relevant
+    const validationList = candidates.map((c, i) => `${i}: "${c.headline}" → "${c.question}"`).join("\n");
+
+    const pass2 = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      temperature: 0,
+      messages: [
+        {
+          role: "system",
+          content: `You validate whether news headlines are truly related to prediction markets.
+For each pair, return YES or NO.
+
+Return a JSON array of indices that ARE valid matches: [0, 2, 5, 7]
+
+A match is VALID if:
+- The headline and market are about the SAME topic, country, person, or event
+- Example VALID: "Iran War ceasefire confusion" → "US x Iran ceasefire by April 30?" ✓
+- Example INVALID: "Iran War strikes" → "Will Iran win the 2026 FIFA World Cup?" ✗
+- Example INVALID: "Trump criticises NATO" → "Will Eric Trump win 2028 election?" ✗ (different person)
+- Example VALID: "Trump criticises NATO" → "Will any country leave NATO by June 30?" ✓
+
+Return ONLY the JSON array of valid indices.`,
+        },
+        {
+          role: "user",
+          content: `Validate these headline→market pairs:\n${validationList}`,
+        },
+      ],
+    });
+
+    const pass2Text = pass2.choices[0]?.message?.content?.trim() || "[]";
+    let validIndices: number[] = [];
+    try {
+      validIndices = JSON.parse(pass2Text.replace(/```json\n?|\n?```/g, "").trim());
+      if (!Array.isArray(validIndices)) validIndices = [];
+    } catch {
+      // If validation fails, keep all candidates
+      validIndices = candidates.map((_, i) => i);
+    }
+
+    // Build final links from validated candidates
+    const links: MarketLink[] = [];
+    for (const idx of validIndices) {
+      if (idx < 0 || idx >= candidates.length) continue;
+      const c = candidates[idx];
+      const market = topMarkets[c.mi];
+      links.push({
+        headlineIndex: c.h,
+        marketId: market.id,
+        question: market.question,
+        slug: market.slug,
+        eventSlug: market.eventSlug,
+        yesPrice: market.lastTradePrice || 0.5,
+      });
     }
 
     const result = { links, updatedAt: new Date().toISOString() };
