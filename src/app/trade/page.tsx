@@ -1025,8 +1025,17 @@ function TradableMarketsTab({ allMarkets, events, onBought }: {
 
           {/* Live odds */}
           <div className="flex gap-2 flex-shrink-0">
-            <span className="text-xs font-semibold text-[#3fb950] tabular-nums">Yes {formatPercentage(liveP.yesPrice)}</span>
-            <span className="text-xs font-semibold text-[#f85149] tabular-nums">No {formatPercentage(liveP.noPrice)}</span>
+            {market.category === "Sports" && market.parsedOutcomes.length >= 2 ? (
+              <>
+                <span className="text-xs font-semibold text-[#3fb950] tabular-nums">{market.parsedOutcomes[0].split(/\s+/).pop()} {formatPercentage(liveP.yesPrice)}</span>
+                <span className="text-xs font-semibold text-[#f85149] tabular-nums">{market.parsedOutcomes[1].split(/\s+/).pop()} {formatPercentage(liveP.noPrice)}</span>
+              </>
+            ) : (
+              <>
+                <span className="text-xs font-semibold text-[#3fb950] tabular-nums">Yes {formatPercentage(liveP.yesPrice)}</span>
+                <span className="text-xs font-semibold text-[#f85149] tabular-nums">No {formatPercentage(liveP.noPrice)}</span>
+              </>
+            )}
           </div>
 
           {/* Trade button */}
@@ -1159,31 +1168,38 @@ function TradableMarketsTab({ allMarkets, events, onBought }: {
             </div>
           ) : (
             <div className="space-y-3">
-              {/* Outcome */}
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  onClick={() => setOutcome("Yes")}
-                  className={cn(
-                    "py-2.5 rounded-lg text-sm font-medium text-center border transition-all",
-                    outcome === "Yes"
-                      ? "bg-[#238636]/15 border-[#238636] text-[#3fb950]"
-                      : "bg-[#0d1117] border-[#21262d] text-[#768390]"
-                  )}
-                >
-                  Yes {selectedLive ? formatPercentage(selectedLive.yesPrice) : ""}
-                </button>
-                <button
-                  onClick={() => setOutcome("No")}
-                  className={cn(
-                    "py-2.5 rounded-lg text-sm font-medium text-center border transition-all",
-                    outcome === "No"
-                      ? "bg-[#f85149]/10 border-[#f85149]/50 text-[#f85149]"
-                      : "bg-[#0d1117] border-[#21262d] text-[#768390]"
-                  )}
-                >
-                  No {selectedLive ? formatPercentage(selectedLive.noPrice) : ""}
-                </button>
-              </div>
+              {/* Outcome — show team names for sports, Yes/No for others */}
+              {(() => {
+                const isSport = selectedMarket.category === "Sports" && selectedMarket.parsedOutcomes.length >= 2;
+                const labelA = isSport ? selectedMarket.parsedOutcomes[0] : "Yes";
+                const labelB = isSport ? selectedMarket.parsedOutcomes[1] : "No";
+                return (
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      onClick={() => setOutcome("Yes")}
+                      className={cn(
+                        "py-2.5 rounded-lg text-sm font-medium text-center border transition-all",
+                        outcome === "Yes"
+                          ? "bg-[#238636]/15 border-[#238636] text-[#3fb950]"
+                          : "bg-[#0d1117] border-[#21262d] text-[#768390]"
+                      )}
+                    >
+                      {labelA} {selectedLive ? formatPercentage(selectedLive.yesPrice) : ""}
+                    </button>
+                    <button
+                      onClick={() => setOutcome("No")}
+                      className={cn(
+                        "py-2.5 rounded-lg text-sm font-medium text-center border transition-all",
+                        outcome === "No"
+                          ? "bg-[#f85149]/10 border-[#f85149]/50 text-[#f85149]"
+                          : "bg-[#0d1117] border-[#21262d] text-[#768390]"
+                      )}
+                    >
+                      {labelB} {selectedLive ? formatPercentage(selectedLive.noPrice) : ""}
+                    </button>
+                  </div>
+                );
+              })()}
 
               {/* Shares */}
               <div>
@@ -1230,7 +1246,13 @@ function TradableMarketsTab({ allMarkets, events, onBought }: {
                 disabled={!canTrade || isTrading}
                 className="w-full h-10 font-medium bg-[#238636] hover:bg-[#2ea043] text-white"
               >
-                {isTrading ? "Processing..." : shares > 0 ? `Buy ${outcome} — ${cost.toFixed(2)} AIRDROP` : `Buy ${outcome}`}
+                {(() => {
+                  const isSport = selectedMarket.category === "Sports" && selectedMarket.parsedOutcomes.length >= 2;
+                  const outcomeLabel = isSport
+                    ? (outcome === "Yes" ? selectedMarket.parsedOutcomes[0] : selectedMarket.parsedOutcomes[1])
+                    : outcome;
+                  return isTrading ? "Processing..." : shares > 0 ? `Buy ${outcomeLabel} — ${cost.toFixed(2)} AIRDROP` : `Buy ${outcomeLabel}`;
+                })()}
               </Button>
 
               <p className="text-center text-[11px] text-[#484f58]">Balance: {balance.toLocaleString(undefined, { maximumFractionDigits: 0 })} AIRDROP</p>
