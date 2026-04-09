@@ -70,14 +70,32 @@ export async function GET() {
       }
     }
 
-    // Fetch headlines
-    const baseUrl = process.env.VERCEL_URL
-      ? `https://${process.env.VERCEL_URL}`
-      : "http://localhost:3000";
-    const newsRes = await fetch(`${baseUrl}/api/news`, { next: { revalidate: 300 } });
-    if (!newsRes.ok) return NextResponse.json({ links: [] });
-    const newsData = await newsRes.json();
-    const headlines: { title: string }[] = (newsData.headlines || []).slice(0, 15);
+    // Fetch headlines directly from RSS (avoid internal fetch issues on Vercel)
+    const rssFeeds = [
+      { url: "https://feeds.bbci.co.uk/news/world/rss.xml", name: "BBC" },
+      { url: "https://rss.nytimes.com/services/xml/rss/nyt/World.xml", name: "NYT" },
+      { url: "https://www.aljazeera.com/xml/rss/all.xml", name: "Al Jazeera" },
+    ];
+    const feedResults = await Promise.allSettled(
+      rssFeeds.map(async (feed) => {
+        const r = await fetch(feed.url, { next: { revalidate: 300 }, headers: { "User-Agent": "PolyStream/1.0" } });
+        if (!r.ok) return [];
+        const xml = await r.text();
+        const titles: string[] = [];
+        const regex = /<title><!\[CDATA\[(.*?)\]\]>|<title>([^<]+)<\/title>/g;
+        let m;
+        while ((m = regex.exec(xml)) !== null) {
+          const t = (m[1] || m[2] || "").replace(/<[^>]*>/g, "").trim();
+          if (t.length > 20 && !t.includes("BBC") && !t.includes("NYT") && !t.includes("World")) titles.push(t);
+        }
+        return titles.slice(0, 5);
+      })
+    );
+    const headlines: { title: string }[] = feedResults
+      .filter((r): r is PromiseFulfilledResult<string[]> => r.status === "fulfilled")
+      .flatMap((r) => r.value)
+      .slice(0, 15)
+      .map((title) => ({ title }));
 
     if (headlines.length === 0) return NextResponse.json({ links: [] });
 
