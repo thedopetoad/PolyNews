@@ -4,12 +4,10 @@ import { getDb, consensusCache } from "@/db";
 import { eq } from "drizzle-orm";
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-const CACHE_KEY = "news-mkt-incremental";
-const MAX_PROCESSED = 20;
-const BATCH_SIZE = 3;
+const GAMMA_API = "https://gamma-api.polymarket.com";
+const CACHE_KEY = "news-mkt-v12";
 
 interface MarketLink {
-  headlineIndex: number;
   headlineTitle: string;
   question: string;
   slug: string;
@@ -19,76 +17,56 @@ interface MarketLink {
 
 interface CachedData {
   links: MarketLink[];
-  processedTitles: string[]; // Which headlines have been searched
+  processedTitles: string[];
   updatedAt: string;
 }
 
-const TODAY = () => new Date().toISOString().slice(0, 10);
-const YEAR = () => new Date().getFullYear();
+// Search Gamma API for REAL markets matching keywords
+async function searchGammaMarkets(keywords: string[]): Promise<{ question: string; slug: string; eventSlug: string; yesPrice: number }[]> {
+  // Fetch large pool of active events
+  const offsets = [0, 50, 100, 150];
+  const results = await Promise.allSettled(
+    offsets.map(async (offset) => {
+      const res = await fetch(
+        `${GAMMA_API}/events?active=true&closed=false&limit=50&order=volume&ascending=false&offset=${offset}`,
+        { next: { revalidate: 300 } }
+      );
+      if (!res.ok) return [];
+      return await res.json();
+    })
+  );
 
-async function searchMarketsForHeadline(headline: string): Promise<{ q: string; slug: string; yes: number }[]> {
-  try {
-    const response = await openai.responses.create({
-      model: "gpt-4o-mini",
-      tools: [{ type: "web_search_preview" }],
-      input: `Search polymarket.com for 3 prediction markets about this news headline:
+  const allMarkets: { question: string; slug: string; eventSlug: string; yesPrice: number }[] = [];
+  const seen = new Set<string>();
 
-"${headline}"
-
-TODAY: ${TODAY()}, YEAR: ${YEAR()}
-
-RULES:
-1. Markets MUST be about the EXACT same topic as the headline
-2. Markets must be ACTIVE with end dates in ${YEAR()} or later
-3. Do NOT return any market with a date that has already passed
-4. Copy the EXACT slug from the Polymarket URL
-5. If headline is about Iran war → find Iran conflict/ceasefire/regime markets
-6. If headline is about Trump + NATO → find NATO markets, NOT Trump election
-7. If headline is about Israel → find Israel conflict markets
-8. Each market should be DIFFERENT (not same question different dates)
-
-Return: [{"q": "market question", "slug": "slug-from-url", "yes": 45}]
-No relevant markets? Return: []
-ONLY valid JSON.`,
-    });
-
-    const textOutput = response.output.find((o) => o.type === "message");
-    if (textOutput && textOutput.type === "message") {
-      const textContent = textOutput.content.find((c) => c.type === "output_text");
-      if (textContent && textContent.type === "output_text") {
-        const cleaned = textContent.text.replace(/```json\n?|\n?```/g, "").trim();
-        const parsed = JSON.parse(cleaned);
-        if (Array.isArray(parsed)) {
-          const currentYear = YEAR();
-          return parsed.filter((m: { q?: string; slug?: string }) => {
-            if (!m.q || !m.slug) return false;
-            const yearMatch = m.q.match(/20\d{2}/g);
-            if (yearMatch && yearMatch.map(Number).some((y) => y < currentYear)) return false;
-            return true;
-          }).slice(0, 3);
-        }
+  for (const result of results) {
+    if (result.status !== "fulfilled") continue;
+    for (const event of result.value) {
+      for (const m of event.markets || []) {
+        if (m.closed || !m.active || seen.has(m.id)) continue;
+        seen.add(m.id);
+        allMarkets.push({
+          question: m.question,
+          slug: m.slug,
+          eventSlug: event.slug,
+          yesPrice: m.lastTradePrice || 0.5,
+        });
       }
     }
-  } catch {}
-  return [];
-}
-
-// GET — return cached results instantly
-export async function GET() {
-  try {
-    const db = getDb();
-    const [cached] = await db.select().from(consensusCache).where(eq(consensusCache.id, CACHE_KEY)).limit(1);
-    if (cached) {
-      const data: CachedData = JSON.parse(cached.result);
-      return NextResponse.json({ links: data.links, updatedAt: data.updatedAt });
-    }
-    return NextResponse.json({ links: [] });
-  } catch {
-    return NextResponse.json({ links: [] });
   }
+
+  // Filter by keywords
+  const matched: typeof allMarkets = [];
+  for (const market of allMarkets) {
+    const q = market.question.toLowerCase();
+    if (keywords.some((kw) => q.includes(kw.toLowerCase()))) {
+      matched.push(market);
+    }
+  }
+
+  return matched;
 }
 
-// POST — process the NEXT batch of unprocessed headlines
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
@@ -97,73 +75,177 @@ export async function POST(request: NextRequest) {
 
     const db = getDb();
 
-    // Load existing cached data
+    // Load existing cache
     const [cached] = await db.select().from(consensusCache).where(eq(consensusCache.id, CACHE_KEY)).limit(1);
     let existing: CachedData = cached
       ? JSON.parse(cached.result)
       : { links: [], processedTitles: [], updatedAt: "" };
 
-    // Find headlines that haven't been processed yet
+    // Find unprocessed headlines
     const unprocessed = headlines.filter((h) => !existing.processedTitles.includes(h));
-
-    // If all are processed or we've hit the cap, return existing
-    if (unprocessed.length === 0 || existing.processedTitles.length >= MAX_PROCESSED) {
-      return NextResponse.json({ links: existing.links, updatedAt: existing.updatedAt });
+    if (unprocessed.length === 0 || existing.processedTitles.length >= 20) {
+      return NextResponse.json({ links: existing.links, remaining: 0 });
     }
 
-    // Process next BATCH_SIZE headlines
-    const batch = unprocessed.slice(0, BATCH_SIZE);
-    const seenSlugs = new Set(existing.links.map((l) => l.slug.toLowerCase()));
+    // Process next 3
+    const batch = unprocessed.slice(0, 3);
+
+    // Step 1: Ask GPT for search keywords for each headline (cheap, fast, no web search)
+    const keywordResponse = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      temperature: 0,
+      messages: [
+        {
+          role: "system",
+          content: `For each headline, extract 3-5 single-word keywords that would appear in related prediction market questions on Polymarket.
+
+Examples:
+"Iran War Cease-Fire Tested by Confusion Over Strait" → ["iran", "ceasefire", "strait", "hormuz"]
+"Trump slams NATO over Iran" → ["nato", "trump", "iran"]
+"Israel bombed Beirut" → ["israel", "lebanon", "strike", "beirut"]
+"Man rescued from Mexico mine" → ["mexico"]
+
+Return JSON: [{"h": "headline text", "kw": ["word1", "word2"]}]
+ONLY return valid JSON.`,
+        },
+        {
+          role: "user",
+          content: batch.map((h, i) => `${i}: ${h}`).join("\n"),
+        },
+      ],
+    });
+
+    let kwResults: { h: string; kw: string[] }[] = [];
+    try {
+      const cleaned = (keywordResponse.choices[0]?.message?.content || "[]").replace(/```json\n?|\n?```/g, "").trim();
+      kwResults = JSON.parse(cleaned);
+      if (!Array.isArray(kwResults)) kwResults = [];
+    } catch {
+      kwResults = [];
+    }
+
+    // Step 2: Search Gamma API with those keywords (REAL markets, verified slugs)
+    const allKeywords = kwResults.flatMap((r) => r.kw || []);
+    const uniqueKeywords = [...new Set(allKeywords)].filter((k) => k.length > 2);
+    const gammaMarkets = await searchGammaMarkets(uniqueKeywords);
+
+    // Step 3: Ask GPT to match headlines to the REAL markets found
+    if (gammaMarkets.length === 0) {
+      // No markets found — still mark as processed
+      const updated: CachedData = {
+        links: existing.links,
+        processedTitles: [...existing.processedTitles, ...batch],
+        updatedAt: new Date().toISOString(),
+      };
+      const json = JSON.stringify(updated);
+      if (cached) {
+        await db.update(consensusCache).set({ result: json, createdAt: new Date() }).where(eq(consensusCache.id, CACHE_KEY));
+      } else {
+        await db.insert(consensusCache).values({ id: CACHE_KEY, marketQuestion: "news-market-links", result: json });
+      }
+      return NextResponse.json({ links: updated.links, remaining: unprocessed.length - batch.length });
+    }
+
+    // Deduplicate similar markets (keep highest volume)
+    const deduped = new Map<string, typeof gammaMarkets[0]>();
+    for (const m of gammaMarkets) {
+      const key = m.question.replace(/\b(january|february|march|april|may|june|july|august|september|october|november|december|\d{1,2},?\s*20\d{2})\b/gi, "").trim().toLowerCase();
+      if (!deduped.has(key)) deduped.set(key, m);
+    }
+    const uniqueMarkets = [...deduped.values()].slice(0, 30);
+
+    const marketList = uniqueMarkets.map((m, i) => `${i}: ${m.question}`).join("\n");
+    const headlineList = batch.map((h, i) => `${i}: ${h}`).join("\n");
+
+    const matchResponse = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      temperature: 0,
+      messages: [
+        {
+          role: "system",
+          content: `Match headlines to prediction markets. Pick up to 3 DIRECTLY related markets per headline.
+
+RULES:
+✅ Same topic, same country, same event = MATCH
+❌ Different topic, different context = NO MATCH
+❌ "Iran war" → "Iran FIFA World Cup" = NO
+❌ "Trump NATO" → "Trump 2028 election" = NO
+
+Return: [{"h": 0, "m": [1, 5, 8]}]
+ONLY valid JSON.`,
+        },
+        {
+          role: "user",
+          content: `HEADLINES:\n${headlineList}\n\nMARKETS:\n${marketList}`,
+        },
+      ],
+    });
+
+    let matches: { h: number; m: number[] }[] = [];
+    try {
+      const cleaned = (matchResponse.choices[0]?.message?.content || "[]").replace(/```json\n?|\n?```/g, "").trim();
+      matches = JSON.parse(cleaned);
+      if (!Array.isArray(matches)) matches = [];
+    } catch {
+      matches = [];
+    }
+
+    // Build new links
+    const existingSlugs = new Set(existing.links.map((l) => l.slug));
     const newLinks: MarketLink[] = [];
 
-    for (const headline of batch) {
-      const headlineIdx = headlines.indexOf(headline);
-      const markets = await searchMarketsForHeadline(headline);
-
-      for (const market of markets) {
-        const slugKey = market.slug.toLowerCase();
-        if (seenSlugs.has(slugKey)) continue;
-        seenSlugs.add(slugKey);
+    for (const match of matches) {
+      if (match.h < 0 || match.h >= batch.length || !Array.isArray(match.m)) continue;
+      for (const mi of match.m.slice(0, 3)) {
+        if (mi < 0 || mi >= uniqueMarkets.length) continue;
+        const market = uniqueMarkets[mi];
+        if (existingSlugs.has(market.slug)) continue;
+        existingSlugs.add(market.slug);
         newLinks.push({
-          headlineIndex: headlineIdx,
-          headlineTitle: headline,
-          question: market.q,
+          headlineTitle: batch[match.h],
+          question: market.question,
           slug: market.slug,
-          eventSlug: market.slug,
-          yesPrice: (market.yes || 50) / 100,
+          eventSlug: market.eventSlug,
+          yesPrice: market.yesPrice,
         });
       }
     }
 
-    // Merge with existing
-    const updatedData: CachedData = {
+    // Save
+    const updated: CachedData = {
       links: [...existing.links, ...newLinks],
       processedTitles: [...existing.processedTitles, ...batch],
       updatedAt: new Date().toISOString(),
     };
 
-    // Save to cache
-    const resultJson = JSON.stringify(updatedData);
+    const json = JSON.stringify(updated);
     if (cached) {
-      await db.update(consensusCache)
-        .set({ result: resultJson, createdAt: new Date() })
-        .where(eq(consensusCache.id, CACHE_KEY));
+      await db.update(consensusCache).set({ result: json, createdAt: new Date() }).where(eq(consensusCache.id, CACHE_KEY));
     } else {
-      await db.insert(consensusCache).values({
-        id: CACHE_KEY,
-        marketQuestion: "news-market-links",
-        result: resultJson,
-      });
+      await db.insert(consensusCache).values({ id: CACHE_KEY, marketQuestion: "news-market-links", result: json });
     }
 
     return NextResponse.json({
-      links: updatedData.links,
-      updatedAt: updatedData.updatedAt,
-      processed: updatedData.processedTitles.length,
-      remaining: headlines.filter((h) => !updatedData.processedTitles.includes(h)).length,
+      links: updated.links,
+      remaining: unprocessed.length - batch.length,
+      updatedAt: updated.updatedAt,
     });
   } catch (err) {
     console.error("News markets error:", err);
+    return NextResponse.json({ links: [] });
+  }
+}
+
+export async function GET() {
+  try {
+    const db = getDb();
+    const [cached] = await db.select().from(consensusCache).where(eq(consensusCache.id, CACHE_KEY)).limit(1);
+    if (cached) {
+      const data: CachedData = JSON.parse(cached.result);
+      return NextResponse.json({ links: data.links, remaining: 0 });
+    }
+    return NextResponse.json({ links: [] });
+  } catch {
     return NextResponse.json({ links: [] });
   }
 }
