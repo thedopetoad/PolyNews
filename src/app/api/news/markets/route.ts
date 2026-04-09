@@ -82,36 +82,22 @@ export async function POST(request: NextRequest) {
       ? JSON.parse(cached.result)
       : { links: [], processedHashes: [], cursor: 0, updatedAt: "" };
 
-    // Check if headlines have changed (new news cycle) — reset cache if so
-    const firstHash = hashTitle(headlines[0]);
-    const headlinesChanged = existing.processedHashes.length > 0 && !existing.processedHashes.includes(firstHash);
-    if (headlinesChanged) {
-      existing = { links: [], processedHashes: [], cursor: 0, updatedAt: "" };
-    }
-
-    // Use cursor-based processing
-    const cursor = existing.cursor;
-    if (cursor >= headlines.length || existing.processedHashes.length >= MAX_TOTAL) {
-      return NextResponse.json({ links: existing.links, remaining: 0 });
-    }
-
-    const batch = headlines.slice(cursor, cursor + BATCH_SIZE);
-    const batchHashes = batch.map(hashTitle);
-
-    // Skip any we've somehow already processed (by hash)
+    // Find headlines that haven't been processed yet (by hash)
     const processedSet = new Set(existing.processedHashes);
-    const toProcess = batch.filter((_, i) => !processedSet.has(batchHashes[i]));
+    const unprocessed = headlines.filter((h) => !processedSet.has(hashTitle(h)));
+
+    if (unprocessed.length === 0 || existing.processedHashes.length >= MAX_TOTAL) {
+      // Keep existing links that still match current headlines
+      const currentTitles = new Set(headlines);
+      const relevantLinks = existing.links.filter((l) => currentTitles.has(l.headlineTitle));
+      return NextResponse.json({ links: relevantLinks, remaining: 0 });
+    }
+
+    // Process next batch of unprocessed headlines
+    const toProcess = unprocessed.slice(0, BATCH_SIZE);
 
     if (toProcess.length === 0) {
-      // Advance cursor even if nothing to process
-      existing.cursor = cursor + BATCH_SIZE;
-      const json = JSON.stringify(existing);
-      if (cached) {
-        await db.update(consensusCache).set({ result: json, createdAt: new Date() }).where(eq(consensusCache.id, CACHE_KEY));
-      } else {
-        await db.insert(consensusCache).values({ id: CACHE_KEY, marketQuestion: "news-market-links", result: json });
-      }
-      return NextResponse.json({ links: existing.links, remaining: headlines.length - cursor - BATCH_SIZE });
+      return NextResponse.json({ links: existing.links, remaining: 0 });
     }
 
     // Step 1: Extract keywords
@@ -197,11 +183,11 @@ Return: [{"h": 0, "m": [1, 5]}] ONLY JSON.`,
       }
     }
 
-    // Update cache
+    // Update cache — keep all existing links + add new ones
     const updated: CachedData = {
       links: [...existing.links, ...newLinks],
       processedHashes: [...existing.processedHashes, ...toProcess.map(hashTitle)],
-      cursor: cursor + BATCH_SIZE,
+      cursor: 0, // Not used anymore, kept for compatibility
       updatedAt: new Date().toISOString(),
     };
 
@@ -212,7 +198,9 @@ Return: [{"h": 0, "m": [1, 5]}] ONLY JSON.`,
       await db.insert(consensusCache).values({ id: CACHE_KEY, marketQuestion: "news-market-links", result: json });
     }
 
-    const remaining = headlines.length - (cursor + BATCH_SIZE);
+    // Count remaining unprocessed
+    const updatedProcessed = new Set(updated.processedHashes);
+    const remaining = headlines.filter((h) => !updatedProcessed.has(hashTitle(h))).length;
     return NextResponse.json({ links: updated.links, remaining: Math.max(remaining, 0) });
   } catch (err) {
     console.error("News markets error:", err);
@@ -226,8 +214,8 @@ export async function GET() {
     const [cached] = await db.select().from(consensusCache).where(eq(consensusCache.id, CACHE_KEY)).limit(1);
     if (cached) {
       const data: CachedData = JSON.parse(cached.result);
-      const remaining = data.cursor < 15 ? 1 : 0;
-      return NextResponse.json({ links: data.links, remaining });
+      // Always return remaining=1 so frontend keeps polling for new headlines
+      return NextResponse.json({ links: data.links, remaining: 1 });
     }
     return NextResponse.json({ links: [], remaining: 1 });
   } catch {
