@@ -198,10 +198,12 @@ export function NewsFeed({ className }: { className?: string }) {
                     className="mt-2 -mx-1 overflow-x-auto flex gap-2 pb-1"
                     style={{ scrollbarWidth: "thin", scrollbarColor: "#21262d transparent" }}
                     onWheel={(e) => {
-                      // Capture vertical scroll and convert to horizontal
-                      if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) {
+                      const el = e.currentTarget;
+                      const canScrollH = el.scrollWidth > el.clientWidth;
+                      if (canScrollH && Math.abs(e.deltaY) > 0) {
+                        e.preventDefault();
                         e.stopPropagation();
-                        e.currentTarget.scrollLeft += e.deltaY;
+                        el.scrollLeft += e.deltaY;
                       }
                     }}
                   >

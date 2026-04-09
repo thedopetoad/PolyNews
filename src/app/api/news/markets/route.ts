@@ -5,8 +5,7 @@ import { getDb, consensusCache } from "@/db";
 import { eq } from "drizzle-orm";
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-const CACHE_KEY_PREFIX = "news-mkt-v10-";
-const GAMMA_API = "https://gamma-api.polymarket.com";
+const CACHE_KEY_PREFIX = "news-mkt-v11-";
 
 interface MarketLink {
   headlineIndex: number;
@@ -16,6 +15,60 @@ interface MarketLink {
   yesPrice: number;
 }
 
+const TODAY = () => new Date().toISOString().slice(0, 10);
+const YEAR = () => new Date().getFullYear();
+
+async function searchMarketsForHeadline(headline: string): Promise<{ q: string; slug: string; yes: number }[]> {
+  try {
+    const response = await openai.responses.create({
+      model: "gpt-4o-mini",
+      tools: [{ type: "web_search_preview" }],
+      input: `Search polymarket.com for 3 prediction markets about this news headline:
+
+"${headline}"
+
+TODAY: ${TODAY()}, YEAR: ${YEAR()}
+
+STRICT RULES:
+1. Markets MUST be about the EXACT same topic as the headline
+2. Markets must be ACTIVE with end dates in ${YEAR()} or later (NOT expired, NOT resolved)
+3. Do NOT return any market with a date that has already passed
+4. Copy the EXACT slug from the Polymarket URL (polymarket.com/event/THE-SLUG-HERE)
+5. If headline is about Iran war → find Iran conflict/ceasefire/regime markets
+6. If headline is about Trump + NATO → find NATO markets, NOT Trump election markets
+7. If headline is about Israel → find Israel conflict markets
+8. Each market should be about a DIFFERENT aspect (not same question different dates)
+
+Return JSON: [{"q": "exact market question from Polymarket", "slug": "exact-slug-from-url", "yes": 45}]
+If no relevant active markets found, return: []
+ONLY return valid JSON, nothing else.`,
+    });
+
+    const textOutput = response.output.find((o) => o.type === "message");
+    if (textOutput && textOutput.type === "message") {
+      const textContent = textOutput.content.find((c) => c.type === "output_text");
+      if (textContent && textContent.type === "output_text") {
+        const cleaned = textContent.text.replace(/```json\n?|\n?```/g, "").trim();
+        const parsed = JSON.parse(cleaned);
+        if (Array.isArray(parsed)) {
+          // Filter out markets with past dates in their question
+          const currentYear = YEAR();
+          return parsed.filter((m: { q?: string; slug?: string; yes?: number }) => {
+            if (!m.q || !m.slug) return false;
+            // Check for past year references
+            const yearMatch = m.q.match(/20\d{2}/g);
+            if (yearMatch) {
+              const years = yearMatch.map(Number);
+              if (years.some((y) => y < currentYear)) return false;
+            }
+            return true;
+          }).slice(0, 3);
+        }
+      }
+    }
+  } catch {}
+  return [];
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -37,71 +90,21 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(JSON.parse(cached.result));
     }
 
-    // Single GPT web search call with ALL headlines (avoids Vercel timeout)
-    const headlineSummary = headlines.slice(0, 8).map((h, i) => `${i}: ${h}`).join("\n");
-
-    const searchResponse = await openai.responses.create({
-      model: "gpt-4o-mini",
-      tools: [{ type: "web_search_preview" }],
-      input: `Search polymarket.com for prediction markets related to each of these news headlines:
-
-${headlineSummary}
-
-TODAY: ${new Date().toISOString().slice(0, 10)}
-
-For EACH headline, find 2-3 DIRECTLY related prediction markets on Polymarket.
-
-RULES:
-- "Iran war ceasefire" → find Iran ceasefire, Iran strikes, Iran regime markets
-- "Trump NATO" → find NATO withdrawal, NATO membership markets (NOT Trump 2028 election)
-- "Israel bombed Beirut" → find Israel-Lebanon, Israel strikes markets
-- Markets MUST be about the SAME topic as the headline
-- Only ACTIVE markets with future end dates
-- Copy EXACT slug from Polymarket URL
-
-Return JSON: [{"h": 0, "markets": [{"q": "question", "slug": "exact-slug", "yes": 45}]}, ...]
-Return ONLY valid JSON.`,
-    });
-
-    let results: { headlineIndex: number; markets: { q: string; slug: string; yes: number }[] }[] = [];
-    try {
-      const textOutput = searchResponse.output.find((o) => o.type === "message");
-      if (textOutput && textOutput.type === "message") {
-        const textContent = textOutput.content.find((c) => c.type === "output_text");
-        if (textContent && textContent.type === "output_text") {
-          const cleaned = textContent.text.replace(/```json\n?|\n?```/g, "").trim();
-          const parsed = JSON.parse(cleaned);
-          if (Array.isArray(parsed)) {
-            results = parsed.map((r: { h: number; markets: { q: string; slug: string; yes: number }[] }) => ({
-              headlineIndex: r.h,
-              markets: Array.isArray(r.markets) ? r.markets.slice(0, 3) : [],
-            }));
-          }
-        }
-      }
-    } catch {}
-
-    if (results.length === 0) {
-      // Cache empty result so we don't retry immediately
-      const emptyResult = { links: [], updatedAt: new Date().toISOString() };
-      await db.insert(consensusCache).values({
-        id: cacheKey, marketQuestion: "news-market-links", result: JSON.stringify(emptyResult),
-      }).onConflictDoUpdate({ target: consensusCache.id, set: { result: JSON.stringify(emptyResult), createdAt: new Date() } });
-      return NextResponse.json(emptyResult);
-    }
-
-    // Build candidate links, deduplicating by slug
+    // Process top 5 headlines ONE AT A TIME (sequential to avoid timeout)
+    const topHeadlines = headlines.slice(0, 5);
     const seenSlugs = new Set<string>();
     const links: MarketLink[] = [];
 
-    for (const result of results) {
-      for (const market of result.markets) {
-        if (!market.q || !market.slug) continue;
+    for (let i = 0; i < topHeadlines.length; i++) {
+      const markets = await searchMarketsForHeadline(topHeadlines[i]);
+
+      for (const market of markets) {
         const slugKey = market.slug.toLowerCase();
         if (seenSlugs.has(slugKey)) continue;
         seenSlugs.add(slugKey);
+
         links.push({
-          headlineIndex: result.headlineIndex,
+          headlineIndex: i,
           question: market.q,
           slug: market.slug,
           eventSlug: market.slug,
