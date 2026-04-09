@@ -79,11 +79,58 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // PASS 0: Web search Polymarket for markets related to headline topics
+    let webSearchMarkets: { question: string; slug: string }[] = [];
+    try {
+      const topicSummary = headlines.slice(0, 10).join("; ");
+      const searchResponse = await openai.responses.create({
+        model: "gpt-4o-mini",
+        tools: [{ type: "web_search_preview" }],
+        input: `Search polymarket.com for prediction markets related to these news topics: ${topicSummary}
+
+For each relevant Polymarket market you find, extract:
+- The market question
+- The event slug from the URL (the part after polymarket.com/event/)
+
+Return a JSON array: [{"question": "...", "slug": "..."}]
+Find as many relevant markets as possible (aim for 10-20). Only return the JSON array.`,
+      });
+
+      const textOutput = searchResponse.output.find((o) => o.type === "message");
+      if (textOutput && textOutput.type === "message") {
+        const textContent = textOutput.content.find((c) => c.type === "output_text");
+        if (textContent && textContent.type === "output_text") {
+          const cleaned = textContent.text.replace(/```json\n?|\n?```/g, "").trim();
+          const parsed = JSON.parse(cleaned);
+          if (Array.isArray(parsed)) {
+            webSearchMarkets = parsed.filter((m: { question?: string; slug?: string }) => m.question && m.slug);
+          }
+        }
+      }
+    } catch {
+      // Web search failed — continue with pool only
+    }
+
     const allMarkets = await fetchMarketPool();
+
+    // Merge web search results into the market pool
+    for (const wsm of webSearchMarkets) {
+      // Only add if not already in pool
+      if (!allMarkets.some((m) => m.question === wsm.question || m.slug === wsm.slug)) {
+        allMarkets.push({
+          id: `ws-${wsm.slug}`,
+          question: wsm.question,
+          slug: wsm.slug,
+          eventSlug: wsm.slug,
+          lastTradePrice: undefined,
+        });
+      }
+    }
+
     if (allMarkets.length === 0) return NextResponse.json({ links: [] });
 
     const headlineList = headlines.map((h, i) => `${i}: ${h}`).join("\n");
-    const marketList = allMarkets.slice(0, 200).map((m, i) => `${i}: ${m.question}`).join("\n");
+    const marketList = allMarkets.slice(0, 250).map((m, i) => `${i}: ${m.question}`).join("\n");
 
     // PASS 1: Match headlines to markets
     const pass1 = await openai.chat.completions.create({
@@ -122,7 +169,7 @@ RULES:
     }
 
     // Build candidate pairs for validation
-    const topMarkets = allMarkets.slice(0, 200);
+    const topMarkets = allMarkets.slice(0, 250);
     const candidates: { h: number; headline: string; mi: number; question: string }[] = [];
     for (const match of rawMatches) {
       if (match.h < 0 || match.h >= headlines.length) continue;
