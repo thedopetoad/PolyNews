@@ -5,7 +5,12 @@ import { eq } from "drizzle-orm";
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const GAMMA_API = "https://gamma-api.polymarket.com";
-const CACHE_KEY = "news-mkt-v12";
+const CACHE_KEY = "news-mkt-v13";
+
+// Normalize headline for comparison (strip special chars, lowercase)
+function normalizeTitle(t: string): string {
+  return t.replace(/[^\w\s]/g, "").toLowerCase().trim().slice(0, 60);
+}
 
 interface MarketLink {
   headlineTitle: string;
@@ -81,8 +86,9 @@ export async function POST(request: NextRequest) {
       ? JSON.parse(cached.result)
       : { links: [], processedTitles: [], updatedAt: "" };
 
-    // Find unprocessed headlines
-    const unprocessed = headlines.filter((h) => !existing.processedTitles.includes(h));
+    // Find unprocessed headlines (normalize for comparison)
+    const processedSet = new Set(existing.processedTitles.map(normalizeTitle));
+    const unprocessed = headlines.filter((h) => !processedSet.has(normalizeTitle(h)));
     if (unprocessed.length === 0 || existing.processedTitles.length >= 20) {
       return NextResponse.json({ links: existing.links, remaining: 0 });
     }
