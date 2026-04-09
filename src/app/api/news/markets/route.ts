@@ -5,7 +5,8 @@ import { getDb, consensusCache } from "@/db";
 import { eq } from "drizzle-orm";
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-const CACHE_KEY_PREFIX = "news-mkt-v9-";
+const CACHE_KEY_PREFIX = "news-mkt-v10-";
+const GAMMA_API = "https://gamma-api.polymarket.com";
 
 interface MarketLink {
   headlineIndex: number;
@@ -13,6 +14,18 @@ interface MarketLink {
   slug: string;
   eventSlug: string;
   yesPrice: number;
+}
+
+// Validate a slug exists on Polymarket
+async function validateSlug(slug: string): Promise<boolean> {
+  try {
+    const res = await fetch(`${GAMMA_API}/events?slug=${slug}&limit=1`);
+    if (!res.ok) return false;
+    const events = await res.json();
+    return Array.isArray(events) && events.length > 0 && events[0].active && !events[0].closed;
+  } catch {
+    return false;
+  }
 }
 
 export async function POST(request: NextRequest) {
@@ -35,176 +48,90 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(JSON.parse(cached.result));
     }
 
-    // STEP 1: Extract search keywords from each headline
-    const keywordResponse = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      temperature: 0,
-      messages: [
-        {
-          role: "system",
-          content: `Extract 2-3 search keywords from each news headline that would find RELATED PREDICTION MARKETS on Polymarket.
+    // For each headline, have GPT search Polymarket and find 3 DIRECTLY related markets
+    // Process top 8 headlines (balance cost vs coverage)
+    const topHeadlines = headlines.slice(0, 8);
 
-Examples:
-- "Iran War Live Updates: Cease-Fire Tested" → "Iran ceasefire, Iran war, US Iran"
-- "Trump slams NATO over Iran" → "NATO leave, Trump NATO, US NATO withdrawal"
-- "13-year-old girl captures terrifying moment Israel bombed Beirut" → "Israel strikes, Israel Lebanon, Israel Iran war"
-- "Man rescued after two weeks trapped in collapsed Mexico mine" → "Mexico earthquake, Mexico disaster"
+    const searchPromises = topHeadlines.map(async (headline, idx) => {
+      try {
+        const response = await openai.responses.create({
+          model: "gpt-4o-mini",
+          tools: [{ type: "web_search_preview" }],
+          input: `Search polymarket.com for prediction markets directly related to this specific news headline:
 
-Return JSON: [{"h": 0, "kw": ["Iran ceasefire", "Iran war"]}, ...]
-Return ONLY the JSON array.`,
-        },
-        {
-          role: "user",
-          content: headlines.map((h, i) => `${i}: ${h}`).join("\n"),
-        },
-      ],
-    });
+"${headline}"
 
-    let keywords: { h: number; kw: string[] }[] = [];
-    try {
-      const cleaned = (keywordResponse.choices[0]?.message?.content || "[]").replace(/```json\n?|\n?```/g, "").trim();
-      keywords = JSON.parse(cleaned);
-      if (!Array.isArray(keywords)) keywords = [];
-    } catch {
-      keywords = [];
-    }
+Find 3 prediction markets on Polymarket that are DIRECTLY about the same event, person, country, or topic as this headline.
 
-    if (keywords.length === 0) return NextResponse.json({ links: [] });
+TODAY'S DATE: ${new Date().toISOString().slice(0, 10)}
 
-    // STEP 2: Search Polymarket with those keywords using web search
-    const allKeywords = keywords.flatMap((k) => k.kw).filter(Boolean);
-    const uniqueKeywords = [...new Set(allKeywords)].slice(0, 15);
-    const searchQueries = uniqueKeywords.map((kw) => `site:polymarket.com ${kw}`).join("\n");
+STRICT RULES:
+- Markets must be about the EXACT SAME TOPIC as the headline
+- If headline is about "Iran war ceasefire" → find Iran ceasefire or Iran conflict markets
+- If headline is about "Trump NATO" → find NATO or Trump foreign policy markets, NOT Trump 2028 election
+- If headline is about "Israel bombing Beirut" → find Israel-Lebanon conflict markets
+- Do NOT return sports markets for non-sports headlines
+- Do NOT return markets about different topics that happen to mention the same country
+- Only return markets that are STILL ACTIVE (not resolved, end date in the future)
+- Copy the EXACT event slug from the Polymarket URL
 
-    const searchResponse = await openai.responses.create({
-      model: "gpt-4o-mini",
-      tools: [{ type: "web_search_preview" }],
-      input: `Search Polymarket for prediction markets matching these topics. For EACH search query, find real markets on polymarket.com:
-
-${searchQueries}
-
-For each market you find, extract:
-1. The exact market question as shown on Polymarket
-2. The event slug from the URL (polymarket.com/event/THIS-PART)
-3. The current Yes price percentage (if visible)
-
-Return a JSON array of ALL unique markets found:
-[{"q": "Will US withdraw from NATO by December 31?", "slug": "will-us-withdraw-from-nato-by-december-31", "yes": 13, "topics": ["NATO leave", "Trump NATO"]}]
-
-The "topics" field should list which search keywords this market matched.
-
-IMPORTANT:
-- Only return markets that ACTUALLY EXIST on polymarket.com RIGHT NOW
-- Copy the EXACT slug from the Polymarket URL — do NOT make up or guess slugs
-- Only include markets that are ACTIVE and NOT yet resolved
-- Do NOT include markets with dates that have already passed (today is ${new Date().toISOString().slice(0, 10)})
-- Include the "topics" field so I can match back to headlines
-- Find at least 20 unique markets across all topics
-- DIVERSITY: Do NOT return the same market with different dates — only pick the one with the nearest FUTURE date
-- Return ONLY valid JSON`,
-    });
-
-    let foundMarkets: { q: string; slug: string; yes: number; topics: string[] }[] = [];
-    try {
-      const textOutput = searchResponse.output.find((o) => o.type === "message");
-      if (textOutput && textOutput.type === "message") {
-        const textContent = textOutput.content.find((c) => c.type === "output_text");
-        if (textContent && textContent.type === "output_text") {
-          const cleaned = textContent.text.replace(/```json\n?|\n?```/g, "").trim();
-          foundMarkets = JSON.parse(cleaned);
-          if (!Array.isArray(foundMarkets)) foundMarkets = [];
-        }
-      }
-    } catch {
-      foundMarkets = [];
-    }
-
-    if (foundMarkets.length === 0) return NextResponse.json({ links: [] });
-
-    // STEP 3: Match each headline to its best markets AND validate relevance
-    const marketList = foundMarkets.map((m, i) => `${i}: ${m.q} [topics: ${m.topics?.join(", ") || ""}]`).join("\n");
-    const headlineList = headlines.map((h, i) => `${i}: ${h}`).join("\n");
-
-    const matchResponse = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      temperature: 0,
-      messages: [
-        {
-          role: "system",
-          content: `Match news headlines to prediction markets. For each headline, pick up to 3 markets that are DIRECTLY about the same topic.
-
-VALIDATION RULES — a match is ONLY valid if:
-✅ "Iran war ceasefire headline" → "US x Iran ceasefire" market (SAME TOPIC)
-✅ "Trump slams NATO" → "Will US withdraw from NATO?" (DIRECTLY RELATED)
-✅ "Israel bombed Beirut" → "Israel strikes Lebanon" (SAME EVENT)
-❌ "Man rescued from Mexico mine" → "Will cryptocurrency exchange fail?" (COMPLETELY UNRELATED)
-❌ "Iran war" → "Iran FIFA World Cup" (WRONG CONTEXT)
-❌ "Trump NATO" → "Eric Trump 2028 election" (WRONG PERSON)
-❌ "Ponzi scheme watches" → "Treasury yield" (UNRELATED)
-
-If NO market is relevant to a headline, SKIP IT. Do not force bad matches.
-DIVERSITY: Each headline's 3 markets should be about DIFFERENT aspects/questions — not the same question with different dates.
-
-Return JSON: [{"h": 0, "m": [2, 5, 8]}, {"h": 1, "m": [0, 3]}]
-Where "h" is headline index and "m" is array of market indices.
+Return JSON array: [{"q": "exact market question", "slug": "exact-slug-from-url", "yes": 45}]
+If you cannot find any directly related markets, return an empty array: []
 Return ONLY valid JSON.`,
-        },
-        {
-          role: "user",
-          content: `HEADLINES:\n${headlineList}\n\nMARKETS:\n${marketList}`,
-        },
-      ],
-    });
+        });
 
-    let finalMatches: { h: number; m: number[] }[] = [];
-    try {
-      const cleaned = (matchResponse.choices[0]?.message?.content || "[]").replace(/```json\n?|\n?```/g, "").trim();
-      finalMatches = JSON.parse(cleaned);
-      if (!Array.isArray(finalMatches)) finalMatches = [];
-    } catch {
-      finalMatches = [];
-    }
-
-    // Build deduplicated links and validate slugs exist on Polymarket
-    const seenSlugs = new Set<string>();
-    const candidateLinks: { headlineIndex: number; market: typeof foundMarkets[0] }[] = [];
-
-    for (const match of finalMatches) {
-      if (match.h < 0 || match.h >= headlines.length || !Array.isArray(match.m)) continue;
-      for (const mi of match.m.slice(0, 3)) {
-        if (mi < 0 || mi >= foundMarkets.length) continue;
-        const market = foundMarkets[mi];
-        const slugKey = market.slug?.toLowerCase() || "";
-        if (!slugKey || seenSlugs.has(slugKey)) continue;
-        seenSlugs.add(slugKey);
-        candidateLinks.push({ headlineIndex: match.h, market });
-      }
-    }
-
-    // Validate slugs exist by checking Gamma API (batch check)
-    const validatedLinks = await Promise.all(
-      candidateLinks.map(async (c) => {
-        try {
-          const res = await fetch(`https://gamma-api.polymarket.com/events?slug=${c.market.slug}&limit=1`);
-          if (res.ok) {
-            const events = await res.json();
-            if (Array.isArray(events) && events.length > 0 && events[0].active && !events[0].closed) {
-              return c; // Valid
+        const textOutput = response.output.find((o) => o.type === "message");
+        if (textOutput && textOutput.type === "message") {
+          const textContent = textOutput.content.find((c) => c.type === "output_text");
+          if (textContent && textContent.type === "output_text") {
+            const cleaned = textContent.text.replace(/```json\n?|\n?```/g, "").trim();
+            const markets = JSON.parse(cleaned);
+            if (Array.isArray(markets)) {
+              return { headlineIndex: idx, markets: markets.slice(0, 3) };
             }
           }
-        } catch {}
-        return null; // Invalid
+        }
+      } catch {}
+      return { headlineIndex: idx, markets: [] };
+    });
+
+    const results = await Promise.all(searchPromises);
+
+    // Validate all slugs and build links
+    const allCandidates: { headlineIndex: number; q: string; slug: string; yes: number }[] = [];
+    const seenSlugs = new Set<string>();
+
+    for (const result of results) {
+      for (const market of result.markets) {
+        if (!market.q || !market.slug) continue;
+        const slugKey = market.slug.toLowerCase();
+        if (seenSlugs.has(slugKey)) continue;
+        seenSlugs.add(slugKey);
+        allCandidates.push({
+          headlineIndex: result.headlineIndex,
+          q: market.q,
+          slug: market.slug,
+          yes: market.yes || 50,
+        });
+      }
+    }
+
+    // Validate slugs in parallel
+    const validated = await Promise.all(
+      allCandidates.map(async (c) => {
+        const valid = await validateSlug(c.slug);
+        return valid ? c : null;
       })
     );
 
-    const links: MarketLink[] = validatedLinks
+    const links: MarketLink[] = validated
       .filter((c): c is NonNullable<typeof c> => c !== null)
       .map((c) => ({
         headlineIndex: c.headlineIndex,
-        question: c.market.q,
-        slug: c.market.slug,
-        eventSlug: c.market.slug,
-        yesPrice: (c.market.yes || 50) / 100,
+        question: c.q,
+        slug: c.slug,
+        eventSlug: c.slug,
+        yesPrice: c.yes / 100,
       }));
 
     const result = { links, updatedAt: new Date().toISOString() };
