@@ -51,7 +51,7 @@ export function LoginButton() {
       fetch("/api/user", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: wagmiAddress.toLowerCase(), authMethod: "wallet", walletAddress: wagmiAddress.toLowerCase() }),
+        body: JSON.stringify({ id: wagmiAddress.toLowerCase(), authMethod: "wallet", walletAddress: wagmiAddress.toLowerCase(), referredBy: new URLSearchParams(window.location.search).get("ref") || undefined }),
       }).catch(() => {});
     }
   }, [wagmiConnected, wagmiAddress]);

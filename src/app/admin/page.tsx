@@ -394,7 +394,8 @@ export default function AdminPage() {
                 <tr className="text-left text-[#484f58] border-b border-[#21262d]">
                   <th className="pb-2 pr-4">IP Address</th>
                   <th className="pb-2 pr-4">Accounts</th>
-                  <th className="pb-2">User IDs</th>
+                  <th className="pb-2 pr-4">User IDs</th>
+                  <th className="pb-2">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -408,8 +409,28 @@ export default function AdminPage() {
                         {ip.accountCount}
                       </span>
                     </td>
-                    <td className="py-2 text-[#768390] text-xs font-mono">
+                    <td className="py-2 pr-4 text-[#768390] text-xs font-mono">
                       {ip.userIds.map(maskAddress).join(", ")}
+                    </td>
+                    <td className="py-2">
+                      {ip.accountCount === 2 && (
+                        <button
+                          onClick={async () => {
+                            if (!confirm(`Migrate older account to newer? This merges positions, trades, airdrops, and balance from the older account into the newer one, then deletes the old account. IDs: ${ip.userIds.join(", ")}`)) return;
+                            await adminAction("migrateAccounts", ip.userIds[0], undefined);
+                            // Pass both IDs via the userId field (comma-separated)
+                            await fetch("/api/admin", {
+                              method: "POST",
+                              headers: { "Content-Type": "application/json", Authorization: `Bearer ${connectedAddress}` },
+                              body: JSON.stringify({ action: "migrateAccounts", userIds: ip.userIds }),
+                            }).then(() => fetchAdmin());
+                          }}
+                          disabled={actionLoading}
+                          className="text-[10px] px-2 py-0.5 rounded bg-[#58a6ff]/10 text-[#58a6ff] hover:bg-[#58a6ff]/20 disabled:opacity-50"
+                        >
+                          Migrate
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))}

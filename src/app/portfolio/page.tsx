@@ -179,6 +179,9 @@ export default function PortfolioPage() {
               <p className="text-[10px] text-[#484f58]">Signup bonus</p>
             </div>
           </div>
+
+          {/* Enter referral code — only if not already referred */}
+          <ReferralCodeInput userId={user.id} referredBy={user.referredBy} />
         </div>
       )}
 
@@ -268,6 +271,71 @@ export default function PortfolioPage() {
 
           <TradeHistory address={address} />
         </div>
+      )}
+    </div>
+  );
+}
+
+function ReferralCodeInput({ userId, referredBy }: { userId: string; referredBy: string | null }) {
+  const [code, setCode] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [result, setResult] = useState<{ ok: boolean; msg: string } | null>(null);
+
+  // Already referred — show who referred them
+  if (referredBy) {
+    return (
+      <div className="mt-3 pt-3 border-t border-[#21262d]">
+        <p className="text-[10px] text-[#484f58]">Referred by: <span className="text-[#768390] font-mono">{referredBy}</span></p>
+      </div>
+    );
+  }
+
+  const handleSubmit = async () => {
+    if (!code.trim() || submitting) return;
+    setSubmitting(true);
+    setResult(null);
+    try {
+      const res = await fetch("/api/airdrop", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${userId}` },
+        body: JSON.stringify({ userId, type: "apply-referral", referralCode: code.trim().toUpperCase() }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setResult({ ok: true, msg: "Referral applied! Your friend will receive 5,000 AIRDROP when you claim your signup bonus." });
+        setCode("");
+      } else {
+        setResult({ ok: false, msg: data.error || "Invalid code" });
+      }
+    } catch {
+      setResult({ ok: false, msg: "Network error" });
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="mt-3 pt-3 border-t border-[#21262d]">
+      <p className="text-xs text-[#768390] mb-2">Have a friend&apos;s referral code?</p>
+      <div className="flex gap-2">
+        <input
+          type="text"
+          placeholder="PS-XXXXXXXX"
+          value={code}
+          onChange={(e) => setCode(e.target.value)}
+          className="flex-1 bg-[#0d1117] border border-[#30363d] rounded-lg px-3 py-2 text-sm text-white placeholder-[#484f58] focus:border-[#58a6ff] outline-none font-mono uppercase"
+          maxLength={11}
+        />
+        <button
+          onClick={handleSubmit}
+          disabled={submitting || !code.trim()}
+          className="px-4 py-2 rounded-lg text-xs font-semibold bg-[#58a6ff] text-white hover:bg-[#4d8fea] transition-colors disabled:opacity-50 whitespace-nowrap"
+        >
+          {submitting ? "Applying..." : "Apply Code"}
+        </button>
+      </div>
+      {result && (
+        <p className={cn("text-xs mt-2", result.ok ? "text-[#3fb950]" : "text-[#f85149]")}>{result.msg}</p>
       )}
     </div>
   );

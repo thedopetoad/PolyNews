@@ -18,6 +18,37 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    // Handle apply-referral: set referredBy on an existing user (one-time only)
+    if (type === "apply-referral") {
+      const { referralCode } = body;
+      if (!referralCode) return NextResponse.json({ error: "Missing referral code" }, { status: 400 });
+
+      const db = getDb();
+      const [user] = await db.select().from(users).where(eq(users.id, normalizedUserId)).limit(1);
+      if (!user) return NextResponse.json({ error: "User not found" }, { status: 404 });
+
+      // Block if already referred (prevents double-spend)
+      if (user.referredBy) {
+        return NextResponse.json({ error: "You already have a referral code applied" }, { status: 400 });
+      }
+
+      // Block self-referral
+      if (user.referralCode === referralCode.toUpperCase()) {
+        return NextResponse.json({ error: "You cannot use your own referral code" }, { status: 400 });
+      }
+
+      // Validate the referral code exists
+      const [referrer] = await db.select().from(users).where(eq(users.referralCode, referralCode.toUpperCase())).limit(1);
+      if (!referrer) {
+        return NextResponse.json({ error: "Invalid referral code" }, { status: 400 });
+      }
+
+      // Set referredBy — bonus will be paid when user claims signup airdrop
+      await db.update(users).set({ referredBy: referralCode.toUpperCase() }).where(eq(users.id, normalizedUserId));
+
+      return NextResponse.json({ success: true });
+    }
+
     // Validate type
     if (!["daily", "signup"].includes(type)) {
       return NextResponse.json({ error: "Invalid airdrop type" }, { status: 400 });

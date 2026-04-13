@@ -23,10 +23,10 @@ export function LanguageSwitcher() {
     <div className="relative" ref={ref}>
       <button
         onClick={() => setOpen(!open)}
-        className="h-8 w-8 flex items-center justify-center rounded-full bg-[#1c2128] border border-[#21262d] hover:border-[#30363d] transition-colors text-sm"
+        className="h-8 w-8 flex items-center justify-center rounded-full bg-[#1c2128] border border-[#21262d] hover:border-[#30363d] transition-colors"
         title={current.label}
       >
-        {current.flag}
+        <svg className="w-4 h-4 text-[#768390]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 21a9 9 0 100-18 9 9 0 000 18zM3.6 9h16.8M3.6 15h16.8M12 3a15 15 0 014 9 15 15 0 01-4 9 15 15 0 01-4-9 15 15 0 014-9z" /></svg>
       </button>
       {open && (
         <div className="absolute right-0 top-10 w-36 rounded-lg border border-[#21262d] bg-[#161b22] shadow-xl z-50 overflow-hidden">

@@ -56,11 +56,14 @@ function MagicSessionRestore() {
   const { setGoogleAddress } = useAuthStore();
 
   useEffect(() => {
+    // Read referral code from URL if present (e.g., ?ref=PS-ABC12345)
+    const refCode = new URLSearchParams(window.location.search).get("ref") || undefined;
+
     // 1. Handle OAuth redirect (user just came back from Google)
     handleOAuthRedirect().then(async (result: OAuthResult | null) => {
       if (result?.address) {
         setGoogleAddress(result.address);
-        // Create/update user in DB — pass email for account migration
+        // Create/update user in DB — pass email + referral code for migration + rewards
         await fetch("/api/user", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -69,6 +72,7 @@ function MagicSessionRestore() {
             authMethod: "google",
             walletAddress: result.address,
             email: result.email,
+            referredBy: refCode,
           }),
         }).catch(() => {});
         return;
