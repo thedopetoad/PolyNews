@@ -3,7 +3,7 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { useAccount, useConnect, useDisconnect } from "wagmi";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { getWeb3AuthInstance } from "@/lib/web3auth";
+import { getWeb3AuthInstance, initAndRestoreWeb3Auth } from "@/lib/web3auth";
 import { useAuthStore } from "@/stores/use-auth-store";
 import { useUser } from "@/hooks/use-user";
 
@@ -47,7 +47,11 @@ export function LoginButton() {
       const web3auth = getWeb3AuthInstance();
       if (!web3auth) return;
       if (web3auth.status === "not_ready") await web3auth.init();
-      const provider = await web3auth.connect();
+      // Connect directly to Google — skips Web3Auth's own modal
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const provider = await (web3auth as any).connectTo("auth", {
+        loginProvider: "google",
+      });
       if (provider) {
         const accounts = (await provider.request({ method: "eth_accounts" })) as string[] | undefined;
         if (accounts && accounts.length > 0) {
@@ -138,7 +142,7 @@ export function LoginButton() {
 
   return (
     <>
-      <button onClick={() => setLoginOpen(true)} className="h-8 px-4 rounded-full bg-[#238636] hover:bg-[#2ea043] text-white text-xs font-medium transition-colors">
+      <button onClick={() => setLoginOpen(true)} className="h-8 px-4 rounded-full bg-[#238636] hover:bg-[#2ea043] text-white text-xs font-medium transition-colors whitespace-nowrap flex-shrink-0">
         Log In
       </button>
       <Dialog open={loginOpen} onOpenChange={setLoginOpen}>

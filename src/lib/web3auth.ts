@@ -6,6 +6,7 @@ import { CHAIN_NAMESPACES, WEB3AUTH_NETWORK } from "@web3auth/base";
 const clientId = process.env.NEXT_PUBLIC_WEB3AUTH_CLIENT_ID || "";
 
 let web3authInstance: Web3Auth | null = null;
+let initPromise: Promise<void> | null = null;
 
 export function getWeb3AuthInstance(): Web3Auth | null {
   if (!clientId) return null;
@@ -28,4 +29,35 @@ export function getWeb3AuthInstance(): Web3Auth | null {
   }
 
   return web3authInstance;
+}
+
+/**
+ * Initialize Web3Auth and restore any existing session.
+ * Returns the connected address if a session exists, null otherwise.
+ * Safe to call multiple times — deduplicates via shared promise.
+ */
+export async function initAndRestoreWeb3Auth(): Promise<string | null> {
+  const w3a = getWeb3AuthInstance();
+  if (!w3a) return null;
+
+  try {
+    if (w3a.status === "not_ready") {
+      if (!initPromise) {
+        initPromise = w3a.init();
+      }
+      await initPromise;
+    }
+
+    // Check if user has an existing session
+    if (w3a.connected && w3a.provider) {
+      const accounts = (await w3a.provider.request({ method: "eth_accounts" })) as string[] | undefined;
+      if (accounts && accounts.length > 0) {
+        return accounts[0].toLowerCase();
+      }
+    }
+  } catch (err) {
+    console.error("Web3Auth init/restore failed:", err);
+  }
+
+  return null;
 }

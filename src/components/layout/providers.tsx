@@ -1,8 +1,10 @@
 "use client";
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { initAndRestoreWeb3Auth } from "@/lib/web3auth";
+import { useAuthStore } from "@/stores/use-auth-store";
 import { WagmiProvider, createConfig, http } from "wagmi";
 import {
   RainbowKitProvider,
@@ -49,6 +51,24 @@ const config = createConfig({
   ssr: true,
 });
 
+function Web3AuthSessionRestore() {
+  const { googleAddress, setGoogleAddress } = useAuthStore();
+
+  useEffect(() => {
+    // If we have a persisted google address, try to restore the Web3Auth session
+    if (googleAddress) {
+      initAndRestoreWeb3Auth().then((addr) => {
+        if (addr) {
+          setGoogleAddress(addr);
+        }
+        // Don't clear on failure — the persisted address is still valid for UI
+      });
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  return null;
+}
+
 export function Providers({ children }: { children: React.ReactNode }) {
   const [queryClient] = useState(
     () =>
@@ -73,7 +93,10 @@ export function Providers({ children }: { children: React.ReactNode }) {
             overlayBlur: "small",
           })}
         >
-          <TooltipProvider>{children}</TooltipProvider>
+          <TooltipProvider>
+            <Web3AuthSessionRestore />
+            {children}
+          </TooltipProvider>
         </RainbowKitProvider>
       </QueryClientProvider>
     </WagmiProvider>

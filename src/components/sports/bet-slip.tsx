@@ -5,6 +5,8 @@ import { cn } from "@/lib/utils";
 import { useUser } from "@/hooks/use-user";
 import { usePolymarketTrade } from "@/hooks/use-polymarket-trade";
 import { LoginButton } from "@/components/layout/login-modal";
+import { useSwitchChain } from "wagmi";
+import { polygon } from "wagmi/chains";
 
 interface BetOutcome {
   name: string;
@@ -31,6 +33,7 @@ function abbrev(name: string): string {
 export function BetSlip({ eventTitle, eventSlug, eventEndDate, marketId, marketQuestion, outcomes, negRisk }: BetSlipProps) {
   const { address } = useUser();
   const { placeOrder, placing, canTrade, isOnPolygon } = usePolymarketTrade();
+  const { switchChain } = useSwitchChain();
 
   const [selectedOutcome, setSelectedOutcome] = useState<string | null>(null);
   const [amount, setAmount] = useState("");
@@ -72,9 +75,12 @@ export function BetSlip({ eventTitle, eventSlug, eventEndDate, marketId, marketQ
           <LoginButton />
         </div>
       ) : !isOnPolygon ? (
-        <p className="text-[10px] text-[#d29922] bg-[#d29922]/10 px-2 py-1 rounded">
-          Switch to Polygon network to place bets
-        </p>
+        <button
+          onClick={() => switchChain({ chainId: polygon.id })}
+          className="w-full py-2 rounded-md text-xs font-semibold bg-[#8247e5] text-white hover:bg-[#7038d4] transition-colors"
+        >
+          Switch to Polygon to Place Bets
+        </button>
       ) : (
         <>
           {/* Outcome buttons */}

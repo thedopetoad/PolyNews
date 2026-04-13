@@ -240,7 +240,7 @@ function GameContent() {
     return (
       <div className="text-center py-16">
         <p className="text-[#484f58]">No game selected</p>
-        <Link href="/sports" className="text-sm text-[#58a6ff] hover:underline mt-2 inline-block">Back to Sports</Link>
+        <Link href={`/sports${sport ? `?sport=${sport}` : ""}`} className="text-sm text-[#58a6ff] hover:underline mt-2 inline-block">Back to Sports</Link>
       </div>
     );
   }
@@ -272,7 +272,7 @@ function GameContent() {
     return (
       <div className="text-center py-16">
         <p className="text-[#f85149]">Failed to load game data</p>
-        <Link href="/sports" className="text-sm text-[#58a6ff] hover:underline mt-2 inline-block">Back to Sports</Link>
+        <Link href={`/sports${sport ? `?sport=${sport}` : ""}`} className="text-sm text-[#58a6ff] hover:underline mt-2 inline-block">Back to Sports</Link>
       </div>
     );
   }
@@ -289,7 +289,7 @@ function GameContent() {
     <>
       {/* Breadcrumb */}
       <div className="flex items-center gap-2 text-[11px] text-[#484f58] mb-4">
-        <Link href="/sports" className="text-[#58a6ff] hover:underline">Sports</Link>
+        <Link href={`/sports${sport ? `?sport=${sport}` : ""}`} className="text-[#58a6ff] hover:underline">Sports</Link>
         <span>&rsaquo;</span>
         <span className="text-[#e6edf3]">{data.title}</span>
       </div>

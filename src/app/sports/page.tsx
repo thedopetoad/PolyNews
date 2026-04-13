@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useMemo, useEffect, useCallback, useRef } from "react";
+import { useState, useMemo, useEffect, useCallback, useRef, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 import { LoginButton } from "@/components/layout/login-modal";
@@ -720,7 +721,17 @@ function GameSkeleton() {
 
 /* ─── Main Page ─── */
 export default function SportsPage() {
-  const [selectedSport, setSelectedSport] = useState<string>("mlb");
+  return (
+    <Suspense fallback={<div className="text-center py-16 text-[#484f58]">Loading...</div>}>
+      <SportsContent />
+    </Suspense>
+  );
+}
+
+function SportsContent() {
+  const searchParams = useSearchParams();
+  const initialSport = searchParams.get("sport") || "mlb";
+  const [selectedSport, setSelectedSport] = useState<string>(initialSport);
   const [view, setView] = useState<"live" | "upcoming">("upcoming");
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
