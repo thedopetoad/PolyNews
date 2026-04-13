@@ -3,8 +3,9 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { useAccount, useConnect, useDisconnect } from "wagmi";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { loginWithGoogle, logoutMagic } from "@/lib/magic";
+import { loginWithGoogle } from "@/lib/magic";
 import { useAuthStore } from "@/stores/use-auth-store";
+import { clearMagicConnector } from "@/lib/magic-connector";
 import { useUser } from "@/hooks/use-user";
 import { useT } from "@/lib/i18n";
 
@@ -67,15 +68,15 @@ export function LoginButton() {
     }
   }, []);
 
-  // Disconnect everything
+  // Disconnect everything — wagmi disconnect handles Magic logout via connector
   const handleDisconnect = useCallback(async () => {
     setMenuOpen(false);
     if (googleAddress) {
       setGoogleAddress(null);
-      await logoutMagic();
+      clearMagicConnector();
     }
-    if (wagmiConnected) wagmiDisconnect();
-  }, [wagmiConnected, wagmiDisconnect, googleAddress, setGoogleAddress]);
+    wagmiDisconnect();
+  }, [wagmiDisconnect, googleAddress, setGoogleAddress]);
 
   // ─── Connected: address with dropdown ───
   if (isConnected && connectedAddress) {
@@ -131,6 +132,7 @@ export function LoginButton() {
   };
   const seen = new Set<string>();
   const uniqueWallets = connectors.filter((c) => {
+    if (c.id === "magic") return false; // Google handled by separate button
     const name = walletNames[c.id] || c.name;
     if (seen.has(name)) return false;
     seen.add(name); return true;
