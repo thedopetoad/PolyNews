@@ -26,7 +26,10 @@ const widgetConfig = {
   variant: "compact" as const,
   subvariant: "default" as const,
   hiddenUI: ["appearance" as const, "poweredBy" as const],
-  integrator: "polystream",
+  // Allow all chains as source (Solana, Ethereum, Arbitrum, etc.)
+  // Don't restrict to wagmi chains — let LI.FI handle wallet connections for non-EVM
+  chainTypes: ["EVM" as const, "SVM" as const],
+  walletConfig: { usePartialWalletManagement: true },
 };
 
 interface DepositModalProps {
