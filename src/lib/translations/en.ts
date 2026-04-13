@@ -70,6 +70,7 @@ export const en = {
     noPositions: "No positions found.",
     noTradeHistory: "No trade history",
     deposit: "Deposit",
+    withdraw: "Withdraw",
     depositUsdc: "Deposit USDC",
     polygonNetwork: "Polygon Network",
     cash: "cash",

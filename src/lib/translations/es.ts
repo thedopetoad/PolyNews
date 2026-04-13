@@ -72,6 +72,7 @@ export const es: TranslationKeys = {
     noPositions: "No se encontraron posiciones.",
     noTradeHistory: "Sin historial de operaciones",
     deposit: "Depositar",
+    withdraw: "Retirar",
     depositUsdc: "Depositar USDC",
     polygonNetwork: "Red Polygon",
     cash: "efectivo",

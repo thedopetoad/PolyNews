@@ -9,6 +9,8 @@ import { cn } from "@/lib/utils";
 import { useT } from "@/lib/i18n";
 import { POLYMARKET_BASE_URL } from "@/lib/constants";
 import Link from "next/link";
+import { DepositModal } from "@/components/portfolio/deposit-modal";
+import { WithdrawModal } from "@/components/portfolio/withdraw-modal";
 
 const USDC_ADDRESS = "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174" as `0x${string}`;
 const POLYGON_CHAIN_ID = 137;
@@ -66,6 +68,10 @@ export default function PortfolioPage() {
       .catch(() => {});
   }, [address]);
 
+  // Deposit/Withdraw modals
+  const [depositOpen, setDepositOpen] = useState(false);
+  const [withdrawOpen, setWithdrawOpen] = useState(false);
+
   // Copy feedback
   const [copied, setCopied] = useState<"code" | "link" | null>(null);
   const handleCopy = (text: string, type: "code" | "link") => {
@@ -104,17 +110,22 @@ export default function PortfolioPage() {
           </div>
           <p className="text-3xl font-bold text-white tabular-nums">{formatUsd(usdcBal)}</p>
           <p className="text-xs text-[#484f58] mt-1">{t.portfolio.polygonNetwork}</p>
-          {usdcBal === 0 && (
-            <a
-              href="https://portal.polygon.technology/bridge"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 mt-3 px-3 py-1.5 rounded-md text-xs font-medium bg-[#58a6ff]/10 text-[#58a6ff] hover:bg-[#58a6ff]/20 transition-colors"
+          <div className="flex gap-2 mt-3">
+            <button
+              onClick={() => setDepositOpen(true)}
+              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md text-xs font-medium bg-[#58a6ff]/10 text-[#58a6ff] hover:bg-[#58a6ff]/20 transition-colors"
             >
-              {t.portfolio.depositUsdc}
-              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
-            </a>
-          )}
+              {t.portfolio.deposit}
+            </button>
+            <button
+              onClick={() => setWithdrawOpen(true)}
+              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md text-xs font-medium bg-[#21262d] text-[#e6edf3] hover:bg-[#30363d] transition-colors"
+            >
+              {t.portfolio.withdraw}
+            </button>
+          </div>
+          <DepositModal open={depositOpen} onOpenChange={setDepositOpen} />
+          <WithdrawModal open={withdrawOpen} onOpenChange={setWithdrawOpen} usdcBalance={usdcBal} />
         </div>
 
         {/* Paper Portfolio */}
