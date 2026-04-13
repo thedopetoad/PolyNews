@@ -60,15 +60,18 @@ const config = createConfig({
 function MagicSessionRestore() {
   const { connect, connectors } = useConnect();
   const { isConnected } = useAccount();
+  const [attempted, setAttempted] = useState(false);
 
   useEffect(() => {
-    // Don't reconnect if already connected (e.g., MetaMask)
-    if (isConnected) return;
+    // Don't reconnect if already connected or already attempted
+    if (isConnected || attempted) return;
 
+    // Wait for connectors to be available
     const magicConn = connectors.find((c) => c.id === "magic");
     if (!magicConn) return;
 
-    // Read referral code from URL if present
+    setAttempted(true);
+
     const refCode = new URLSearchParams(window.location.search).get("ref") || undefined;
 
     // 1. Handle OAuth redirect (user just came back from Google)
@@ -97,8 +100,10 @@ function MagicSessionRestore() {
       if (existing) {
         connect({ connector: magicConn });
       }
+    }).catch((err) => {
+      console.error("Magic session restore failed:", err);
     });
-  }, [isConnected]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [isConnected, connectors, connect, attempted]);
 
   return null;
 }
