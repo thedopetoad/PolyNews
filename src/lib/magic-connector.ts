@@ -5,11 +5,27 @@ import { polygon } from "wagmi/chains";
 import { getAddress } from "viem";
 import { getMagic, checkMagicSession, logoutMagic } from "./magic";
 
+const MAGIC_SESSION_KEY = "polystream-magic-session";
+
+/** Mark that a Magic session was established (called after successful connect) */
+function markMagicSession() {
+  try { localStorage.setItem(MAGIC_SESSION_KEY, "1"); } catch {}
+}
+
+/** Clear the Magic session marker */
+function clearMagicSession() {
+  try { localStorage.removeItem(MAGIC_SESSION_KEY); } catch {}
+}
+
+/** Check if we've ever had a Magic session (without calling Magic SDK) */
+function hasMagicSessionMarker(): boolean {
+  try { return localStorage.getItem(MAGIC_SESSION_KEY) === "1"; } catch { return false; }
+}
+
 /**
  * Custom wagmi v2 connector that wraps Magic SDK's rpcProvider.
- * After Google OAuth login, this makes the Magic wallet behave
- * identically to MetaMask in wagmi — all hooks work (useAccount,
- * useWalletClient, useWriteContract, useBalance, etc.)
+ * Only initializes Magic SDK when there's evidence of a prior session,
+ * to avoid interfering with OAuth state on fresh page loads.
  */
 export function magicConnector() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -28,19 +44,22 @@ export function magicConnector() {
       if (!address) throw new Error("No Magic wallet address");
 
       const account = getAddress(address);
+      markMagicSession();
       config.emitter.emit("connect", { accounts: [account], chainId: polygon.id });
 
       return { accounts: [account], chainId: polygon.id };
     },
 
     async disconnect() {
+      clearMagicSession();
       await logoutMagic();
       config.emitter.emit("disconnect");
     },
 
     async getAccounts() {
+      if (!hasMagicSessionMarker()) return [];
       const address = await checkMagicSession();
-      if (!address) return [];
+      if (!address) { clearMagicSession(); return []; }
       return [getAddress(address)] as readonly `0x${string}`[];
     },
 
@@ -54,10 +73,15 @@ export function magicConnector() {
       return magic.rpcProvider;
     },
 
+    // Only call Magic SDK if we have a prior session marker.
+    // This prevents Magic iframe from initializing on every page load
+    // for users who never used Google login, which can interfere with OAuth.
     async isAuthorized() {
+      if (!hasMagicSessionMarker()) return false;
       try {
         const address = await checkMagicSession();
-        return !!address;
+        if (!address) { clearMagicSession(); return false; }
+        return true;
       } catch {
         return false;
       }
