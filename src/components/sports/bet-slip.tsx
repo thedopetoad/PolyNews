@@ -4,8 +4,9 @@ import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { useUser } from "@/hooks/use-user";
 import { usePolymarketTrade } from "@/hooks/use-polymarket-trade";
+import { useAuthStore } from "@/stores/use-auth-store";
 import { LoginButton } from "@/components/layout/login-modal";
-import { useSwitchChain, useBalance } from "wagmi";
+import { useSwitchChain, useBalance, useAccount } from "wagmi";
 import { polygon } from "wagmi/chains";
 
 // USDC.e on Polygon
@@ -36,16 +37,18 @@ function abbrev(name: string): string {
 const QUICK_AMOUNTS = [1, 5, 10, 100];
 
 export function BetSlip({ eventTitle, eventSlug, eventEndDate, marketId, marketQuestion, outcomes, negRisk }: BetSlipProps) {
-  const { address } = useUser();
+  const { address, isConnected } = useUser();
   const { placeOrder, placing, error: tradeError, canTrade, isOnPolygon } = usePolymarketTrade();
   const { switchChain } = useSwitchChain();
+  const googleAddress = useAuthStore((s) => s.googleAddress);
+  const isGoogleUser = !!googleAddress && !useAccount().isConnected;
 
-  // Fetch real USDC balance on Polygon
+  // Fetch real USDC balance on Polygon (only for wallet users on Polygon)
   const { data: usdcBalance } = useBalance({
     address: address as `0x${string}` | undefined,
     token: USDC_ADDRESS,
     chainId: polygon.id,
-    query: { enabled: !!address && isOnPolygon },
+    query: { enabled: !!address && (isOnPolygon || isGoogleUser) },
   });
   const usdcBal = usdcBalance ? parseFloat(usdcBalance.formatted) : 0;
 
@@ -93,7 +96,7 @@ export function BetSlip({ eventTitle, eventSlug, eventEndDate, marketId, marketQ
     );
   }
 
-  if (!isOnPolygon) {
+  if (!isOnPolygon && !isGoogleUser) {
     return (
       <div className="space-y-2" onClick={(e) => e.stopPropagation()}>
         <button
@@ -102,6 +105,16 @@ export function BetSlip({ eventTitle, eventSlug, eventEndDate, marketId, marketQ
         >
           Switch to Polygon
         </button>
+      </div>
+    );
+  }
+
+  // Google/Magic users need a wallet for CLOB trading
+  if (isGoogleUser && !canTrade) {
+    return (
+      <div className="space-y-2 text-center" onClick={(e) => e.stopPropagation()}>
+        <p className="text-xs text-[#768390]">Connect a crypto wallet to trade with real USDC</p>
+        <LoginButton />
       </div>
     );
   }
