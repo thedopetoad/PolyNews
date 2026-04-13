@@ -54,6 +54,26 @@ export default function PortfolioPage() {
   // Tab state
   const [tab, setTab] = useState<"positions" | "history">("positions");
 
+  // Referral count
+  const [referralCount, setReferralCount] = useState<number>(0);
+  useEffect(() => {
+    if (!address) return;
+    fetch(`/api/user/referrals?userId=${address}`, {
+      headers: { Authorization: `Bearer ${address}` },
+    })
+      .then((r) => r.ok ? r.json() : null)
+      .then((d) => { if (d) setReferralCount(d.count); })
+      .catch(() => {});
+  }, [address]);
+
+  // Copy feedback
+  const [copied, setCopied] = useState<"code" | "link" | null>(null);
+  const handleCopy = (text: string, type: "code" | "link") => {
+    navigator.clipboard.writeText(text);
+    setCopied(type);
+    setTimeout(() => setCopied(null), 2000);
+  };
+
   if (!isConnected) {
     return (
       <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-24 text-center">
@@ -153,19 +173,23 @@ export default function PortfolioPage() {
               {user.referralCode}
             </div>
             <button
-              onClick={() => { navigator.clipboard.writeText(user.referralCode); }}
+              onClick={() => handleCopy(user.referralCode, "code")}
               className="px-4 py-2.5 rounded-lg text-xs font-semibold bg-[#238636] text-white hover:bg-[#2ea043] transition-colors whitespace-nowrap"
             >
-              Copy Code
+              {copied === "code" ? "Copied!" : "Copy Code"}
             </button>
             <button
-              onClick={() => { navigator.clipboard.writeText(`${window.location.origin}?ref=${user.referralCode}`); }}
+              onClick={() => handleCopy(`${window.location.origin}?ref=${user.referralCode}`, "link")}
               className="px-4 py-2.5 rounded-lg text-xs font-semibold bg-[#21262d] text-[#e6edf3] hover:bg-[#30363d] transition-colors whitespace-nowrap"
             >
-              Copy Link
+              {copied === "link" ? "Copied!" : "Copy Link"}
             </button>
           </div>
-          <div className="mt-3 grid grid-cols-3 gap-3 text-center">
+          <div className="mt-3 grid grid-cols-4 gap-3 text-center">
+            <div className="bg-[#0d1117] rounded-lg p-3">
+              <p className="text-lg font-bold text-[#3fb950]">{referralCount}</p>
+              <p className="text-[10px] text-[#484f58]">Friends referred</p>
+            </div>
             <div className="bg-[#0d1117] rounded-lg p-3">
               <p className="text-lg font-bold text-white">5,000</p>
               <p className="text-[10px] text-[#484f58]">AIRDROP per referral</p>

@@ -853,14 +853,16 @@ function SportsContent() {
       {/* Main content */}
       <div className="flex-1 min-w-0">
       {/* Header */}
-      <div className="flex items-center justify-between mb-4">
-        <div>
+      <div className="flex items-center justify-between gap-4 mb-4">
+        <div className="min-w-0">
           <h1 className="text-2xl font-bold text-white">Sports</h1>
           <p className="text-sm text-[#768390] mt-0.5">
             Real markets. Real odds. Powered by <a href="https://polymarket.com/sports" target="_blank" rel="noopener noreferrer" className="text-[#58a6ff] hover:underline">Polymarket</a>
           </p>
         </div>
-        <LoginButton />
+        <div className="flex-shrink-0">
+          <LoginButton />
+        </div>
       </div>
 
       {/* Live / Upcoming tabs */}
