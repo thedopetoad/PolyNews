@@ -75,20 +75,21 @@ export async function handleOAuthRedirect(): Promise<string | null> {
   const magic = getMagic();
   if (!magic) return null;
 
-  // Only process if we have OAuth params in the URL
+  // Only process if we have OAuth params in the URL (Google returns state+code)
   const url = new URL(window.location.href);
-  if (!url.searchParams.has("magic_oauth_request_id") && !url.searchParams.has("magic_credential")) {
+  const hasOAuthParams = url.searchParams.has("state") && url.searchParams.has("code");
+  const hasMagicParams = url.searchParams.has("magic_oauth_request_id") || url.searchParams.has("magic_credential");
+  if (!hasOAuthParams && !hasMagicParams) {
     return null;
   }
 
   try {
     const result = await magic.oauth2.getRedirectResult();
-    const address = result?.magic?.userMetadata?.publicAddress?.toLowerCase();
+    const address = result?.magic?.userMetadata?.publicAddress?.toLowerCase()
+      || result?.magic?.userMetadata?.wallets?.ethereum?.publicAddress?.toLowerCase();
 
-    // Clean up URL params
-    url.searchParams.delete("magic_oauth_request_id");
-    url.searchParams.delete("magic_credential");
-    window.history.replaceState({}, "", url.pathname + url.search);
+    // Clean up URL — remove all OAuth params
+    window.history.replaceState({}, "", url.pathname);
 
     return address || null;
   } catch (err) {
