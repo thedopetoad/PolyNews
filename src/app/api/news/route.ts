@@ -1,5 +1,10 @@
 import { NextResponse } from "next/server";
 import { KEYWORD_DICTIONARY } from "@/lib/constants";
+import { getDb, newsCache } from "@/db";
+import { eq } from "drizzle-orm";
+
+const CACHE_KEY = "canonical";
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
 // Category mapping — which keywords belong to which category
 const CATEGORY_MAP: Record<string, string[]> = {
@@ -133,55 +138,81 @@ const RSS_FEEDS = [
   { url: "https://feeds.skynews.com/feeds/rss/world.xml", name: "Sky News" },
 ];
 
+async function fetchFreshHeadlines() {
+  const rssResults = await Promise.allSettled(
+    RSS_FEEDS.map(async (feed) => {
+      const res = await fetch(feed.url, {
+        next: { revalidate: 300 },
+        headers: { "User-Agent": "PolyStream/1.0" },
+      });
+      if (!res.ok) return [];
+      const xml = await res.text();
+      return parseRSS(xml, feed.name);
+    })
+  );
+
+  const telegramResults = await Promise.allSettled(
+    TELEGRAM_CHANNELS.map((ch) => parseTelegram(ch.username, ch.name))
+  );
+
+  const allHeadlines = [
+    ...rssResults
+      .filter((r): r is PromiseFulfilledResult<ReturnType<typeof parseRSS>> => r.status === "fulfilled")
+      .flatMap((r) => r.value),
+    ...telegramResults
+      .filter((r): r is PromiseFulfilledResult<Awaited<ReturnType<typeof parseTelegram>>> => r.status === "fulfilled")
+      .flatMap((r) => r.value),
+  ];
+
+  allHeadlines.sort((a, b) => {
+    const dateA = new Date(a.publishedAt).getTime() || 0;
+    const dateB = new Date(b.publishedAt).getTime() || 0;
+    return dateB - dateA;
+  });
+
+  const seen = new Set<string>();
+  return allHeadlines.filter((h) => {
+    const key = h.title.toLowerCase().slice(0, 40);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  }).slice(0, 30);
+}
+
 export async function GET() {
   try {
-    // Fetch all RSS feeds + Telegram channels in parallel
-    const rssResults = await Promise.allSettled(
-      RSS_FEEDS.map(async (feed) => {
-        const res = await fetch(feed.url, {
-          next: { revalidate: 300 },
-          headers: { "User-Agent": "PolyStream/1.0" },
-        });
-        if (!res.ok) return [];
-        const xml = await res.text();
-        return parseRSS(xml, feed.name);
-      })
-    );
+    const db = getDb();
 
-    const telegramResults = await Promise.allSettled(
-      TELEGRAM_CHANNELS.map((ch) => parseTelegram(ch.username, ch.name))
-    );
+    // Step 1: Check DB cache for canonical feed
+    const [cached] = await db.select().from(newsCache).where(eq(newsCache.id, CACHE_KEY)).limit(1);
+    if (cached) {
+      const age = Date.now() - new Date(cached.updatedAt).getTime();
+      if (age < CACHE_TTL) {
+        return NextResponse.json({ headlines: JSON.parse(cached.headlines), source: "live" });
+      }
+    }
 
-    const allHeadlines = [
-      ...rssResults
-        .filter((r): r is PromiseFulfilledResult<ReturnType<typeof parseRSS>> => r.status === "fulfilled")
-        .flatMap((r) => r.value),
-      ...telegramResults
-        .filter((r): r is PromiseFulfilledResult<Awaited<ReturnType<typeof parseTelegram>>> => r.status === "fulfilled")
-        .flatMap((r) => r.value),
-    ];
+    // Step 2: Fetch fresh headlines from RSS/Telegram
+    const fresh = await fetchFreshHeadlines();
 
-    // Sort by publish date (most recent first), deduplicate by title similarity
-    allHeadlines.sort((a, b) => {
-      const dateA = new Date(a.publishedAt).getTime() || 0;
-      const dateB = new Date(b.publishedAt).getTime() || 0;
-      return dateB - dateA;
-    });
+    if (fresh.length > 0) {
+      // Step 3: Write canonical feed to DB so all users see the same headlines
+      const json = JSON.stringify(fresh);
+      if (cached) {
+        await db.update(newsCache).set({ headlines: json, updatedAt: new Date() }).where(eq(newsCache.id, CACHE_KEY));
+      } else {
+        await db.insert(newsCache).values({ id: CACHE_KEY, headlines: json, updatedAt: new Date() });
+      }
+      return NextResponse.json({ headlines: fresh, source: "live" });
+    }
 
-    const seen = new Set<string>();
-    const unique = allHeadlines.filter((h) => {
-      const key = h.title.toLowerCase().slice(0, 40);
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
-
-    if (unique.length > 0) {
-      return NextResponse.json({ headlines: unique.slice(0, 30), source: "live" });
+    // If fetch failed but we have stale cache, serve it
+    if (cached) {
+      return NextResponse.json({ headlines: JSON.parse(cached.headlines), source: "live" });
     }
   } catch {}
 
-  // Fallback to mock data if all feeds fail
+  // Fallback to mock data if all feeds fail and no cache
   return NextResponse.json({
     headlines: [
       { title: "Markets React to Latest Federal Reserve Interest Rate Decision", description: "The Fed held rates steady amid inflation concerns", source: "Mock", url: "#", publishedAt: new Date().toISOString(), keywords: ["fed", "interest rate", "inflation"], categories: ["Finance"] },

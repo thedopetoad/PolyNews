@@ -62,6 +62,13 @@ export const airdrops = pgTable("airdrops", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
+// Canonical news feed cache — ensures all users see the same headlines
+export const newsCache = pgTable("news_cache", {
+  id: text("id").primaryKey(),
+  headlines: text("headlines").notNull(), // JSON array of NewsHeadline
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
 // AI consensus cache
 export const consensusCache = pgTable("consensus_cache", {
   id: text("id").primaryKey(),

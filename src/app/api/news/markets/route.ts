@@ -6,8 +6,8 @@ import { eq } from "drizzle-orm";
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const GAMMA_API = "https://gamma-api.polymarket.com";
-const CACHE_KEY = "news-mkt-v14";
-const MAX_TOTAL = 20;
+const CACHE_KEY = "news-mkt-v15";
+const CACHE_TTL = 2 * 60 * 60 * 1000; // 2 hours — reset stale caches
 const BATCH_SIZE = 3;
 
 interface MarketLink {
@@ -26,8 +26,13 @@ interface CachedData {
   updatedAt: string;
 }
 
+// Normalize title the same way as the frontend for consistent matching
+function normalizeTitle(title: string): string {
+  return title.replace(/[^\w\s]/g, "").toLowerCase().slice(0, 40);
+}
+
 function hashTitle(title: string): string {
-  return crypto.createHash("md5").update(title.slice(0, 80)).digest("hex").slice(0, 12);
+  return crypto.createHash("md5").update(normalizeTitle(title)).digest("hex").slice(0, 12);
 }
 
 async function searchGammaMarkets(keywords: string[]) {
@@ -82,14 +87,22 @@ export async function POST(request: NextRequest) {
       ? JSON.parse(cached.result)
       : { links: [], processedHashes: [], cursor: 0, updatedAt: "" };
 
+    // Expire stale cache — reset everything after 2 hours so new headlines get processed
+    if (existing.updatedAt) {
+      const age = Date.now() - new Date(existing.updatedAt).getTime();
+      if (age > CACHE_TTL) {
+        existing = { links: [], processedHashes: [], cursor: 0, updatedAt: "" };
+      }
+    }
+
     // Find headlines that haven't been processed yet (by hash)
     const processedSet = new Set(existing.processedHashes);
     const unprocessed = headlines.filter((h) => !processedSet.has(hashTitle(h)));
 
-    if (unprocessed.length === 0 || existing.processedHashes.length >= MAX_TOTAL) {
-      // Keep existing links that still match current headlines
-      const currentTitles = new Set(headlines);
-      const relevantLinks = existing.links.filter((l) => currentTitles.has(l.headlineTitle));
+    if (unprocessed.length === 0) {
+      // Keep existing links that match current headlines (fuzzy by normalized title)
+      const currentNormalized = new Set(headlines.map(normalizeTitle));
+      const relevantLinks = existing.links.filter((l) => currentNormalized.has(normalizeTitle(l.headlineTitle)));
       return NextResponse.json({ links: relevantLinks, remaining: 0 });
     }
 
