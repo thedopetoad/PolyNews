@@ -5,8 +5,11 @@ import { cn } from "@/lib/utils";
 import { useUser } from "@/hooks/use-user";
 import { usePolymarketTrade } from "@/hooks/use-polymarket-trade";
 import { LoginButton } from "@/components/layout/login-modal";
-import { useSwitchChain } from "wagmi";
+import { useSwitchChain, useBalance } from "wagmi";
 import { polygon } from "wagmi/chains";
+
+// USDC.e on Polygon
+const USDC_ADDRESS = "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174" as `0x${string}`;
 
 interface BetOutcome {
   name: string;
@@ -37,6 +40,15 @@ export function BetSlip({ eventTitle, eventSlug, eventEndDate, marketId, marketQ
   const { placeOrder, placing, error: tradeError, canTrade, isOnPolygon } = usePolymarketTrade();
   const { switchChain } = useSwitchChain();
 
+  // Fetch real USDC balance on Polygon
+  const { data: usdcBalance } = useBalance({
+    address: address as `0x${string}` | undefined,
+    token: USDC_ADDRESS,
+    chainId: polygon.id,
+    query: { enabled: !!address && isOnPolygon },
+  });
+  const usdcBal = usdcBalance ? parseFloat(usdcBalance.formatted) : 0;
+
   const [side, setSide] = useState<"BUY" | "SELL">("BUY");
   const [selectedOutcome, setSelectedOutcome] = useState<number>(0);
   const [amount, setAmount] = useState("");
@@ -47,10 +59,15 @@ export function BetSlip({ eventTitle, eventSlug, eventEndDate, marketId, marketQ
   const selected = outcomes[selectedOutcome];
   const amountNum = parseFloat(amount) || 0;
   const shares = selected && amountNum > 0 ? amountNum / selected.price : 0;
-  const payout = shares; // Each share pays $1 if outcome wins
+  const payout = shares;
+  const insufficientBalance = amountNum > 0 && amountNum > usdcBal;
 
   const handleTrade = async () => {
     if (!selected || amountNum <= 0) return;
+    if (insufficientBalance) {
+      setResult({ success: false, msg: `Insufficient USDC balance. You have $${usdcBal.toFixed(2)}. Deposit USDC.e on Polygon to trade.` });
+      return;
+    }
     setResult(null);
     const res = await placeOrder({
       tokenId: selected.tokenId,
@@ -163,35 +180,44 @@ export function BetSlip({ eventTitle, eventSlug, eventEndDate, marketId, marketQ
           </button>
         ))}
         <button
-          onClick={() => { setAmount("1000"); setResult(null); }}
+          onClick={() => { setAmount(String(Math.floor(usdcBal * 100) / 100)); setResult(null); }}
           className="flex-1 py-1.5 rounded-md text-[11px] font-medium bg-[#21262d] text-[#e6edf3] hover:bg-[#30363d] transition-colors"
         >
           Max
         </button>
       </div>
 
-      {/* Payout preview */}
-      {amountNum > 0 && selected && (
-        <div className="flex justify-between text-xs text-[#768390] px-1">
-          <span>{shares.toFixed(1)} shares</span>
+      {/* Balance + payout */}
+      <div className="flex justify-between text-xs text-[#768390] px-1">
+        <span>Balance: <span className="text-[#e6edf3] font-medium">${usdcBal.toFixed(2)} USDC</span></span>
+        {amountNum > 0 && selected && (
           <span>Payout: <span className="text-[#3fb950] font-medium">${payout.toFixed(2)}</span></span>
-        </div>
+        )}
+      </div>
+
+      {/* Insufficient balance warning */}
+      {insufficientBalance && (
+        <p className="text-[10px] text-[#d29922] bg-[#d29922]/10 px-2 py-1.5 rounded">
+          Insufficient USDC. <a href="https://portal.polygon.technology/bridge" target="_blank" rel="noopener noreferrer" className="text-[#58a6ff] hover:underline">Bridge USDC to Polygon →</a>
+        </p>
       )}
 
       {/* Trade button */}
       <button
         onClick={handleTrade}
-        disabled={placing || amountNum <= 0 || !canTrade}
+        disabled={placing || amountNum <= 0 || !canTrade || insufficientBalance}
         className={cn(
           "w-full py-3 rounded-lg text-sm font-bold transition-all",
           placing
             ? "bg-[#21262d] text-[#484f58] cursor-wait"
-            : amountNum > 0
-              ? "bg-[#58a6ff] text-white hover:bg-[#4d8fea] active:scale-[0.98]"
-              : "bg-[#21262d] text-[#484f58] cursor-not-allowed"
+            : insufficientBalance
+              ? "bg-[#d29922]/20 text-[#d29922] cursor-not-allowed"
+              : amountNum > 0
+                ? "bg-[#58a6ff] text-white hover:bg-[#4d8fea] active:scale-[0.98]"
+                : "bg-[#21262d] text-[#484f58] cursor-not-allowed"
         )}
       >
-        {placing ? "Confirming in wallet..." : "Trade"}
+        {placing ? "Confirming in wallet..." : insufficientBalance ? "Insufficient USDC" : "Trade"}
       </button>
 
       {/* Result / Error */}

@@ -416,7 +416,7 @@ function PortfolioTab({ allMarkets, onSwitchTab }: { allMarkets: MarketWithPrice
             </p>
           </div>
           <div className="text-right">
-            <p className="text-[10px] text-[#484f58] uppercase tracking-wider">Total Portfolio</p>
+            <p className="text-[10px] text-[#484f58] uppercase tracking-wider">Paper Portfolio</p>
             <p className="text-lg font-bold text-white tabular-nums">
               {totalPortfolioValue.toLocaleString(undefined, { maximumFractionDigits: 0 })} AIRDROP
             </p>
