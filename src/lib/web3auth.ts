@@ -7,6 +7,7 @@ const clientId = process.env.NEXT_PUBLIC_WEB3AUTH_CLIENT_ID || "";
 
 let web3authInstance: Web3Auth | null = null;
 let initPromise: Promise<void> | null = null;
+let initFailed = false;
 
 export function getWeb3AuthInstance(): Web3Auth | null {
   if (!clientId) return null;
@@ -42,8 +43,9 @@ export async function initAndRestoreWeb3Auth(): Promise<string | null> {
 
   try {
     if (w3a.status === "not_ready") {
-      if (!initPromise) {
-        initPromise = w3a.init();
+      if (!initPromise || initFailed) {
+        initFailed = false;
+        initPromise = w3a.init().catch((err) => { initFailed = true; throw err; });
       }
       await initPromise;
     }

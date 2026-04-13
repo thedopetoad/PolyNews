@@ -41,17 +41,44 @@ export function LoginButton() {
     return () => document.removeEventListener("mousedown", handler);
   }, []);
 
+  // Auto-close modal and create user when wallet connects
+  useEffect(() => {
+    if (wagmiConnected && wagmiAddress) {
+      setLoginOpen(false);
+      // Ensure user record exists
+      fetch("/api/user", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: wagmiAddress.toLowerCase(), authMethod: "wallet", walletAddress: wagmiAddress.toLowerCase() }),
+      }).catch(() => {});
+    }
+  }, [wagmiConnected, wagmiAddress]);
+
   const handleGoogleLogin = useCallback(async () => {
     try {
       setGoogleLoading(true);
       const web3auth = getWeb3AuthInstance();
-      if (!web3auth) return;
-      if (web3auth.status === "not_ready") await web3auth.init();
-      // Connect directly to Google — skips Web3Auth's own modal
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const provider = await (web3auth as any).connectTo("auth", {
-        loginProvider: "google",
-      });
+      if (!web3auth) { setGoogleLoading(false); return; }
+
+      // Init with timeout — if init takes >10s, something is wrong
+      if (web3auth.status === "not_ready") {
+        await Promise.race([
+          web3auth.init(),
+          new Promise((_, reject) => setTimeout(() => reject(new Error("Init timeout")), 10000)),
+        ]);
+      }
+
+      // Try direct Google connect first (skips Web3Auth modal)
+      // Fall back to generic connect() if connectTo fails (shows Web3Auth modal)
+      let provider;
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        provider = await (web3auth as any).connectTo("auth", { loginProvider: "google" });
+      } catch {
+        console.warn("Direct Google login failed, falling back to Web3Auth modal");
+        provider = await web3auth.connect();
+      }
+
       if (provider) {
         const accounts = (await provider.request({ method: "eth_accounts" })) as string[] | undefined;
         if (accounts && accounts.length > 0) {

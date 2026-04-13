@@ -152,17 +152,35 @@ Return: [{"kw": ["word1", "word2"]}] — one object per headline. ONLY JSON.`,
       const unique = [...deduped.values()].slice(0, 30);
       const marketList = unique.map((m, i) => `${i}: ${m.question}`).join("\n");
 
-      // Step 3: Match & validate
+      // Step 3: Match & validate — STRICT topic matching
       const matchResponse = await openai.chat.completions.create({
         model: "gpt-4o-mini",
         temperature: 0,
         messages: [
           {
             role: "system",
-            content: `Match headlines to markets. Up to 3 DIRECTLY related markets per headline.
-✅ Same topic = match. ❌ Different topic = no match.
-❌ "Iran war" → "Iran FIFA" = NO. ❌ "Trump NATO" → "Trump 2028" = NO.
-Return: [{"h": 0, "m": [1, 5]}] ONLY JSON.`,
+            content: `You match news headlines to prediction markets. Be EXTREMELY strict — only match if the market is DIRECTLY about the same specific event/topic as the headline.
+
+RULES:
+- The market must be about the EXACT SAME subject as the headline
+- Sharing a country name or person name is NOT enough — the topic must match
+- Sports markets NEVER match non-sports headlines (and vice versa)
+- Generic/broad markets don't match specific events unless clearly related
+
+CORRECT matches:
+✅ "US blocks Iranian ports" → "Will US impose sanctions on Iran?" (same geopolitical event)
+✅ "Bitcoin hits $100K" → "Will Bitcoin reach $100K by June?" (same asset, same milestone)
+✅ "Trump fires cabinet member" → "Will Trump's cabinet member resign?" (same specific event)
+
+WRONG matches — REJECT THESE:
+❌ "Iran oil blockade" → "Will Iran win FIFA World Cup?" (oil ≠ sports)
+❌ "Trump NATO speech" → "Will Trump win 2028?" (NATO policy ≠ election)
+❌ "Ukraine counteroffensive" → "Will Russia host World Cup?" (war ≠ sports)
+❌ "Israel strikes Lebanon" → "Will Israel win Eurovision?" (military ≠ entertainment)
+❌ "China tariffs" → "Will China land on Mars?" (trade ≠ space)
+
+When in doubt, DO NOT match. Empty arrays are fine: [{"h": 0, "m": []}]
+Return: [{"h": 0, "m": [1, 5]}] — ONLY JSON, one object per headline.`,
           },
           { role: "user", content: `HEADLINES:\n${toProcess.map((h, i) => `${i}: ${h}`).join("\n")}\n\nMARKETS:\n${marketList}` },
         ],
