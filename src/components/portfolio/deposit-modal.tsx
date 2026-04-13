@@ -42,7 +42,7 @@ export function DepositModal({ open, onOpenChange }: DepositModalProps) {
           <DialogTitle className="text-white">Deposit to Polygon</DialogTitle>
         </DialogHeader>
         <div className="mt-2">
-          <LiFiWidget config={widgetConfig} />
+          <LiFiWidget integrator="polystream" config={widgetConfig} />
         </div>
       </DialogContent>
     </Dialog>

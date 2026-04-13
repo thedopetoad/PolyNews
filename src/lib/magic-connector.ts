@@ -12,12 +12,14 @@ import { getMagic, checkMagicSession, logoutMagic } from "./magic";
  * useWalletClient, useWriteContract, useBalance, etc.)
  */
 export function magicConnector() {
-  return createConnector((config) => ({
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return createConnector<any>((config) => ({
     id: "magic",
     name: "Google",
     type: "magic",
 
-    async connect() {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    async connect(_params?: any): Promise<any> {
       const magic = getMagic();
       if (!magic) throw new Error("Magic not initialized");
 
@@ -28,10 +30,7 @@ export function magicConnector() {
       const account = getAddress(address);
       config.emitter.emit("connect", { accounts: [account], chainId: polygon.id });
 
-      return {
-        accounts: [account],
-        chainId: polygon.id,
-      };
+      return { accounts: [account], chainId: polygon.id };
     },
 
     async disconnect() {
@@ -42,7 +41,7 @@ export function magicConnector() {
     async getAccounts() {
       const address = await checkMagicSession();
       if (!address) return [];
-      return [getAddress(address)];
+      return [getAddress(address)] as readonly `0x${string}`[];
     },
 
     async getChainId() {
@@ -64,7 +63,7 @@ export function magicConnector() {
       }
     },
 
-    async switchChain({ chainId }) {
+    async switchChain({ chainId }: { chainId: number }) {
       if (chainId !== polygon.id) {
         throw new Error("Magic wallet only supports Polygon");
       }
