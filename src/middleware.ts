@@ -57,7 +57,7 @@ export function middleware(request: NextRequest) {
   );
   response.headers.set(
     "Content-Security-Policy",
-    "default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline' https://*.web3auth.io https://*.walletconnect.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data: https:; frame-src https://www.youtube.com https://rumble.com https://*.web3auth.io https://*.walletconnect.com; connect-src 'self' https: wss:;"
+    "default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline' https://*.magic.link https://*.walletconnect.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data: https:; frame-src https://www.youtube.com https://rumble.com https://*.magic.link https://auth.magic.link https://*.walletconnect.com; connect-src 'self' https: wss:;"
   );
 
   // Rate limit API routes only

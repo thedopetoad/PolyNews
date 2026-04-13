@@ -3,7 +3,7 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { useAccount, useConnect, useDisconnect } from "wagmi";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { getWeb3AuthInstance, ensureWeb3AuthInit } from "@/lib/web3auth";
+import { loginWithGoogle, logoutMagic } from "@/lib/magic";
 import { useAuthStore } from "@/stores/use-auth-store";
 import { useUser } from "@/hooks/use-user";
 
@@ -33,18 +33,13 @@ export function LoginButton() {
   const connectedAddress = wagmiAddress || googleAddress;
   const isConnected = !!(wagmiConnected || googleAddress);
 
+  // Close dropdown on outside click
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false);
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
-  }, []);
-
-  // Pre-initialize Web3Auth on mount so the popup opens instantly on click
-  const [web3authReady, setWeb3authReady] = useState(false);
-  useEffect(() => {
-    ensureWeb3AuthInit().then((w3a) => { if (w3a) setWeb3authReady(true); });
   }, []);
 
   // Auto-close modal and create user when wallet connects
@@ -59,51 +54,28 @@ export function LoginButton() {
     }
   }, [wagmiConnected, wagmiAddress]);
 
+  // Google login via Magic — redirects to Google account picker, then back
   const handleGoogleLogin = useCallback(async () => {
     try {
       setGoogleLoading(true);
-      const web3auth = getWeb3AuthInstance();
-      if (!web3auth) { setGoogleLoading(false); return; }
-
-      // Ensure initialized (pre-init runs on mount, this is a safety check)
-      if (web3auth.status === "not_ready") {
-        await ensureWeb3AuthInit();
-      }
-
-      // Use connect() which opens Web3Auth's login modal
-      // (connectTo("auth") doesn't work reliably in Web3Auth Modal v10)
-      const provider = await web3auth.connect();
-
-      if (provider) {
-        const accounts = (await provider.request({ method: "eth_accounts" })) as string[] | undefined;
-        if (accounts && accounts.length > 0) {
-          const addr = accounts[0].toLowerCase();
-          setGoogleAddress(addr);
-          await fetch("/api/user", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ id: addr, authMethod: "google", walletAddress: addr }),
-          });
-          setLoginOpen(false);
-        }
-      }
+      await loginWithGoogle(); // Redirects away — page will reload
     } catch (err) {
       console.error("Google login failed:", err);
-    } finally {
       setGoogleLoading(false);
     }
-  }, [setGoogleAddress]);
+  }, []);
 
+  // Disconnect everything
   const handleDisconnect = useCallback(async () => {
-    if (wagmiConnected) wagmiDisconnect();
-    if (googleAddress) {
-      try { const w = getWeb3AuthInstance(); if (w) await w.logout(); } catch {}
-      setGoogleAddress(null);
-    }
     setMenuOpen(false);
+    if (googleAddress) {
+      setGoogleAddress(null);
+      await logoutMagic();
+    }
+    if (wagmiConnected) wagmiDisconnect();
   }, [wagmiConnected, wagmiDisconnect, googleAddress, setGoogleAddress]);
 
-  // ─── Connected: address with simple dropdown ───
+  // ─── Connected: address with dropdown ───
   if (isConnected && connectedAddress) {
     return (
       <div className="relative" ref={menuRef}>
@@ -174,7 +146,7 @@ export function LoginButton() {
             <button onClick={handleGoogleLogin} disabled={googleLoading}
               className="w-full flex items-center gap-3 px-4 py-3 rounded-lg bg-[#0d1117] border border-[#21262d] hover:border-[#30363d] transition-colors text-left">
               <GoogleIcon />
-              <span className="text-sm text-[#e6edf3] font-medium">{googleLoading ? "Connecting..." : "Continue with Google"}</span>
+              <span className="text-sm text-[#e6edf3] font-medium">{googleLoading ? "Redirecting to Google..." : "Continue with Google"}</span>
             </button>
             <div className="flex items-center gap-3 py-2">
               <div className="flex-1 h-px bg-[#21262d]" />

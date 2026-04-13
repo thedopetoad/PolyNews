@@ -3,7 +3,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useState, useEffect } from "react";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { initAndRestoreWeb3Auth } from "@/lib/web3auth";
+import { checkMagicSession, handleOAuthRedirect } from "@/lib/magic";
 import { useAuthStore } from "@/stores/use-auth-store";
 import { WagmiProvider, createConfig, http } from "wagmi";
 import {
@@ -51,19 +51,29 @@ const config = createConfig({
   ssr: true,
 });
 
-function Web3AuthSessionRestore() {
-  const { googleAddress, setGoogleAddress } = useAuthStore();
+function MagicSessionRestore() {
+  const { setGoogleAddress } = useAuthStore();
 
   useEffect(() => {
-    // If we have a persisted google address, try to restore the Web3Auth session
-    if (googleAddress) {
-      initAndRestoreWeb3Auth().then((addr) => {
-        if (addr) {
-          setGoogleAddress(addr);
-        }
-        // Don't clear on failure — the persisted address is still valid for UI
-      });
-    }
+    // 1. Handle OAuth redirect (user just came back from Google)
+    handleOAuthRedirect().then(async (addr) => {
+      if (addr) {
+        setGoogleAddress(addr);
+        // Create/update user in DB
+        await fetch("/api/user", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: addr, authMethod: "google", walletAddress: addr }),
+        }).catch(() => {});
+        return;
+      }
+
+      // 2. No redirect — check for existing Magic session
+      const existing = await checkMagicSession();
+      if (existing) {
+        setGoogleAddress(existing);
+      }
+    });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   return null;
@@ -94,7 +104,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
           })}
         >
           <TooltipProvider>
-            <Web3AuthSessionRestore />
+            <MagicSessionRestore />
             {children}
           </TooltipProvider>
         </RainbowKitProvider>
