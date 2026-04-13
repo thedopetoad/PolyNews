@@ -62,7 +62,7 @@ export async function loginWithGoogle(): Promise<void> {
 
   await magic.oauth2.loginWithRedirect({
     provider: "google",
-    redirectURI: window.location.origin + window.location.pathname,
+    redirectURI: window.location.origin + "/",
   });
 }
 
