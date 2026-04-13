@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getDb, users, airdrops, trades, positions } from "@/db";
+import { getDb, users, airdrops, trades, positions, referrals } from "@/db";
 import { sql, desc, gt, count, eq } from "drizzle-orm";
 
 // Only these addresses can access the admin dashboard
@@ -325,6 +325,10 @@ export async function POST(request: NextRequest) {
       await db.update(positions).set({ userId: target.id }).where(eq(positions.userId, source.id));
       await db.update(trades).set({ userId: target.id }).where(eq(trades.userId, source.id));
       await db.update(airdrops).set({ userId: target.id }).where(eq(airdrops.userId, source.id));
+
+      // Transfer referrals (foreign key constraints would block delete otherwise)
+      await db.update(referrals).set({ referrerId: target.id }).where(eq(referrals.referrerId, source.id));
+      await db.update(referrals).set({ referredId: target.id }).where(eq(referrals.referredId, source.id));
 
       // Add source balance to target
       await db.update(users).set({

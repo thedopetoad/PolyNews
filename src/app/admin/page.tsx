@@ -419,13 +419,22 @@ export default function AdminPage() {
                             if (!confirm(`Migrate older account to newer? This merges positions, trades, airdrops, and balance from the older account into the newer one, then deletes the old account. IDs: ${ip.userIds.join(", ")}`)) return;
                             setActionLoading(true);
                             try {
-                              await fetch("/api/admin", {
+                              const res = await fetch("/api/admin", {
                                 method: "POST",
                                 headers: { "Content-Type": "application/json", Authorization: `Bearer ${connectedAddress}` },
                                 body: JSON.stringify({ action: "migrateAccounts", userIds: ip.userIds }),
                               });
+                              if (res.ok) {
+                                const data = await res.json();
+                                alert(`Migration complete! Merged ${data.from.slice(0,10)}… into ${data.to.slice(0,10)}…`);
+                              } else {
+                                const err = await res.json();
+                                alert(`Migration failed: ${err.error}`);
+                              }
                               fetchAdmin();
-                            } catch {}
+                            } catch (e) {
+                              alert(`Migration error: ${e}`);
+                            }
                             setActionLoading(false);
                           }}
                           disabled={actionLoading}
