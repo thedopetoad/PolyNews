@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { useAccount } from "wagmi";
+import { useAuthStore } from "@/stores/use-auth-store";
 import {
   Shield,
   Users,
@@ -145,7 +146,8 @@ function ReasonBadge({ reason }: { reason: string }) {
 
 export default function AdminPage() {
   const { address } = useAccount();
-  const connectedAddress = address?.toLowerCase();
+  const googleAddress = useAuthStore((s) => s.googleAddress);
+  const connectedAddress = (address || googleAddress)?.toLowerCase();
   const isAdmin =
     !!connectedAddress && ADMIN_ADDRESSES.includes(connectedAddress);
 

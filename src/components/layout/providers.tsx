@@ -3,10 +3,10 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useState, useEffect } from "react";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { handleOAuthRedirect, checkMagicSession, type OAuthResult } from "@/lib/magic";
-import { magicConnector } from "@/lib/magic-connector";
+import { checkMagicSession, handleOAuthRedirect, type OAuthResult } from "@/lib/magic";
+import { useAuthStore } from "@/stores/use-auth-store";
 import { I18nProvider } from "@/lib/i18n";
-import { WagmiProvider, createConfig, http, useConnect, useAccount } from "wagmi";
+import { WagmiProvider, createConfig, http } from "wagmi";
 import {
   RainbowKitProvider,
   darkTheme,
@@ -25,7 +25,7 @@ import "@rainbow-me/rainbowkit/styles.css";
 const projectId =
   process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID || "placeholder";
 
-const rainbowConnectors = connectorsForWallets(
+const connectors = connectorsForWallets(
   [
     {
       groupName: "Popular",
@@ -44,7 +44,7 @@ const rainbowConnectors = connectorsForWallets(
 );
 
 const config = createConfig({
-  connectors: [...rainbowConnectors, magicConnector()],
+  connectors,
   chains: [polygon],
   transports: {
     [polygon.id]: http(),
@@ -52,32 +52,18 @@ const config = createConfig({
   ssr: true,
 });
 
-/**
- * Handles Magic OAuth redirect and session restore by connecting
- * to wagmi via the magic connector. After this, useAccount() etc.
- * all work for Google users.
- */
 function MagicSessionRestore() {
-  const { connect, connectors } = useConnect();
-  const { isConnected } = useAccount();
-  const [attempted, setAttempted] = useState(false);
+  const { setGoogleAddress } = useAuthStore();
 
   useEffect(() => {
-    // Don't reconnect if already connected or already attempted
-    if (isConnected || attempted) return;
-
-    // Wait for connectors to be available
-    const magicConn = connectors.find((c) => c.id === "magic");
-    if (!magicConn) return;
-
-    setAttempted(true);
-
+    // Read referral code from URL if present (e.g., ?ref=PS-ABC12345)
     const refCode = new URLSearchParams(window.location.search).get("ref") || undefined;
 
     // 1. Handle OAuth redirect (user just came back from Google)
     handleOAuthRedirect().then(async (result: OAuthResult | null) => {
       if (result?.address) {
-        // Create/update user in DB
+        setGoogleAddress(result.address);
+        // Create/update user in DB — pass email + referral code for migration + rewards
         await fetch("/api/user", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -89,21 +75,16 @@ function MagicSessionRestore() {
             referredBy: refCode,
           }),
         }).catch(() => {});
-
-        // Connect via wagmi magic connector
-        connect({ connector: magicConn });
         return;
       }
 
       // 2. No redirect — check for existing Magic session
       const existing = await checkMagicSession();
       if (existing) {
-        connect({ connector: magicConn });
+        setGoogleAddress(existing);
       }
-    }).catch((err) => {
-      console.error("Magic session restore failed:", err);
     });
-  }, [isConnected, connectors, connect, attempted]);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   return null;
 }

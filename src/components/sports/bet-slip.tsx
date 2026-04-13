@@ -4,10 +4,10 @@ import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { useUser } from "@/hooks/use-user";
 import { usePolymarketTrade } from "@/hooks/use-polymarket-trade";
+import { useAuthStore } from "@/stores/use-auth-store";
 import { LoginButton } from "@/components/layout/login-modal";
 import { useT } from "@/lib/i18n";
-import { useSwitchChain, useBalance } from "wagmi";
-import { DepositModal } from "@/components/portfolio/deposit-modal";
+import { useSwitchChain, useBalance, useAccount } from "wagmi";
 import { polygon } from "wagmi/chains";
 
 // USDC.e on Polygon
@@ -41,13 +41,15 @@ export function BetSlip({ eventTitle, eventSlug, eventEndDate, marketId, marketQ
   const { address, isConnected } = useUser();
   const { placeOrder, placing, error: tradeError, canTrade, isOnPolygon } = usePolymarketTrade();
   const { switchChain } = useSwitchChain();
+  const googleAddress = useAuthStore((s) => s.googleAddress);
+  const isGoogleUser = !!googleAddress && !useAccount().isConnected;
 
-  // Fetch real USDC balance on Polygon
+  // Fetch real USDC balance on Polygon (only for wallet users on Polygon)
   const { data: usdcBalance } = useBalance({
     address: address as `0x${string}` | undefined,
     token: USDC_ADDRESS,
     chainId: polygon.id,
-    query: { enabled: !!address && isOnPolygon },
+    query: { enabled: !!address && (isOnPolygon || isGoogleUser) },
   });
   const usdcBal = usdcBalance ? parseFloat(usdcBalance.formatted) : 0;
   const { t } = useT();
@@ -56,7 +58,6 @@ export function BetSlip({ eventTitle, eventSlug, eventEndDate, marketId, marketQ
   const [selectedOutcome, setSelectedOutcome] = useState<number>(0);
   const [amount, setAmount] = useState("");
   const [result, setResult] = useState<{ success: boolean; msg: string } | null>(null);
-  const [depositOpen, setDepositOpen] = useState(false);
 
   if (outcomes.length === 0) return null;
 
@@ -97,7 +98,7 @@ export function BetSlip({ eventTitle, eventSlug, eventEndDate, marketId, marketQ
     );
   }
 
-  if (!isOnPolygon) {
+  if (!isOnPolygon && !isGoogleUser) {
     return (
       <div className="space-y-2" onClick={(e) => e.stopPropagation()}>
         <button
@@ -106,6 +107,16 @@ export function BetSlip({ eventTitle, eventSlug, eventEndDate, marketId, marketQ
         >
           {t.betSlip.switchToPolygon}
         </button>
+      </div>
+    );
+  }
+
+  // Google/Magic users need a wallet for CLOB trading
+  if (isGoogleUser && !canTrade) {
+    return (
+      <div className="space-y-2 text-center" onClick={(e) => e.stopPropagation()}>
+        <p className="text-xs text-[#768390]">{t.login.connectWalletToTrade}</p>
+        <LoginButton />
       </div>
     );
   }
@@ -202,11 +213,7 @@ export function BetSlip({ eventTitle, eventSlug, eventEndDate, marketId, marketQ
       {/* Insufficient balance warning */}
       {insufficientBalance && (
         <p className="text-[10px] text-[#d29922] bg-[#d29922]/10 px-2 py-1.5 rounded">
-          {t.betSlip.insufficientUsdc}.{" "}
-          <button onClick={() => setDepositOpen(true)} className="text-[#58a6ff] hover:underline">
-            {t.portfolio.depositUsdc} &rarr;
-          </button>
-          <DepositModal open={depositOpen} onOpenChange={setDepositOpen} />
+          {t.betSlip.insufficientUsdc}. <a href="https://portal.polygon.technology/bridge" target="_blank" rel="noopener noreferrer" className="text-[#58a6ff] hover:underline">{t.betSlip.bridgeUsdcToPolygon} &rarr;</a>
         </p>
       )}
 

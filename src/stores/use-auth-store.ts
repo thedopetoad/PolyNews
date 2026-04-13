@@ -1,5 +1,24 @@
 "use client";
 
-// Auth state is now managed entirely through wagmi connectors.
-// Magic/Google auth uses the magic connector (src/lib/magic-connector.ts).
-// This file is kept as a placeholder for future non-wagmi auth state.
+import { create } from "zustand";
+import { persist } from "zustand/middleware";
+
+/**
+ * Unified auth store that tracks the connected address
+ * regardless of whether it came from wagmi (wallet) or Web3Auth (Google).
+ * Persisted to localStorage so sessions survive page refresh.
+ */
+interface AuthState {
+  googleAddress: string | null;
+  setGoogleAddress: (address: string | null) => void;
+}
+
+export const useAuthStore = create<AuthState>()(
+  persist(
+    (set) => ({
+      googleAddress: null,
+      setGoogleAddress: (address) => set({ googleAddress: address }),
+    }),
+    { name: "polystream-auth" }
+  )
+);

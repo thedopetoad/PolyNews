@@ -2,6 +2,7 @@
 
 import { useAccount } from "wagmi";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useAuthStore } from "@/stores/use-auth-store";
 
 export interface DbUser {
   id: string;
@@ -88,11 +89,14 @@ async function fetchTrades(userId: string): Promise<DbTrade[]> {
 }
 
 export function useUser() {
-  const { address: wagmiAddress, isConnected, connector } = useAccount();
+  const { address: wagmiAddress, isConnected: wagmiConnected } = useAccount();
+  const googleAddress = useAuthStore((s) => s.googleAddress);
   const queryClient = useQueryClient();
 
-  const address = wagmiAddress;
-  const authMethod = connector?.id === "magic" ? "google" : "wallet";
+  // Unified: use wagmi address if connected, otherwise Google address
+  const address = wagmiAddress || googleAddress;
+  const isConnected = !!(wagmiConnected || googleAddress);
+  const authMethod = wagmiAddress ? "wallet" : "google";
 
   const userQuery = useQuery({
     queryKey: ["user", address],

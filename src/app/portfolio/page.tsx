@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { useUser } from "@/hooks/use-user";
 import { useAccount, useBalance } from "wagmi";
+import { useAuthStore } from "@/stores/use-auth-store";
 import { LoginButton } from "@/components/layout/login-modal";
 import { cn } from "@/lib/utils";
 import { useT } from "@/lib/i18n";
@@ -33,8 +34,10 @@ function formatUsd(n: number): string {
 export default function PortfolioPage() {
   const { t } = useT();
   const { address, isConnected, user, positions: paperPositions } = useUser();
-  const { chainId } = useAccount();
-  const isOnPolygon = chainId === POLYGON_CHAIN_ID;
+  const { isConnected: wagmiConnected, chainId } = useAccount();
+  const googleAddress = useAuthStore((s) => s.googleAddress);
+  const isGoogleUser = !!googleAddress && !wagmiConnected;
+  const isOnPolygon = chainId === POLYGON_CHAIN_ID || isGoogleUser;
 
   // Real USDC balance
   const { data: usdcBalance } = useBalance({
@@ -53,6 +56,10 @@ export default function PortfolioPage() {
   // Tab state
   const [tab, setTab] = useState<"positions" | "history">("positions");
 
+  // Deposit/Withdraw modals
+  const [depositOpen, setDepositOpen] = useState(false);
+  const [withdrawOpen, setWithdrawOpen] = useState(false);
+
   // Referral count
   const [referralCount, setReferralCount] = useState<number>(0);
   useEffect(() => {
@@ -64,10 +71,6 @@ export default function PortfolioPage() {
       .then((d) => { if (d) setReferralCount(d.count); })
       .catch(() => {});
   }, [address]);
-
-  // Deposit/Withdraw modals
-  const [depositOpen, setDepositOpen] = useState(false);
-  const [withdrawOpen, setWithdrawOpen] = useState(false);
 
   // Copy feedback
   const [copied, setCopied] = useState<"code" | "link" | null>(null);
@@ -193,7 +196,7 @@ export default function PortfolioPage() {
               {copied === "link" ? "Copied!" : "Copy Link"}
             </button>
           </div>
-          <div className="mt-3 grid grid-cols-2 gap-3 text-center">
+          <div className="mt-3 grid grid-cols-4 gap-3 text-center">
             <div className="bg-[#0d1117] rounded-lg p-3">
               <p className="text-lg font-bold text-[#3fb950]">{referralCount}</p>
               <p className="text-[10px] text-[#484f58]">Friends referred</p>
@@ -201,6 +204,14 @@ export default function PortfolioPage() {
             <div className="bg-[#0d1117] rounded-lg p-3">
               <p className="text-lg font-bold text-white">5,000</p>
               <p className="text-[10px] text-[#484f58]">AIRDROP per referral</p>
+            </div>
+            <div className="bg-[#0d1117] rounded-lg p-3">
+              <p className="text-lg font-bold text-white">100</p>
+              <p className="text-[10px] text-[#484f58]">Daily claim</p>
+            </div>
+            <div className="bg-[#0d1117] rounded-lg p-3">
+              <p className="text-lg font-bold text-white">1,000</p>
+              <p className="text-[10px] text-[#484f58]">Signup bonus</p>
             </div>
           </div>
 
