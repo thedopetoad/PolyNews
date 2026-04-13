@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getDb, users, airdrops, trades } from "@/db";
+import { getDb, users, airdrops, trades, positions } from "@/db";
 import { sql, desc, gt, count, eq } from "drizzle-orm";
 
 // Only these addresses can access the admin dashboard
@@ -274,6 +274,31 @@ export async function POST(request: NextRequest) {
       }
 
       return NextResponse.json({ success: true, user: { id: updated.id, balance: updated.balance } });
+    }
+
+    if (action === "getUserDetails") {
+      // Fetch user profile, trades, and positions for monitoring
+      const [user] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
+      if (!user) {
+        // Try lowercase
+        const [userLower] = await db.select().from(users).where(eq(users.id, userId.toLowerCase())).limit(1);
+        if (!userLower) return NextResponse.json({ error: "User not found" }, { status: 404 });
+      }
+
+      const targetId = user?.id || userId.toLowerCase();
+
+      const [userTrades, userPositions, userAirdrops] = await Promise.all([
+        db.select().from(trades).where(eq(trades.userId, targetId)).orderBy(desc(trades.createdAt)).limit(50),
+        db.select().from(positions).where(eq(positions.userId, targetId)).orderBy(desc(positions.updatedAt)),
+        db.select().from(airdrops).where(eq(airdrops.userId, targetId)).orderBy(desc(airdrops.createdAt)).limit(30),
+      ]);
+
+      return NextResponse.json({
+        user: user || null,
+        trades: userTrades,
+        positions: userPositions,
+        airdrops: userAirdrops,
+      });
     }
 
     return NextResponse.json({ error: "Unknown action" }, { status: 400 });

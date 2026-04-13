@@ -157,6 +157,16 @@ export default function AdminPage() {
   const [editBalance, setEditBalance] = useState("");
   const [actionLoading, setActionLoading] = useState(false);
 
+  // User detail drill-down
+  const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
+  const [userDetail, setUserDetail] = useState<{
+    user: AdminData["recentUsers"][0] | null;
+    trades: AdminData["recentTrades"][];
+    positions: Array<{ id: string; marketId: string; marketQuestion: string; outcome: string; shares: number; avgPrice: number; clobTokenId: string | null; createdAt: string; updatedAt: string }>;
+    airdrops: Array<{ id: string; source: string; amount: number; createdAt: string }>;
+  } | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+
   const fetchAdmin = useCallback(async () => {
     if (!connectedAddress) return;
     setLoading(true);
@@ -180,6 +190,22 @@ export default function AdminPage() {
   useEffect(() => {
     if (isAdmin) fetchAdmin();
   }, [isAdmin, fetchAdmin]);
+
+  const fetchUserDetail = useCallback(async (userId: string) => {
+    if (!connectedAddress) return;
+    if (selectedUserId === userId) { setSelectedUserId(null); setUserDetail(null); return; }
+    setSelectedUserId(userId);
+    setDetailLoading(true);
+    try {
+      const res = await fetch("/api/admin", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${connectedAddress}` },
+        body: JSON.stringify({ action: "getUserDetails", userId }),
+      });
+      if (res.ok) setUserDetail(await res.json());
+    } catch {}
+    setDetailLoading(false);
+  }, [connectedAddress, selectedUserId]);
 
   const adminAction = async (action: string, userId: string, balance?: number) => {
     if (!connectedAddress) return;
@@ -415,7 +441,9 @@ export default function AdminPage() {
                 {data.recentTrades.map((t) => (
                   <tr key={t.id} className="border-b border-[#21262d]/50">
                     <td className="py-2 pr-4 font-mono text-xs text-[#e6edf3]">
-                      {maskAddress(t.userId)}
+                      <button onClick={() => fetchUserDetail(t.userId)} className="hover:text-[#58a6ff] transition-colors cursor-pointer" title="View user details">
+                        {maskAddress(t.userId)}
+                      </button>
                     </td>
                     <td className="py-2 pr-4">
                       <span
@@ -465,16 +493,15 @@ export default function AdminPage() {
               </tr>
             </thead>
             <tbody>
-              {data.recentUsers.map((u) => (
-                <tr key={u.id} className="border-b border-[#21262d]/50">
+              {data.recentUsers.map((u) => (<>
+                <tr key={u.id} className={`border-b border-[#21262d]/50 cursor-pointer transition-colors ${selectedUserId === u.id ? "bg-[#58a6ff]/5" : "hover:bg-[#1c2128]"}`} onClick={() => fetchUserDetail(u.id)}>
                   <td className="py-2 pr-4 font-mono text-xs text-[#e6edf3]">
-                    <button
-                      onClick={() => { navigator.clipboard.writeText(u.id); }}
-                      className="hover:text-[#58a6ff] transition-colors cursor-pointer"
+                    <span
+                      className="hover:text-[#58a6ff] transition-colors"
                       title={u.id}
                     >
                       {maskAddress(u.id)}
-                    </button>
+                    </span>
                   </td>
                   <td className="py-2 pr-4 text-[#e6edf3]">
                     {u.displayName || "-"}
@@ -529,7 +556,7 @@ export default function AdminPage() {
                   </td>
                   <td className="py-2">
                     <button
-                      onClick={() => adminAction("resetBalance", u.id)}
+                      onClick={(e) => { e.stopPropagation(); adminAction("resetBalance", u.id); }}
                       disabled={actionLoading}
                       className="text-[10px] px-2 py-0.5 rounded bg-[#f85149]/10 text-[#f85149] hover:bg-[#f85149]/20 disabled:opacity-50"
                     >
@@ -537,7 +564,97 @@ export default function AdminPage() {
                     </button>
                   </td>
                 </tr>
-              ))}
+                {/* Expanded user detail row */}
+                {selectedUserId === u.id && (
+                  <tr key={`${u.id}-detail`}>
+                    <td colSpan={8} className="p-0">
+                      <div className="bg-[#0d1117] border-t border-b border-[#58a6ff]/20 p-4 space-y-4">
+                        {detailLoading ? (
+                          <p className="text-xs text-[#484f58] text-center py-4">Loading user data...</p>
+                        ) : userDetail ? (
+                          <>
+                            {/* User positions */}
+                            <div>
+                              <h3 className="text-xs font-semibold text-[#58a6ff] mb-2">Open Positions ({userDetail.positions?.length || 0})</h3>
+                              {(userDetail.positions?.length || 0) === 0 ? (
+                                <p className="text-xs text-[#484f58]">No open positions</p>
+                              ) : (
+                                <table className="w-full text-xs">
+                                  <thead><tr className="text-[#484f58] border-b border-[#21262d]">
+                                    <th className="pb-1 text-left pr-3">Market</th>
+                                    <th className="pb-1 text-left pr-3">Outcome</th>
+                                    <th className="pb-1 text-right pr-3">Shares</th>
+                                    <th className="pb-1 text-right pr-3">Avg Price</th>
+                                    <th className="pb-1 text-right">Value</th>
+                                  </tr></thead>
+                                  <tbody>
+                                    {userDetail.positions.map((p: { id: string; marketQuestion: string; outcome: string; shares: number; avgPrice: number }) => (
+                                      <tr key={p.id} className="border-b border-[#21262d]/30">
+                                        <td className="py-1.5 pr-3 text-[#e6edf3] max-w-[200px] truncate">{p.marketQuestion}</td>
+                                        <td className="py-1.5 pr-3 text-[#768390]">{p.outcome}</td>
+                                        <td className="py-1.5 pr-3 text-right text-[#e6edf3] tabular-nums">{p.shares.toFixed(1)}</td>
+                                        <td className="py-1.5 pr-3 text-right text-[#e6edf3] tabular-nums">{(p.avgPrice * 100).toFixed(0)}¢</td>
+                                        <td className="py-1.5 text-right text-[#3fb950] tabular-nums font-medium">{(p.shares * p.avgPrice).toFixed(0)}</td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              )}
+                            </div>
+
+                            {/* User trades */}
+                            <div>
+                              <h3 className="text-xs font-semibold text-[#d29922] mb-2">Trade History ({userDetail.trades?.length || 0})</h3>
+                              {(userDetail.trades?.length || 0) === 0 ? (
+                                <p className="text-xs text-[#484f58]">No trades</p>
+                              ) : (
+                                <table className="w-full text-xs">
+                                  <thead><tr className="text-[#484f58] border-b border-[#21262d]">
+                                    <th className="pb-1 text-left pr-3">Side</th>
+                                    <th className="pb-1 text-left pr-3">Market</th>
+                                    <th className="pb-1 text-left pr-3">Outcome</th>
+                                    <th className="pb-1 text-right pr-3">Shares</th>
+                                    <th className="pb-1 text-right pr-3">Price</th>
+                                    <th className="pb-1 text-right">When</th>
+                                  </tr></thead>
+                                  <tbody>
+                                    {(userDetail.trades as unknown as Array<{ id: string; side: string; marketQuestion: string; outcome: string; shares: number; price: number; createdAt: string }>).map((t) => (
+                                      <tr key={t.id} className="border-b border-[#21262d]/30">
+                                        <td className="py-1.5 pr-3"><span className={t.side === "buy" ? "text-[#3fb950]" : "text-[#f85149]"}>{t.side.toUpperCase()}</span></td>
+                                        <td className="py-1.5 pr-3 text-[#e6edf3] max-w-[180px] truncate">{t.marketQuestion}</td>
+                                        <td className="py-1.5 pr-3 text-[#768390]">{t.outcome}</td>
+                                        <td className="py-1.5 pr-3 text-right text-[#e6edf3] tabular-nums">{t.shares.toFixed(1)}</td>
+                                        <td className="py-1.5 pr-3 text-right text-[#e6edf3] tabular-nums">{(t.price * 100).toFixed(0)}¢</td>
+                                        <td className="py-1.5 text-right text-[#484f58]">{timeAgo(t.createdAt)}</td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              )}
+                            </div>
+
+                            {/* User airdrops */}
+                            {(userDetail.airdrops?.length || 0) > 0 && (
+                              <div>
+                                <h3 className="text-xs font-semibold text-[#3fb950] mb-2">Airdrop Claims ({userDetail.airdrops.length})</h3>
+                                <div className="flex gap-2 flex-wrap">
+                                  {userDetail.airdrops.map((a: { id: string; source: string; amount: number; createdAt: string }) => (
+                                    <span key={a.id} className="text-[10px] bg-[#21262d] text-[#768390] px-2 py-0.5 rounded">
+                                      {a.source}: {a.amount} · {timeAgo(a.createdAt)}
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </>
+                        ) : (
+                          <p className="text-xs text-[#f85149]">Failed to load user data</p>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                )}
+              </>))}
             </tbody>
           </table>
         </div>
