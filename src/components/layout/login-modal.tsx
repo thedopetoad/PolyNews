@@ -65,14 +65,14 @@ export function LoginButton() {
       const web3auth = getWeb3AuthInstance();
       if (!web3auth) { setGoogleLoading(false); return; }
 
-      // If not ready yet (rare — init runs on mount), do a quick init
+      // Ensure initialized (pre-init runs on mount, this is a safety check)
       if (web3auth.status === "not_ready") {
         await ensureWeb3AuthInit();
       }
 
-      // connectTo opens the OAuth popup IMMEDIATELY (no async delay = no popup blocker)
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const provider = await (web3auth as any).connectTo("auth", { loginProvider: "google" });
+      // Use connect() which opens Web3Auth's login modal
+      // (connectTo("auth") doesn't work reliably in Web3Auth Modal v10)
+      const provider = await web3auth.connect();
 
       if (provider) {
         const accounts = (await provider.request({ method: "eth_accounts" })) as string[] | undefined;
