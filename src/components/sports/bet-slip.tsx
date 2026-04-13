@@ -29,13 +29,11 @@ function abbrev(name: string): string {
 }
 
 export function BetSlip({ eventTitle, eventSlug, eventEndDate, marketId, marketQuestion, outcomes, negRisk }: BetSlipProps) {
-  const { address, user } = useUser();
-  const { placeOrder, placing: realPlacing, canTrade, isOnPolygon } = usePolymarketTrade();
+  const { address } = useUser();
+  const { placeOrder, placing, canTrade, isOnPolygon } = usePolymarketTrade();
 
-  const [mode, setMode] = useState<"paper" | "real">("paper");
   const [selectedOutcome, setSelectedOutcome] = useState<string | null>(null);
   const [amount, setAmount] = useState("");
-  const [placing, setPlacing] = useState(false);
   const [result, setResult] = useState<{ success: boolean; msg: string } | null>(null);
   const [confirming, setConfirming] = useState(false);
 
@@ -45,43 +43,7 @@ export function BetSlip({ eventTitle, eventSlug, eventEndDate, marketId, marketQ
   const amountNum = parseFloat(amount) || 0;
   const shares = selected && amountNum > 0 ? amountNum / selected.price : 0;
 
-  const placePaperBet = async () => {
-    if (!address || !selected || amountNum <= 0) return;
-    setPlacing(true);
-    setResult(null);
-    try {
-      const res = await fetch("/api/sports/bet", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${address}` },
-        body: JSON.stringify({
-          userId: address,
-          marketId,
-          marketQuestion: marketQuestion || eventTitle,
-          outcome: selected.name,
-          side: "buy",
-          shares,
-          price: selected.price,
-          clobTokenId: selected.tokenId,
-          eventSlug,
-          marketEndDate: eventEndDate,
-        }),
-      });
-      const data = await res.json();
-      if (data.success) {
-        setResult({ success: true, msg: `${shares.toFixed(1)} shares of "${selected.name}" at ${Math.round(selected.price * 100)}¢` });
-        setAmount("");
-        setSelectedOutcome(null);
-      } else {
-        setResult({ success: false, msg: data.error || "Failed to place bet" });
-      }
-    } catch {
-      setResult({ success: false, msg: "Network error" });
-    } finally {
-      setPlacing(false);
-    }
-  };
-
-  const placeRealBet = async () => {
+  const placeBet = async () => {
     if (!selected || amountNum <= 0) return;
     setConfirming(false);
     const res = await placeOrder({
@@ -100,56 +62,21 @@ export function BetSlip({ eventTitle, eventSlug, eventEndDate, marketId, marketQ
     }
   };
 
-  const handleBet = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (mode === "real") {
-      setConfirming(true);
-    } else {
-      placePaperBet();
-    }
-  };
-
   return (
     <div className="space-y-2" onClick={(e) => e.stopPropagation()}>
-      <div className="flex items-center justify-between">
-        <p className="text-[10px] text-[#484f58] uppercase tracking-wider">Quick Bet</p>
-        {address && (
-          <div className="flex gap-1 bg-[#0d1117] rounded-md p-0.5">
-            <button
-              onClick={() => { setMode("paper"); setResult(null); }}
-              className={cn(
-                "px-2 py-0.5 rounded text-[10px] font-medium transition-colors",
-                mode === "paper" ? "bg-[#21262d] text-[#e6edf3]" : "text-[#484f58]"
-              )}
-            >
-              Paper
-            </button>
-            <button
-              onClick={() => { setMode("real"); setResult(null); }}
-              className={cn(
-                "px-2 py-0.5 rounded text-[10px] font-medium transition-colors",
-                mode === "real" ? "bg-[#238636]/30 text-[#3fb950]" : "text-[#484f58]"
-              )}
-            >
-              Real $
-            </button>
-          </div>
-        )}
-      </div>
+      <p className="text-[10px] text-[#484f58] uppercase tracking-wider">Bet with USDC</p>
 
       {!address ? (
         <div className="flex items-center gap-2">
           <p className="text-xs text-[#768390]">Connect wallet to bet</p>
           <LoginButton />
         </div>
+      ) : !isOnPolygon ? (
+        <p className="text-[10px] text-[#d29922] bg-[#d29922]/10 px-2 py-1 rounded">
+          Switch to Polygon network to place bets
+        </p>
       ) : (
         <>
-          {mode === "real" && !isOnPolygon && (
-            <p className="text-[10px] text-[#d29922] bg-[#d29922]/10 px-2 py-1 rounded">
-              Switch to Polygon network for real-money trading
-            </p>
-          )}
-
           {/* Outcome buttons */}
           <div className="flex gap-2">
             {outcomes.map((o) => (
@@ -159,7 +86,7 @@ export function BetSlip({ eventTitle, eventSlug, eventEndDate, marketId, marketQ
                 className={cn(
                   "flex-1 py-2 rounded-md text-xs font-semibold tabular-nums transition-all",
                   selectedOutcome === o.name
-                    ? mode === "real" ? "bg-[#238636] text-white ring-1 ring-[#3fb950]" : "bg-[#58a6ff] text-white ring-1 ring-[#58a6ff]"
+                    ? "bg-[#238636] text-white ring-1 ring-[#3fb950]"
                     : "bg-[#21262d] text-[#e6edf3] hover:bg-[#30363d]"
                 )}
               >
@@ -174,51 +101,49 @@ export function BetSlip({ eventTitle, eventSlug, eventEndDate, marketId, marketQ
               <div className="relative flex-1">
                 <input
                   type="number"
-                  placeholder={mode === "real" ? "USDC amount" : "AIRDROP amount"}
+                  placeholder="USDC amount"
                   value={amount}
                   onChange={(e) => setAmount(e.target.value)}
-                  className="w-full bg-[#0d1117] border border-[#30363d] rounded-md px-3 py-1.5 text-xs text-white placeholder-[#484f58] focus:border-[#58a6ff] outline-none tabular-nums"
+                  className="w-full bg-[#0d1117] border border-[#30363d] rounded-md px-3 py-1.5 text-xs text-white placeholder-[#484f58] focus:border-[#3fb950] outline-none tabular-nums"
                   min="0.1"
                 />
               </div>
               <button
-                onClick={handleBet}
-                disabled={placing || realPlacing || amountNum <= 0 || (mode === "real" && !canTrade)}
+                onClick={(e) => { e.stopPropagation(); setConfirming(true); }}
+                disabled={placing || amountNum <= 0 || !canTrade}
                 className={cn(
                   "px-4 py-1.5 rounded-md text-xs font-semibold transition-all",
-                  placing || realPlacing
+                  placing
                     ? "bg-[#21262d] text-[#484f58]"
-                    : mode === "real"
-                      ? "bg-[#238636] text-white hover:bg-[#2ea043]"
-                      : "bg-[#58a6ff] text-white hover:bg-[#4d8fea]"
+                    : "bg-[#238636] text-white hover:bg-[#2ea043]"
                 )}
               >
-                {placing || realPlacing ? "Placing..." : mode === "real" ? "Bet $" : "Bet"}
+                {placing ? "Placing..." : "Bet"}
               </button>
             </div>
           )}
 
           {/* Payout preview */}
-          {selectedOutcome && amountNum > 0 && selected && (
+          {selectedOutcome && amountNum > 0 && selected && !confirming && (
             <p className="text-[10px] text-[#768390]">
-              {shares.toFixed(1)} shares → payout {shares.toFixed(1)} {mode === "real" ? "USDC" : "AIRDROP"} if "{selectedOutcome}" wins
+              {shares.toFixed(1)} shares → payout {shares.toFixed(1)} USDC if "{selectedOutcome}" wins
             </p>
           )}
 
-          {/* Real money confirmation dialog */}
-          {confirming && (
+          {/* Confirmation dialog */}
+          {confirming && selected && (
             <div className="bg-[#0d1117] border border-[#d29922]/30 rounded-lg p-3 space-y-2 animate-fade-in-up">
-              <p className="text-xs text-[#d29922] font-semibold">Confirm Real Money Bet</p>
+              <p className="text-xs text-[#d29922] font-semibold">Confirm Bet</p>
               <p className="text-[10px] text-[#768390]">
-                Buy {shares.toFixed(1)} shares of "{selectedOutcome}" at {Math.round(selected!.price * 100)}¢ for ${amountNum.toFixed(2)} USDC
+                Buy {shares.toFixed(1)} shares of "{selectedOutcome}" at {Math.round(selected.price * 100)}¢ for ${amountNum.toFixed(2)} USDC
               </p>
               <div className="flex gap-2">
                 <button
-                  onClick={placeRealBet}
-                  disabled={realPlacing}
+                  onClick={placeBet}
+                  disabled={placing}
                   className="flex-1 py-1.5 rounded-md text-xs font-semibold bg-[#238636] text-white hover:bg-[#2ea043]"
                 >
-                  {realPlacing ? "Placing..." : "Confirm"}
+                  {placing ? "Placing..." : "Confirm"}
                 </button>
                 <button
                   onClick={() => setConfirming(false)}
@@ -235,11 +160,6 @@ export function BetSlip({ eventTitle, eventSlug, eventEndDate, marketId, marketQ
             <p className={cn("text-[11px] font-medium", result.success ? "text-[#3fb950]" : "text-[#f85149]")}>
               {result.msg}
             </p>
-          )}
-
-          {/* Balance info */}
-          {mode === "paper" && user && (
-            <p className="text-[10px] text-[#484f58]">Balance: {Math.round(user.balance).toLocaleString()} AIRDROP</p>
           )}
         </>
       )}
