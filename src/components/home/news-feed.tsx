@@ -125,13 +125,13 @@ export function NewsFeed({ className }: { className?: string }) {
       </div>
 
       {/* Source filter tabs */}
-      <div className="flex gap-1 px-3 py-1.5 border-b border-[#21262d] overflow-x-auto" style={{ scrollbarWidth: "none" }}>
+      <div className="flex gap-1.5 px-3 py-2 border-b border-[#21262d] overflow-x-auto flex-shrink-0" style={{ scrollbarWidth: "none", WebkitOverflowScrolling: "touch" }}>
         {NEWS_SOURCES.map((src) => (
           <button
             key={src}
             onClick={() => setActiveSource(src)}
             className={cn(
-              "px-2 py-1 rounded text-[10px] font-medium transition-colors whitespace-nowrap",
+              "px-2.5 py-1 rounded text-[11px] font-medium transition-colors whitespace-nowrap flex-shrink-0",
               activeSource === src ? "bg-[#58a6ff]/15 text-[#58a6ff]" : "text-[#484f58] hover:text-[#768390]"
             )}
           >
@@ -141,13 +141,13 @@ export function NewsFeed({ className }: { className?: string }) {
       </div>
 
       {/* Category filter tabs */}
-      <div className="flex gap-1 px-3 py-1.5 border-b border-[#21262d] overflow-x-auto" style={{ scrollbarWidth: "none" }}>
+      <div className="flex gap-1.5 px-3 py-2 border-b border-[#21262d] overflow-x-auto flex-shrink-0" style={{ scrollbarWidth: "none", WebkitOverflowScrolling: "touch" }}>
         {NEWS_CATEGORIES.map((cat) => (
           <button
             key={cat}
             onClick={() => setActiveCategory(cat)}
             className={cn(
-              "px-2 py-1 rounded text-[10px] font-medium transition-colors whitespace-nowrap",
+              "px-2.5 py-1 rounded text-[11px] font-medium transition-colors whitespace-nowrap flex-shrink-0",
               activeCategory === cat ? "bg-[#d29922]/15 text-[#d29922]" : "text-[#484f58] hover:text-[#768390]"
             )}
           >
