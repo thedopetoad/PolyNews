@@ -185,7 +185,7 @@ export default function PortfolioPage() {
               {copied === "link" ? "Copied!" : "Copy Link"}
             </button>
           </div>
-          <div className="mt-3 grid grid-cols-4 gap-3 text-center">
+          <div className="mt-3 grid grid-cols-2 gap-3 text-center">
             <div className="bg-[#0d1117] rounded-lg p-3">
               <p className="text-lg font-bold text-[#3fb950]">{referralCount}</p>
               <p className="text-[10px] text-[#484f58]">Friends referred</p>
@@ -193,14 +193,6 @@ export default function PortfolioPage() {
             <div className="bg-[#0d1117] rounded-lg p-3">
               <p className="text-lg font-bold text-white">5,000</p>
               <p className="text-[10px] text-[#484f58]">AIRDROP per referral</p>
-            </div>
-            <div className="bg-[#0d1117] rounded-lg p-3">
-              <p className="text-lg font-bold text-white">100</p>
-              <p className="text-[10px] text-[#484f58]">Daily claim</p>
-            </div>
-            <div className="bg-[#0d1117] rounded-lg p-3">
-              <p className="text-lg font-bold text-white">1,000</p>
-              <p className="text-[10px] text-[#484f58]">Signup bonus</p>
             </div>
           </div>
 
