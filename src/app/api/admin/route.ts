@@ -240,11 +240,45 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const { action, userId, balance } = body;
 
+    const db = getDb();
+
+    // migrateAccounts uses userIds array, not userId — handle before the userId check
+    if (action === "migrateAccounts") {
+      const { userIds } = body;
+      if (!Array.isArray(userIds) || userIds.length !== 2) {
+        return NextResponse.json({ error: "Need exactly 2 userIds" }, { status: 400 });
+      }
+
+      const [acc1] = await db.select().from(users).where(eq(users.id, userIds[0])).limit(1);
+      const [acc2] = await db.select().from(users).where(eq(users.id, userIds[1])).limit(1);
+      if (!acc1 || !acc2) {
+        return NextResponse.json({ error: "One or both accounts not found" }, { status: 404 });
+      }
+
+      const source = new Date(acc1.createdAt) < new Date(acc2.createdAt) ? acc1 : acc2;
+      const target = source.id === acc1.id ? acc2 : acc1;
+
+      console.log(`Admin migrate: ${source.id} → ${target.id}`);
+
+      await db.update(positions).set({ userId: target.id }).where(eq(positions.userId, source.id));
+      await db.update(trades).set({ userId: target.id }).where(eq(trades.userId, source.id));
+      await db.update(airdrops).set({ userId: target.id }).where(eq(airdrops.userId, source.id));
+      await db.update(referrals).set({ referrerId: target.id }).where(eq(referrals.referrerId, source.id));
+      await db.update(referrals).set({ referredId: target.id }).where(eq(referrals.referredId, source.id));
+
+      await db.update(users).set({
+        balance: sql`${users.balance} + ${source.balance}`,
+        displayName: target.displayName || source.displayName,
+      }).where(eq(users.id, target.id));
+
+      await db.delete(users).where(eq(users.id, source.id));
+
+      return NextResponse.json({ success: true, from: source.id, to: target.id });
+    }
+
     if (!userId || typeof userId !== "string") {
       return NextResponse.json({ error: "userId required" }, { status: 400 });
     }
-
-    const db = getDb();
 
     // Try exact ID first, then lowercased (handles mixed-case Google auth IDs)
     async function findAndUpdate(setter: Record<string, unknown>) {
@@ -300,46 +334,6 @@ export async function POST(request: NextRequest) {
         positions: userPositions,
         airdrops: userAirdrops,
       });
-    }
-
-    if (action === "migrateAccounts") {
-      const { userIds } = body;
-      if (!Array.isArray(userIds) || userIds.length !== 2) {
-        return NextResponse.json({ error: "Need exactly 2 userIds" }, { status: 400 });
-      }
-
-      // Find both accounts
-      const [acc1] = await db.select().from(users).where(eq(users.id, userIds[0])).limit(1);
-      const [acc2] = await db.select().from(users).where(eq(users.id, userIds[1])).limit(1);
-      if (!acc1 || !acc2) {
-        return NextResponse.json({ error: "One or both accounts not found" }, { status: 404 });
-      }
-
-      // Newer account (by creation date) is the target, older is source
-      const source = new Date(acc1.createdAt) < new Date(acc2.createdAt) ? acc1 : acc2;
-      const target = source.id === acc1.id ? acc2 : acc1;
-
-      console.log(`Admin migrate: ${source.id} → ${target.id}`);
-
-      // Transfer positions, trades, airdrops
-      await db.update(positions).set({ userId: target.id }).where(eq(positions.userId, source.id));
-      await db.update(trades).set({ userId: target.id }).where(eq(trades.userId, source.id));
-      await db.update(airdrops).set({ userId: target.id }).where(eq(airdrops.userId, source.id));
-
-      // Transfer referrals (foreign key constraints would block delete otherwise)
-      await db.update(referrals).set({ referrerId: target.id }).where(eq(referrals.referrerId, source.id));
-      await db.update(referrals).set({ referredId: target.id }).where(eq(referrals.referredId, source.id));
-
-      // Add source balance to target
-      await db.update(users).set({
-        balance: sql`${users.balance} + ${source.balance}`,
-        displayName: target.displayName || source.displayName,
-      }).where(eq(users.id, target.id));
-
-      // Delete source account
-      await db.delete(users).where(eq(users.id, source.id));
-
-      return NextResponse.json({ success: true, from: source.id, to: target.id });
     }
 
     return NextResponse.json({ error: "Unknown action" }, { status: 400 });
