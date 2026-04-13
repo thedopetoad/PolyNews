@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getDb, users } from "@/db";
-import { eq } from "drizzle-orm";
+import { getDb, users, positions, trades, airdrops } from "@/db";
+import { eq, and, ne } from "drizzle-orm";
 import {
   isValidAddress,
   generateSecureId,
@@ -71,7 +71,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { id, authMethod, walletAddress, referredBy } = body;
+    const { id, authMethod, walletAddress, referredBy, email } = body;
 
     if (!id || !authMethod) {
       return NextResponse.json(
@@ -98,8 +98,9 @@ export async function POST(request: NextRequest) {
 
     const db = getDb();
     const normalizedId = id.toLowerCase();
+    const normalizedEmail = email?.toLowerCase()?.trim() || null;
 
-    // Check if user already exists
+    // Check if user already exists with this address
     const existing = await db
       .select()
       .from(users)
@@ -107,10 +108,61 @@ export async function POST(request: NextRequest) {
       .limit(1);
 
     if (existing.length > 0) {
+      // Update email if we have one now and they don't
+      if (normalizedEmail && !existing[0].email) {
+        await db.update(users).set({ email: normalizedEmail, lastLoginAt: new Date() }).where(eq(users.id, normalizedId));
+      }
       return NextResponse.json(existing[0]);
     }
 
-    // Validate referral code if provided
+    // ─── Account migration: check if old account exists with same email ───
+    if (normalizedEmail && authMethod === "google") {
+      const [oldAccount] = await db
+        .select()
+        .from(users)
+        .where(and(eq(users.email, normalizedEmail), ne(users.id, normalizedId)))
+        .limit(1);
+
+      if (oldAccount) {
+        // Migrate: transfer all data from old account to new address
+        const oldId = oldAccount.id;
+        console.log(`Migrating account: ${oldId} → ${normalizedId} (email: ${normalizedEmail})`);
+
+        // Transfer positions, trades, airdrops to new address
+        await db.update(positions).set({ userId: normalizedId }).where(eq(positions.userId, oldId));
+        await db.update(trades).set({ userId: normalizedId }).where(eq(trades.userId, oldId));
+        await db.update(airdrops).set({ userId: normalizedId }).where(eq(airdrops.userId, oldId));
+
+        // Update the old account's ID to the new address (preserves balance, display name, etc.)
+        // We can't change a PK easily, so create new user with old data then delete old
+        const referralCode = generateReferralCode();
+        const [migrated] = await db
+          .insert(users)
+          .values({
+            id: normalizedId,
+            displayName: oldAccount.displayName,
+            email: normalizedEmail,
+            authMethod: "google",
+            walletAddress: walletAddress ? walletAddress.toLowerCase() : null,
+            referralCode,
+            referredBy: oldAccount.referredBy,
+            balance: oldAccount.balance,
+            hasSignupAirdrop: oldAccount.hasSignupAirdrop,
+            lastDailyAirdrop: oldAccount.lastDailyAirdrop,
+            lastWeeklyAirdrop: oldAccount.lastWeeklyAirdrop,
+            signupIp: oldAccount.signupIp,
+          })
+          .returning();
+
+        // Delete old account
+        await db.delete(users).where(eq(users.id, oldId));
+
+        console.log(`Migration complete: ${oldId} → ${normalizedId}, balance: ${migrated.balance}`);
+        return NextResponse.json(migrated, { status: 201 });
+      }
+    }
+
+    // ─── No migration needed — create fresh account ───
     if (referredBy) {
       const referrer = await db
         .select()
@@ -131,6 +183,7 @@ export async function POST(request: NextRequest) {
       .insert(users)
       .values({
         id: normalizedId,
+        email: normalizedEmail,
         authMethod,
         walletAddress: walletAddress ? walletAddress.toLowerCase() : null,
         referralCode,

@@ -71,7 +71,12 @@ export async function loginWithGoogle(): Promise<void> {
  * Call this on page load to complete the login flow after Google redirects back.
  * Returns the wallet address if login succeeded, null if no redirect happened.
  */
-export async function handleOAuthRedirect(): Promise<string | null> {
+export interface OAuthResult {
+  address: string | null;
+  email: string | null;
+}
+
+export async function handleOAuthRedirect(): Promise<OAuthResult | null> {
   const magic = getMagic();
   if (!magic) return null;
 
@@ -87,11 +92,12 @@ export async function handleOAuthRedirect(): Promise<string | null> {
     const result = await magic.oauth2.getRedirectResult();
     const address = result?.magic?.userMetadata?.publicAddress?.toLowerCase()
       || result?.magic?.userMetadata?.wallets?.ethereum?.publicAddress?.toLowerCase();
+    const email = result?.oauth?.userInfo?.email?.toLowerCase() || null;
 
     // Clean up URL — remove all OAuth params
     window.history.replaceState({}, "", url.pathname);
 
-    return address || null;
+    return { address: address || null, email };
   } catch (err) {
     console.error("Magic OAuth redirect failed:", err);
     return null;

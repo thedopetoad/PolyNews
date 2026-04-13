@@ -3,7 +3,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useState, useEffect } from "react";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { checkMagicSession, handleOAuthRedirect } from "@/lib/magic";
+import { checkMagicSession, handleOAuthRedirect, type OAuthResult } from "@/lib/magic";
 import { useAuthStore } from "@/stores/use-auth-store";
 import { WagmiProvider, createConfig, http } from "wagmi";
 import {
@@ -56,14 +56,19 @@ function MagicSessionRestore() {
 
   useEffect(() => {
     // 1. Handle OAuth redirect (user just came back from Google)
-    handleOAuthRedirect().then(async (addr) => {
-      if (addr) {
-        setGoogleAddress(addr);
-        // Create/update user in DB
+    handleOAuthRedirect().then(async (result: OAuthResult | null) => {
+      if (result?.address) {
+        setGoogleAddress(result.address);
+        // Create/update user in DB — pass email for account migration
         await fetch("/api/user", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ id: addr, authMethod: "google", walletAddress: addr }),
+          body: JSON.stringify({
+            id: result.address,
+            authMethod: "google",
+            walletAddress: result.address,
+            email: result.email,
+          }),
         }).catch(() => {});
         return;
       }

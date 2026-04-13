@@ -11,6 +11,7 @@ import {
 export const users = pgTable("users", {
   id: text("id").primaryKey(),
   displayName: text("display_name"),
+  email: text("email"),
   authMethod: text("auth_method").notNull(),
   walletAddress: text("wallet_address"),
   referralCode: text("referral_code").notNull().unique(),
