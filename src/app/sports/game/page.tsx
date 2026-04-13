@@ -1,9 +1,11 @@
 "use client";
 
+import { useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 import { POLYMARKET_BASE_URL } from "@/lib/constants";
+import { BetSlip } from "@/components/sports/bet-slip";
 import Link from "next/link";
 import { Suspense } from "react";
 
@@ -51,24 +53,42 @@ function formatVol(n: number): string {
 }
 
 /* ─── Odds Button ─── */
-function OddsBtn({ label, price, highlight }: { label: string; price: number; highlight?: boolean }) {
+function OddsBtn({ label, price, highlight, selected, onClick }: { label: string; price: number; highlight?: boolean; selected?: boolean; onClick?: () => void }) {
   const pct = Math.round(price * 100);
   return (
-    <div className={cn(
-      "flex items-center justify-between px-4 py-3 rounded-lg border transition-all cursor-pointer",
-      highlight
-        ? "bg-[#238636]/15 border-[#238636]/30 hover:bg-[#238636]/25 hover:shadow-[0_0_12px_rgba(63,185,80,0.2)]"
-        : "bg-[#0d1117] border-[#21262d] hover:bg-[#1c2128] hover:border-[#30363d]"
-    )}>
+    <button
+      onClick={onClick}
+      className={cn(
+        "flex items-center justify-between px-4 py-3 rounded-lg border transition-all cursor-pointer w-full text-left",
+        selected
+          ? "bg-[#238636]/30 border-[#3fb950] ring-1 ring-[#3fb950]"
+          : highlight
+            ? "bg-[#238636]/15 border-[#238636]/30 hover:bg-[#238636]/25 hover:shadow-[0_0_12px_rgba(63,185,80,0.2)]"
+            : "bg-[#0d1117] border-[#21262d] hover:bg-[#1c2128] hover:border-[#30363d]"
+      )}
+    >
       <span className="text-sm text-[#e6edf3] font-medium">{label}</span>
-      <span className={cn("text-lg font-bold tabular-nums", highlight ? "text-[#3fb950]" : "text-[#e6edf3]")}>{pct}¢</span>
-    </div>
+      <span className={cn("text-lg font-bold tabular-nums", selected ? "text-[#3fb950]" : highlight ? "text-[#3fb950]" : "text-[#e6edf3]")}>{pct}¢</span>
+    </button>
   );
 }
 
 /* ─── Market Section ─── */
-function MarketSection({ title, markets, volume }: { title: string; markets: ParsedMarket[]; volume?: number }) {
+function MarketSection({ title, markets, volume, eventTitle, eventSlug, eventEndDate, negRisk }: {
+  title: string; markets: ParsedMarket[]; volume?: number;
+  eventTitle: string; eventSlug: string; eventEndDate: string; negRisk?: boolean;
+}) {
+  const [selectedMarketId, setSelectedMarketId] = useState<string | null>(null);
+  const [selectedOutcomeIdx, setSelectedOutcomeIdx] = useState<number | null>(null);
+
   if (markets.length === 0) return null;
+
+  const selectedMarket = markets.find((m) => m.id === selectedMarketId);
+  const betOutcomes = selectedMarket ? selectedMarket.outcomes.map((o, i) => ({
+    name: o,
+    price: selectedMarket.prices[i] || 0.5,
+    tokenId: selectedMarket.clobTokenIds[i] || "",
+  })) : [];
 
   return (
     <div className="rounded-lg border border-[#21262d] bg-[#161b22] overflow-hidden animate-fade-in-up">
@@ -93,6 +113,16 @@ function MarketSection({ title, markets, volume }: { title: string; markets: Par
                     label={m.groupItemTitle && m.outcomes.length === 2 && i === 0 ? m.groupItemTitle : o}
                     price={m.prices[i] || 0}
                     highlight={m.prices[i] === maxPrice && m.outcomes.length > 1}
+                    selected={selectedMarketId === m.id && selectedOutcomeIdx === i}
+                    onClick={() => {
+                      if (selectedMarketId === m.id && selectedOutcomeIdx === i) {
+                        setSelectedMarketId(null);
+                        setSelectedOutcomeIdx(null);
+                      } else {
+                        setSelectedMarketId(m.id);
+                        setSelectedOutcomeIdx(i);
+                      }
+                    }}
                   />
                 ))}
               </div>
@@ -100,6 +130,21 @@ function MarketSection({ title, markets, volume }: { title: string; markets: Par
           );
         })}
       </div>
+
+      {/* Inline Bet Slip when an outcome is selected */}
+      {selectedMarket && (
+        <div className="p-3 border-t border-[#21262d] bg-[#0d1117]">
+          <BetSlip
+            eventTitle={eventTitle}
+            eventSlug={eventSlug}
+            eventEndDate={eventEndDate}
+            marketId={selectedMarket.id}
+            marketQuestion={selectedMarket.question}
+            outcomes={betOutcomes}
+            negRisk={negRisk}
+          />
+        </div>
+      )}
     </div>
   );
 }
@@ -275,22 +320,34 @@ function GameContent() {
           title="Moneyline"
           markets={data.markets.moneyline}
           volume={data.markets.moneyline.reduce((s, m) => s + m.volume, 0)}
+          eventTitle={data.title}
+          eventSlug={data.slug}
+          eventEndDate={data.gameStartTime}
         />
         <MarketSection
           title="Spread"
           markets={data.markets.spreads.slice(0, 3)}
           volume={data.markets.spreads.reduce((s, m) => s + m.volume, 0)}
+          eventTitle={data.title}
+          eventSlug={data.slug}
+          eventEndDate={data.gameStartTime}
         />
         <MarketSection
           title="Total (Over/Under)"
           markets={data.markets.totals.slice(0, 3)}
           volume={data.markets.totals.reduce((s, m) => s + m.volume, 0)}
+          eventTitle={data.title}
+          eventSlug={data.slug}
+          eventEndDate={data.gameStartTime}
         />
         {data.markets.props.length > 0 && (
           <MarketSection
             title="Player Props"
             markets={data.markets.props}
             volume={data.markets.props.reduce((s, m) => s + m.volume, 0)}
+            eventTitle={data.title}
+            eventSlug={data.slug}
+            eventEndDate={data.gameStartTime}
           />
         )}
       </div>

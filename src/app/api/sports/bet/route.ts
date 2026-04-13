@@ -1,23 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
+import crypto from "crypto";
 import { getAuthenticatedUser } from "@/lib/auth";
 import { getDb, users, positions, trades } from "@/db";
 import { eq, and, sql } from "drizzle-orm";
-import { BuilderSigner } from "@polymarket/builder-signing-sdk";
-
-// Builder API credentials for order attribution
-const builderCreds = {
-  key: process.env.POLYMARKET_BUILDER_API_KEY || "",
-  secret: process.env.POLYMARKET_BUILDER_SECRET || "",
-  passphrase: process.env.POLYMARKET_BUILDER_PASSPHRASE || "",
-};
-
-const CLOB_HOST = "https://clob.polymarket.com";
 
 /**
  * POST /api/sports/bet
  *
- * Phase 1: Paper trade execution for sports markets (same as /api/trade but sports-specific)
- * Phase 2: Real CLOB order execution via Builder API (requires EIP-712 wallet signing)
+ * Paper trade execution for sports markets.
+ * Supports both buy and sell (close position).
  *
  * Body: { userId, marketId, marketQuestion, outcome, side, shares, price, clobTokenId, eventSlug, marketEndDate }
  */
@@ -37,16 +28,19 @@ export async function POST(request: NextRequest) {
     if (!marketId || !outcome || !side || !shares || !price) {
       return NextResponse.json({ error: "Missing fields" }, { status: 400 });
     }
-    if (shares <= 0 || shares > 1_000_000) {
-      return NextResponse.json({ error: "Invalid shares" }, { status: 400 });
+    if (side !== "buy" && side !== "sell") {
+      return NextResponse.json({ error: "Side must be 'buy' or 'sell'" }, { status: 400 });
+    }
+    if (shares <= 0 || shares > 100_000) {
+      return NextResponse.json({ error: "Invalid shares (max 100K)" }, { status: 400 });
     }
     if (price <= 0 || price >= 1) {
-      return NextResponse.json({ error: "Invalid price" }, { status: 400 });
+      return NextResponse.json({ error: "Invalid price (must be 0-1)" }, { status: 400 });
     }
 
     const db = getDb();
+    const tradeId = crypto.randomUUID();
 
-    // Phase 1: Paper trade execution
     if (side === "buy") {
       const cost = shares * price;
 
@@ -74,10 +68,10 @@ export async function POST(request: NextRequest) {
         await db.update(positions).set({ shares: totalShares, avgPrice: newAvgPrice, updatedAt: new Date() }).where(eq(positions.id, existing.id));
       } else {
         await db.insert(positions).values({
-          id: `${userId}-${marketId}-${outcome}-${Date.now()}`,
+          id: crypto.randomUUID(),
           userId,
           marketId,
-          marketQuestion: marketQuestion || "",
+          marketQuestion: (marketQuestion || "").slice(0, 500),
           outcome,
           shares,
           avgPrice: price,
@@ -87,48 +81,42 @@ export async function POST(request: NextRequest) {
         });
       }
 
-      // Record trade
-      await db.insert(trades).values({
-        id: `trade-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        userId,
-        marketId,
-        marketQuestion: marketQuestion || "",
-        outcome,
-        side: "buy",
-        shares,
-        price,
-      });
+      await db.insert(trades).values({ id: tradeId, userId, marketId, marketQuestion: (marketQuestion || "").slice(0, 500), outcome, side: "buy", shares, price });
 
       return NextResponse.json({ success: true, user: updated });
     }
 
-    return NextResponse.json({ error: "Only buy supported for sports bets" }, { status: 400 });
+    // Sell (close position)
+    const proceeds = shares * price;
+
+    // Atomic share deduction
+    const [updatedPos] = await db
+      .update(positions)
+      .set({ shares: sql`${positions.shares} - ${shares}`, updatedAt: new Date() })
+      .where(and(eq(positions.userId, userId), eq(positions.marketId, marketId), eq(positions.outcome, outcome), sql`${positions.shares} >= ${shares}`))
+      .returning();
+
+    if (!updatedPos) {
+      return NextResponse.json({ error: "Insufficient shares" }, { status: 400 });
+    }
+
+    // Delete position if shares reach 0
+    if (updatedPos.shares <= 0.001) {
+      await db.delete(positions).where(eq(positions.id, updatedPos.id));
+    }
+
+    // Add proceeds to balance
+    const [updated] = await db
+      .update(users)
+      .set({ balance: sql`${users.balance} + ${proceeds}` })
+      .where(eq(users.id, userId))
+      .returning();
+
+    await db.insert(trades).values({ id: tradeId, userId, marketId, marketQuestion: (marketQuestion || "").slice(0, 500), outcome, side: "sell", shares, price });
+
+    return NextResponse.json({ success: true, user: updated });
   } catch (err) {
     console.error("Sports bet error:", err);
     return NextResponse.json({ error: "Internal error" }, { status: 500 });
   }
-}
-
-/**
- * GET /api/sports/bet/builder-info
- * Returns builder attribution info (for future real-money integration)
- */
-export async function GET() {
-  const hasBuilder = !!(builderCreds.key && builderCreds.secret && builderCreds.passphrase);
-
-  // Demo: generate builder headers for a test request
-  let headers: Record<string, string> = {};
-  if (hasBuilder) {
-    try {
-      const signer = new BuilderSigner(builderCreds);
-      headers = signer.createBuilderHeaderPayload("GET", "/order");
-    } catch {}
-  }
-
-  return NextResponse.json({
-    builderEnabled: hasBuilder,
-    phase: "paper-trade",
-    note: "Phase 1: Paper trades. Phase 2: Real CLOB orders via Builder API with wallet EIP-712 signing.",
-    headers: hasBuilder ? Object.keys(headers) : [],
-  });
 }

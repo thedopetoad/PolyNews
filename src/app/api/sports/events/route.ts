@@ -54,7 +54,9 @@ async function getESPNLiveGames(sport: string): Promise<LiveGame[]> {
       }
     }
     return liveGames;
-  } catch {}
+  } catch (err) {
+    console.error("ESPN live games fetch error:", err);
+  }
   return [];
 }
 
@@ -157,7 +159,8 @@ export async function GET(request: NextRequest) {
 
       // Skip stale events — game started more than 12 hours ago
       const gameStart = new Date(gameTime).getTime();
-      if (!isNaN(gameStart) && gameStart < Date.now() - 12 * 60 * 60 * 1000) continue;
+      if (isNaN(gameStart)) continue; // Skip events with no valid game time
+      if (gameStart < Date.now() - 12 * 60 * 60 * 1000) continue;
 
       events.push({
         id: event.id,
