@@ -6,6 +6,7 @@ import { useLivePrices } from "@/hooks/use-live-prices";
 import { PolymarketEvent, MarketWithPrices, formatPercentage, formatVolume } from "@/types/polymarket";
 import { getTopConsensusMarkets } from "@/lib/market-filters";
 import { SwarmVisualization } from "@/components/ai/swarm-visualization";
+import { MiniPriceChart } from "@/components/mini-price-chart";
 import { POLYMARKET_BASE_URL } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
@@ -45,6 +46,7 @@ export default function AIConsensusPage() {
   const { data: events, isLoading } = usePolymarketEvents({ limit: "50" });
   const [results, setResults] = useState<MarketConsensus[]>([]);
   const [running, setRunning] = useState(false);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
   const countdown = useCountdown();
 
   const topMarkets = useMemo(() => events ? getTopConsensusMarkets(events as PolymarketEvent[]) : [], [events]);
@@ -119,23 +121,27 @@ export default function AIConsensusPage() {
             const diff = mc.result ? mc.result.consensus - liveYes * 100 : 0;
             const trendColor = diff > 3 ? "text-[#3fb950]" : diff < -3 ? "text-[#f85149]" : "text-[#484f58]";
             const marketUrl = `${POLYMARKET_BASE_URL}/event/${mc.market.eventSlug || mc.market.slug}`;
+            const isExpanded = expandedId === mc.market.id;
+            let tokenId = "";
+            try { const ids = JSON.parse(mc.market.clobTokenIds || "[]"); tokenId = ids[0] || ""; } catch {}
 
             return (
               <div key={mc.market.id} className="border-b border-[#21262d] last:border-b-0 animate-fade-in-up" style={{ animationDelay: `${idx * 30}ms`, animationFillMode: "backwards" }}>
                 {/* Desktop */}
-                <div className="hidden sm:grid grid-cols-12 gap-2 px-4 py-4 items-center">
-                  <div className="col-span-5">
-                    <a
-                      href={marketUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-[13px] text-[#e6edf3] hover:text-[#58a6ff] font-medium leading-snug"
-                    >
-                      {idx + 1}. {mc.market.question}
-                    </a>
-                    <p className="text-[10px] text-[#484f58] mt-0.5">
-                      {formatVolume(mc.market.volume)} vol &middot; Ends {new Date(mc.market.endDate).toLocaleDateString()}
-                    </p>
+                <div
+                  className="hidden sm:grid grid-cols-12 gap-2 px-4 py-4 items-center cursor-pointer hover:bg-[#1c2128]/50 transition-colors"
+                  onClick={() => setExpandedId(isExpanded ? null : mc.market.id)}
+                >
+                  <div className="col-span-5 flex items-start gap-2">
+                    <svg className={cn("w-3 h-3 text-[#484f58] transition-transform flex-shrink-0 mt-0.5", isExpanded && "rotate-90")} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+                    <div>
+                      <p className="text-[13px] text-[#e6edf3] hover:text-[#58a6ff] font-medium leading-snug">
+                        {idx + 1}. {mc.market.question}
+                      </p>
+                      <p className="text-[10px] text-[#484f58] mt-0.5">
+                        {formatVolume(mc.market.volume)} vol &middot; Ends {new Date(mc.market.endDate).toLocaleDateString()}
+                      </p>
+                    </div>
                   </div>
                   <div className="col-span-2 text-center">
                     <span className="text-lg font-bold text-[#e6edf3] tabular-nums">{formatPercentage(liveYes)}</span>
@@ -159,14 +165,15 @@ export default function AIConsensusPage() {
                 </div>
 
                 {/* Mobile */}
-                <a
-                  href={marketUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="sm:hidden block px-4 py-3 hover:bg-[#1c2128] transition-colors"
+                <div
+                  className="sm:hidden block px-4 py-3 hover:bg-[#1c2128] transition-colors cursor-pointer"
+                  onClick={() => setExpandedId(isExpanded ? null : mc.market.id)}
                 >
-                  <p className="text-[13px] text-[#e6edf3] font-medium">{idx + 1}. {mc.market.question}</p>
-                  <div className="flex items-center gap-4 mt-2">
+                  <div className="flex items-start gap-2">
+                    <svg className={cn("w-3 h-3 text-[#484f58] transition-transform flex-shrink-0 mt-0.5", isExpanded && "rotate-90")} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+                    <p className="text-[13px] text-[#e6edf3] font-medium">{idx + 1}. {mc.market.question}</p>
+                  </div>
+                  <div className="flex items-center gap-4 mt-2 ml-5">
                     <div>
                       <span className="text-[10px] text-[#484f58]">Market</span>
                       <p className="text-sm font-bold text-[#e6edf3]">{formatPercentage(liveYes)}</p>
@@ -187,7 +194,41 @@ export default function AIConsensusPage() {
                       </span>
                     )}
                   </div>
-                </a>
+                </div>
+
+                {/* Expanded Detail */}
+                {isExpanded && (
+                  <div className="px-4 py-3 bg-[#0d1117] border-t border-[#21262d] space-y-3">
+                    {tokenId ? (
+                      <MiniPriceChart tokenId={tokenId} />
+                    ) : (
+                      <div className="h-[80px] flex items-center justify-center text-[11px] text-[#484f58]">No price history</div>
+                    )}
+                    <div className="grid grid-cols-3 gap-3 text-xs">
+                      <div>
+                        <p className="text-[#484f58]">Volume</p>
+                        <p className="text-[#e6edf3]">{formatVolume(mc.market.volume)}</p>
+                      </div>
+                      <div>
+                        <p className="text-[#484f58]">End Date</p>
+                        <p className="text-[#e6edf3]">{mc.market.endDate ? new Date(mc.market.endDate).toLocaleDateString() : "N/A"}</p>
+                      </div>
+                      <div>
+                        <p className="text-[#484f58]">AI Pick</p>
+                        <p className="text-[#58a6ff]">{mc.result ? `${mc.result.consensus.toFixed(0)}%` : "N/A"}</p>
+                      </div>
+                    </div>
+                    <a
+                      href={marketUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 text-xs text-[#58a6ff] hover:underline"
+                    >
+                      View on Polymarket
+                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
+                    </a>
+                  </div>
+                )}
               </div>
             );
           })}
