@@ -1307,7 +1307,7 @@ function LeaderboardTab() {
       <div className="grid grid-cols-12 gap-2 px-4 py-2 text-[10px] text-[#484f58] uppercase tracking-wider border-b border-[#21262d]">
         <div className="col-span-1">#</div>
         <div className="col-span-7">Player</div>
-        <div className="col-span-4 text-right">Balance</div>
+        <div className="col-span-4 text-right">Portfolio</div>
       </div>
 
       {leaderboard.length === 0 ? (
