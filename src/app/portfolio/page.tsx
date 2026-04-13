@@ -137,6 +137,51 @@ export default function PortfolioPage() {
         </div>
       </div>
 
+      {/* Referral Program */}
+      {user && (
+        <div className="rounded-xl border border-[#21262d] bg-[#161b22] p-5 mb-8">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-semibold text-white mb-1">Referral Program</p>
+              <p className="text-xs text-[#768390]">
+                Share your code and earn <span className="text-[#3fb950] font-semibold">5,000 AIRDROP</span> for every friend who signs up and claims their bonus.
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3 mt-3">
+            <div className="flex-1 bg-[#0d1117] border border-[#30363d] rounded-lg px-4 py-2.5 font-mono text-sm text-[#e6edf3] select-all">
+              {user.referralCode}
+            </div>
+            <button
+              onClick={() => { navigator.clipboard.writeText(user.referralCode); }}
+              className="px-4 py-2.5 rounded-lg text-xs font-semibold bg-[#238636] text-white hover:bg-[#2ea043] transition-colors whitespace-nowrap"
+            >
+              Copy Code
+            </button>
+            <button
+              onClick={() => { navigator.clipboard.writeText(`${window.location.origin}?ref=${user.referralCode}`); }}
+              className="px-4 py-2.5 rounded-lg text-xs font-semibold bg-[#21262d] text-[#e6edf3] hover:bg-[#30363d] transition-colors whitespace-nowrap"
+            >
+              Copy Link
+            </button>
+          </div>
+          <div className="mt-3 grid grid-cols-3 gap-3 text-center">
+            <div className="bg-[#0d1117] rounded-lg p-3">
+              <p className="text-lg font-bold text-white">5,000</p>
+              <p className="text-[10px] text-[#484f58]">AIRDROP per referral</p>
+            </div>
+            <div className="bg-[#0d1117] rounded-lg p-3">
+              <p className="text-lg font-bold text-white">100</p>
+              <p className="text-[10px] text-[#484f58]">Daily claim</p>
+            </div>
+            <div className="bg-[#0d1117] rounded-lg p-3">
+              <p className="text-lg font-bold text-white">1,000</p>
+              <p className="text-[10px] text-[#484f58]">Signup bonus</p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Tabs: Positions / History */}
       <div className="flex gap-0 border-b border-[#21262d] mb-4">
         <button

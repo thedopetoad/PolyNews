@@ -38,6 +38,7 @@ interface AdminData {
   recentUsers: Array<{
     id: string;
     displayName: string | null;
+    email: string | null;
     authMethod: string;
     balance: number;
     createdAt: string;
@@ -484,6 +485,7 @@ export default function AdminPage() {
               <tr className="text-left text-[#484f58] border-b border-[#21262d]">
                 <th className="pb-2 pr-4">User</th>
                 <th className="pb-2 pr-4">Name</th>
+                <th className="pb-2 pr-4">Email</th>
                 <th className="pb-2 pr-4">Auth</th>
                 <th className="pb-2 pr-4">Balance</th>
                 <th className="pb-2 pr-4">IP</th>
@@ -505,6 +507,9 @@ export default function AdminPage() {
                   </td>
                   <td className="py-2 pr-4 text-[#e6edf3]">
                     {u.displayName || "-"}
+                  </td>
+                  <td className="py-2 pr-4 text-xs text-[#768390]">
+                    {u.email || "-"}
                   </td>
                   <td className="py-2 pr-4">
                     <span
@@ -567,7 +572,7 @@ export default function AdminPage() {
                 {/* Expanded user detail row */}
                 {selectedUserId === u.id && (
                   <tr key={`${u.id}-detail`}>
-                    <td colSpan={8} className="p-0">
+                    <td colSpan={9} className="p-0">
                       <div className="bg-[#0d1117] border-t border-b border-[#58a6ff]/20 p-4 space-y-4">
                         {detailLoading ? (
                           <p className="text-xs text-[#484f58] text-center py-4">Loading user data...</p>

@@ -81,6 +81,7 @@ export async function GET(request: NextRequest) {
         .select({
           id: users.id,
           displayName: users.displayName,
+          email: users.email,
           authMethod: users.authMethod,
           balance: users.balance,
           createdAt: users.createdAt,
