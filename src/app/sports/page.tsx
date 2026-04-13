@@ -518,7 +518,7 @@ function LiveRadioPlayer({ teamA, teamB }: { teamA: string; teamB: string }) {
 }
 
 /* ─── Game Card (Polymarket-style) ─── */
-function GameCard({ event, index, sport, expanded, onToggle }: { event: SportEvent; index: number; sport: string; expanded: boolean; onToggle: () => void }) {
+function GameCard({ event, index, sport, expanded, onToggle, onSelectBet }: { event: SportEvent; index: number; sport: string; expanded: boolean; onToggle: () => void; onSelectBet?: (bet: SelectedBet) => void }) {
   const [teamA, teamB] = parseTeams(event.title);
   const { moneyline, spread, total, totalMarkets } = extractKeyMarkets(event);
   const vol = formatVol(event.volume || event.markets.reduce((s, m) => s + m.volume, 0));
@@ -670,19 +670,27 @@ function GameCard({ event, index, sport, expanded, onToggle }: { event: SportEve
               <p className="text-[#e6edf3] font-medium">{time}</p>
             </div>
           </div>
-          {moneyline && (
-            <BetSlip
-              eventTitle={event.title}
-              eventSlug={event.slug}
-              eventEndDate={event.endDate}
-              marketId={moneyline.id}
-              marketQuestion={event.title}
-              outcomes={[
-                { name: teamA || moneyline.outcomes[0] || "Team A", price: moneyline.prices[0] ?? 0.5, tokenId: moneyline.clobTokenIds[0] || "" },
-                { name: teamB || moneyline.outcomes[1] || "Team B", price: moneyline.prices[1] ?? 0.5, tokenId: moneyline.clobTokenIds[1] || "" },
-              ]}
-              negRisk={event.negRisk}
-            />
+          {moneyline && onSelectBet && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onSelectBet({
+                  eventTitle: event.title,
+                  eventSlug: event.slug,
+                  eventEndDate: event.endDate,
+                  marketId: moneyline.id,
+                  marketQuestion: event.title,
+                  outcomes: [
+                    { name: teamA || moneyline.outcomes[0] || "Team A", price: moneyline.prices[0] ?? 0.5, tokenId: moneyline.clobTokenIds[0] || "" },
+                    { name: teamB || moneyline.outcomes[1] || "Team B", price: moneyline.prices[1] ?? 0.5, tokenId: moneyline.clobTokenIds[1] || "" },
+                  ],
+                  negRisk: event.negRisk,
+                });
+              }}
+              className="w-full py-2.5 rounded-lg text-sm font-semibold bg-[#58a6ff] text-white hover:bg-[#4d8fea] transition-colors"
+            >
+              Bet on this game
+            </button>
           )}
 
           <Link
@@ -728,12 +736,23 @@ export default function SportsPage() {
   );
 }
 
+interface SelectedBet {
+  eventTitle: string;
+  eventSlug: string;
+  eventEndDate: string;
+  marketId: string;
+  marketQuestion: string;
+  outcomes: { name: string; price: number; tokenId: string }[];
+  negRisk?: boolean;
+}
+
 function SportsContent() {
   const searchParams = useSearchParams();
   const initialSport = searchParams.get("sport") || "mlb";
   const [selectedSport, setSelectedSport] = useState<string>(initialSport);
   const [view, setView] = useState<"live" | "upcoming">("upcoming");
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [selectedBet, setSelectedBet] = useState<SelectedBet | null>(null);
 
   const { data: leaguesData } = useQuery({
     queryKey: ["sports-leagues"],
@@ -830,6 +849,9 @@ function SportsContent() {
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div className={cn("flex gap-6", selectedBet && "lg:flex-row")}>
+      {/* Main content */}
+      <div className="flex-1 min-w-0">
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
         <div>
@@ -949,7 +971,7 @@ function SportsContent() {
                       <span className="text-[10px] text-[#484f58] bg-[#21262d] px-1.5 py-0.5 rounded">{group.events.length}</span>
                     </div>
                     <div className="space-y-3">
-                      {group.events.map((e, i) => <GameCard key={e.id} event={e} index={i} sport={group.sport} expanded={expandedId === e.id} onToggle={() => setExpandedId(expandedId === e.id ? null : e.id)} />)}
+                      {group.events.map((e, i) => <GameCard key={e.id} event={e} index={i} sport={group.sport} expanded={expandedId === e.id} onToggle={() => setExpandedId(expandedId === e.id ? null : e.id)} onSelectBet={setSelectedBet} />)}
                     </div>
                   </div>
                 ))}
@@ -970,7 +992,7 @@ function SportsContent() {
                 <div key={group.date}>
                   <p className="text-sm font-semibold text-[#e6edf3] mb-3">{formatDateHeader(group.events[0].gameStartTime)}</p>
                   <div className="space-y-3">
-                    {group.events.map((e, i) => <GameCard key={e.id} event={e} index={i} sport={selectedSport} expanded={expandedId === e.id} onToggle={() => setExpandedId(expandedId === e.id ? null : e.id)} />)}
+                    {group.events.map((e, i) => <GameCard key={e.id} event={e} index={i} sport={selectedSport} expanded={expandedId === e.id} onToggle={() => setExpandedId(expandedId === e.id ? null : e.id)} onSelectBet={setSelectedBet} />)}
                   </div>
                 </div>
               ))}
@@ -987,6 +1009,23 @@ function SportsContent() {
           </p>
         </div>
       </div>
+      </div>{/* end flex-1 main content */}
+
+      {/* Sidebar Bet Slip */}
+      {selectedBet && (
+        <div className="hidden lg:block w-80 flex-shrink-0">
+          <div className="sticky top-20 rounded-xl border border-[#21262d] bg-[#161b22] p-4 space-y-1">
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-sm font-semibold text-white">{selectedBet.eventTitle}</p>
+              <button onClick={() => setSelectedBet(null)} className="text-[#484f58] hover:text-white transition-colors">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
+            </div>
+            <BetSlip {...selectedBet} />
+          </div>
+        </div>
+      )}
+      </div>{/* end flex container */}
     </div>
   );
 }

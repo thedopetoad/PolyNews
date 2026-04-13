@@ -1307,7 +1307,7 @@ export default function TradePage() {
               : "text-[#768390] hover:text-[#adbac7]"
           )}
         >
-          Portfolio
+          Paper Portfolio
         </button>
         <button
           onClick={() => setTab("markets")}
