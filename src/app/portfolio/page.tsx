@@ -6,6 +6,7 @@ import { useAccount, useBalance } from "wagmi";
 import { useAuthStore } from "@/stores/use-auth-store";
 import { LoginButton } from "@/components/layout/login-modal";
 import { cn } from "@/lib/utils";
+import { useT } from "@/lib/i18n";
 import { POLYMARKET_BASE_URL } from "@/lib/constants";
 import Link from "next/link";
 
@@ -29,6 +30,7 @@ function formatUsd(n: number): string {
 }
 
 export default function PortfolioPage() {
+  const { t } = useT();
   const { address, isConnected, user, positions: paperPositions } = useUser();
   const { isConnected: wagmiConnected, chainId } = useAccount();
   const googleAddress = useAuthStore((s) => s.googleAddress);
@@ -55,8 +57,8 @@ export default function PortfolioPage() {
   if (!isConnected) {
     return (
       <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-24 text-center">
-        <h1 className="text-2xl font-bold text-white mb-2">Portfolio</h1>
-        <p className="text-[#768390] mb-6">Connect your wallet to view your portfolio</p>
+        <h1 className="text-2xl font-bold text-white mb-2">{t.portfolio.title}</h1>
+        <p className="text-[#768390] mb-6">{t.portfolio.connectToView}</p>
         <LoginButton />
       </div>
     );
@@ -66,7 +68,7 @@ export default function PortfolioPage() {
     <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold text-white">Portfolio</h1>
+        <h1 className="text-2xl font-bold text-white">{t.portfolio.title}</h1>
         <div className="text-xs text-[#484f58] font-mono">
           {address?.slice(0, 6)}...{address?.slice(-4)}
         </div>
@@ -77,11 +79,11 @@ export default function PortfolioPage() {
         {/* Real USDC */}
         <div className="rounded-xl border border-[#21262d] bg-[#161b22] p-5">
           <div className="flex items-center justify-between mb-1">
-            <p className="text-[10px] text-[#484f58] uppercase tracking-wider">Available to Trade</p>
+            <p className="text-[10px] text-[#484f58] uppercase tracking-wider">{t.portfolio.availableToTrade}</p>
             <span className="text-[10px] text-[#3fb950] bg-[#3fb950]/10 px-1.5 py-0.5 rounded font-medium">USDC</span>
           </div>
           <p className="text-3xl font-bold text-white tabular-nums">{formatUsd(usdcBal)}</p>
-          <p className="text-xs text-[#484f58] mt-1">Polygon Network</p>
+          <p className="text-xs text-[#484f58] mt-1">{t.portfolio.polygonNetwork}</p>
           {usdcBal === 0 && (
             <a
               href="https://portal.polygon.technology/bridge"
@@ -89,7 +91,7 @@ export default function PortfolioPage() {
               rel="noopener noreferrer"
               className="inline-flex items-center gap-1 mt-3 px-3 py-1.5 rounded-md text-xs font-medium bg-[#58a6ff]/10 text-[#58a6ff] hover:bg-[#58a6ff]/20 transition-colors"
             >
-              Deposit USDC
+              {t.portfolio.depositUsdc}
               <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
             </a>
           )}
@@ -98,7 +100,7 @@ export default function PortfolioPage() {
         {/* Paper Portfolio */}
         <div className="rounded-xl border border-[#21262d] bg-[#161b22] p-5">
           <div className="flex items-center justify-between mb-1">
-            <p className="text-[10px] text-[#484f58] uppercase tracking-wider">Paper Portfolio</p>
+            <p className="text-[10px] text-[#484f58] uppercase tracking-wider">{t.portfolio.paperPortfolio}</p>
             <span className="text-[10px] text-[#d29922] bg-[#d29922]/10 px-1.5 py-0.5 rounded font-medium">AIRDROP</span>
           </div>
           <p className="text-3xl font-bold text-white tabular-nums">
@@ -118,7 +120,7 @@ export default function PortfolioPage() {
         {/* Profit/Loss placeholder */}
         <div className="rounded-xl border border-[#21262d] bg-[#161b22] p-5">
           <div className="flex items-center justify-between mb-1">
-            <p className="text-[10px] text-[#484f58] uppercase tracking-wider">Profit / Loss</p>
+            <p className="text-[10px] text-[#484f58] uppercase tracking-wider">{t.portfolio.profitLoss}</p>
             <div className="flex gap-1">
               {["1D", "1W", "1M", "ALL"].map((period) => (
                 <button key={period} className={cn(
@@ -131,7 +133,7 @@ export default function PortfolioPage() {
             </div>
           </div>
           <p className="text-3xl font-bold text-white tabular-nums">{formatUsd(0)}</p>
-          <p className="text-xs text-[#484f58] mt-1">Past Day</p>
+          <p className="text-xs text-[#484f58] mt-1">{t.portfolio.pastDay}</p>
         </div>
       </div>
 
@@ -144,7 +146,7 @@ export default function PortfolioPage() {
             tab === "positions" ? "text-white border-b-2 border-[#58a6ff]" : "text-[#768390] hover:text-[#adbac7]"
           )}
         >
-          Positions
+          {t.portfolio.positions}
         </button>
         <button
           onClick={() => setTab("history")}
@@ -153,7 +155,7 @@ export default function PortfolioPage() {
             tab === "history" ? "text-white border-b-2 border-[#58a6ff]" : "text-[#768390] hover:text-[#adbac7]"
           )}
         >
-          History
+          {t.portfolio.history}
         </button>
       </div>
 
@@ -162,16 +164,16 @@ export default function PortfolioPage() {
         <div className="rounded-lg border border-[#21262d] bg-[#161b22] overflow-hidden">
           {/* Header */}
           <div className="grid grid-cols-12 gap-2 px-4 py-2.5 text-[10px] text-[#484f58] uppercase tracking-wider border-b border-[#21262d]">
-            <div className="col-span-5">Market</div>
-            <div className="col-span-2 text-right">Avg &rarr; Now</div>
-            <div className="col-span-2 text-right">Shares</div>
-            <div className="col-span-1 text-right">To Win</div>
-            <div className="col-span-2 text-right">Value</div>
+            <div className="col-span-5">{t.portfolio.market}</div>
+            <div className="col-span-2 text-right">{t.portfolio.avgNow}</div>
+            <div className="col-span-2 text-right">{t.portfolio.shares}</div>
+            <div className="col-span-1 text-right">{t.portfolio.toWin}</div>
+            <div className="col-span-2 text-right">{t.portfolio.value}</div>
           </div>
 
           {paperPositions.length === 0 ? (
             <div className="text-center py-12">
-              <p className="text-sm text-[#484f58]">No positions found.</p>
+              <p className="text-sm text-[#484f58]">{t.portfolio.noPositions}</p>
               <div className="flex gap-3 justify-center mt-3">
                 <Link href="/trade" className="text-xs text-[#58a6ff] hover:underline">Paper Trade</Link>
                 <Link href="/sports" className="text-xs text-[#58a6ff] hover:underline">Sports Betting</Link>

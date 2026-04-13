@@ -6,6 +6,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { loginWithGoogle, logoutMagic } from "@/lib/magic";
 import { useAuthStore } from "@/stores/use-auth-store";
 import { useUser } from "@/hooks/use-user";
+import { useT } from "@/lib/i18n";
 
 function GoogleIcon() {
   return (
@@ -29,6 +30,7 @@ export function LoginButton() {
   const { disconnect: wagmiDisconnect } = useDisconnect();
   const { googleAddress, setGoogleAddress } = useAuthStore();
   const { user } = useUser();
+  const { t } = useT();
 
   const connectedAddress = wagmiAddress || googleAddress;
   const isConnected = !!(wagmiConnected || googleAddress);
@@ -88,12 +90,12 @@ export function LoginButton() {
         {menuOpen && (
           <div className="absolute right-0 top-10 w-48 rounded-lg border border-[#21262d] bg-[#161b22] shadow-xl z-50 overflow-hidden">
             <div className="px-4 py-3 border-b border-[#21262d]">
-              <p className="text-[10px] text-[#484f58] uppercase">Wallet</p>
+              <p className="text-[10px] text-[#484f58] uppercase">{t.login.wallet}</p>
               <p className="text-[11px] text-[#adbac7] font-mono break-all">{connectedAddress}</p>
             </div>
             {user && (
               <div className="px-4 py-3 border-b border-[#21262d]">
-                <p className="text-[10px] text-[#484f58] uppercase">Balance</p>
+                <p className="text-[10px] text-[#484f58] uppercase">{t.login.balance}</p>
                 <p className="text-base font-bold text-white tabular-nums">
                   {user.balance.toLocaleString(undefined, { maximumFractionDigits: 0 })} AIRDROP
                 </p>
@@ -103,7 +105,7 @@ export function LoginButton() {
               onClick={handleDisconnect}
               className="w-full text-left px-4 py-2.5 text-sm text-[#f85149] hover:bg-[#1c2128] transition-colors"
             >
-              Log out
+              {t.login.logOut}
             </button>
           </div>
         )}
@@ -137,20 +139,20 @@ export function LoginButton() {
   return (
     <>
       <button onClick={() => setLoginOpen(true)} className="h-8 px-4 rounded-full bg-[#238636] hover:bg-[#2ea043] text-white text-xs font-medium transition-colors whitespace-nowrap flex-shrink-0">
-        Log In
+        {t.login.logIn}
       </button>
       <Dialog open={loginOpen} onOpenChange={setLoginOpen}>
         <DialogContent className="border-[#21262d] bg-[#161b22] max-w-sm">
-          <DialogHeader><DialogTitle className="text-white text-center">Log in to PolyStream</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle className="text-white text-center">{t.login.logInToPolyStream}</DialogTitle></DialogHeader>
           <div className="space-y-2 mt-2">
             <button onClick={handleGoogleLogin} disabled={googleLoading}
               className="w-full flex items-center gap-3 px-4 py-3 rounded-lg bg-[#0d1117] border border-[#21262d] hover:border-[#30363d] transition-colors text-left">
               <GoogleIcon />
-              <span className="text-sm text-[#e6edf3] font-medium">{googleLoading ? "Redirecting to Google..." : "Continue with Google"}</span>
+              <span className="text-sm text-[#e6edf3] font-medium">{googleLoading ? t.login.redirectingToGoogle : t.login.continueWithGoogle}</span>
             </button>
             <div className="flex items-center gap-3 py-2">
               <div className="flex-1 h-px bg-[#21262d]" />
-              <span className="text-[10px] text-[#484f58]">or connect wallet</span>
+              <span className="text-[10px] text-[#484f58]">{t.login.connectWallet}</span>
               <div className="flex-1 h-px bg-[#21262d]" />
             </div>
             {uniqueWallets.slice(0, 4).map((connector) => {

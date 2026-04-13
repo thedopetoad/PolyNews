@@ -5,6 +5,7 @@ import { useState, useEffect } from "react";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { checkMagicSession, handleOAuthRedirect, type OAuthResult } from "@/lib/magic";
 import { useAuthStore } from "@/stores/use-auth-store";
+import { I18nProvider } from "@/lib/i18n";
 import { WagmiProvider, createConfig, http } from "wagmi";
 import {
   RainbowKitProvider,
@@ -109,8 +110,10 @@ export function Providers({ children }: { children: React.ReactNode }) {
           })}
         >
           <TooltipProvider>
-            <MagicSessionRestore />
-            {children}
+            <I18nProvider>
+              <MagicSessionRestore />
+              {children}
+            </I18nProvider>
           </TooltipProvider>
         </RainbowKitProvider>
       </QueryClientProvider>

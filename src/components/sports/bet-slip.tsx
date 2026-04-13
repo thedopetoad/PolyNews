@@ -6,6 +6,7 @@ import { useUser } from "@/hooks/use-user";
 import { usePolymarketTrade } from "@/hooks/use-polymarket-trade";
 import { useAuthStore } from "@/stores/use-auth-store";
 import { LoginButton } from "@/components/layout/login-modal";
+import { useT } from "@/lib/i18n";
 import { useSwitchChain, useBalance, useAccount } from "wagmi";
 import { polygon } from "wagmi/chains";
 
@@ -51,6 +52,7 @@ export function BetSlip({ eventTitle, eventSlug, eventEndDate, marketId, marketQ
     query: { enabled: !!address && (isOnPolygon || isGoogleUser) },
   });
   const usdcBal = usdcBalance ? parseFloat(usdcBalance.formatted) : 0;
+  const { t } = useT();
 
   const [side, setSide] = useState<"BUY" | "SELL">("BUY");
   const [selectedOutcome, setSelectedOutcome] = useState<number>(0);
@@ -90,7 +92,7 @@ export function BetSlip({ eventTitle, eventSlug, eventEndDate, marketId, marketQ
   if (!address) {
     return (
       <div className="space-y-3" onClick={(e) => e.stopPropagation()}>
-        <p className="text-xs text-[#768390] text-center">Connect wallet to trade</p>
+        <p className="text-xs text-[#768390] text-center">{t.login.connectWalletToBet}</p>
         <div className="flex justify-center"><LoginButton /></div>
       </div>
     );
@@ -103,7 +105,7 @@ export function BetSlip({ eventTitle, eventSlug, eventEndDate, marketId, marketQ
           onClick={() => switchChain({ chainId: polygon.id })}
           className="w-full py-2.5 rounded-lg text-sm font-semibold bg-[#8247e5] text-white hover:bg-[#7038d4] transition-colors"
         >
-          Switch to Polygon
+          {t.betSlip.switchToPolygon}
         </button>
       </div>
     );
@@ -113,7 +115,7 @@ export function BetSlip({ eventTitle, eventSlug, eventEndDate, marketId, marketQ
   if (isGoogleUser && !canTrade) {
     return (
       <div className="space-y-2 text-center" onClick={(e) => e.stopPropagation()}>
-        <p className="text-xs text-[#768390]">Connect a crypto wallet to trade with real USDC</p>
+        <p className="text-xs text-[#768390]">{t.login.connectWalletToTrade}</p>
         <LoginButton />
       </div>
     );
@@ -133,7 +135,7 @@ export function BetSlip({ eventTitle, eventSlug, eventEndDate, marketId, marketQ
             side === "BUY" ? "bg-[#238636] text-white" : "text-[#768390] hover:text-white"
           )}
         >
-          Buy
+          {t.betSlip.buy}
         </button>
         <button
           onClick={() => setSide("SELL")}
@@ -142,7 +144,7 @@ export function BetSlip({ eventTitle, eventSlug, eventEndDate, marketId, marketQ
             side === "SELL" ? "bg-[#f85149] text-white" : "text-[#768390] hover:text-white"
           )}
         >
-          Sell
+          {t.betSlip.sell}
         </button>
       </div>
 
@@ -166,7 +168,7 @@ export function BetSlip({ eventTitle, eventSlug, eventEndDate, marketId, marketQ
 
       {/* Amount input */}
       <div>
-        <label className="text-[10px] text-[#484f58] uppercase tracking-wider block mb-1">Amount</label>
+        <label className="text-[10px] text-[#484f58] uppercase tracking-wider block mb-1">{t.betSlip.amount}</label>
         <div className="relative">
           <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-[#484f58]">$</span>
           <input
@@ -196,22 +198,22 @@ export function BetSlip({ eventTitle, eventSlug, eventEndDate, marketId, marketQ
           onClick={() => { setAmount(String(Math.floor(usdcBal * 100) / 100)); setResult(null); }}
           className="flex-1 py-1.5 rounded-md text-[11px] font-medium bg-[#21262d] text-[#e6edf3] hover:bg-[#30363d] transition-colors"
         >
-          Max
+          {t.betSlip.max}
         </button>
       </div>
 
       {/* Balance + payout */}
       <div className="flex justify-between text-xs text-[#768390] px-1">
-        <span>Balance: <span className="text-[#e6edf3] font-medium">${usdcBal.toFixed(2)} USDC</span></span>
+        <span>{t.betSlip.balanceLabel}: <span className="text-[#e6edf3] font-medium">${usdcBal.toFixed(2)} USDC</span></span>
         {amountNum > 0 && selected && (
-          <span>Payout: <span className="text-[#3fb950] font-medium">${payout.toFixed(2)}</span></span>
+          <span>{t.betSlip.payout}: <span className="text-[#3fb950] font-medium">${payout.toFixed(2)}</span></span>
         )}
       </div>
 
       {/* Insufficient balance warning */}
       {insufficientBalance && (
         <p className="text-[10px] text-[#d29922] bg-[#d29922]/10 px-2 py-1.5 rounded">
-          Insufficient USDC. <a href="https://portal.polygon.technology/bridge" target="_blank" rel="noopener noreferrer" className="text-[#58a6ff] hover:underline">Bridge USDC to Polygon →</a>
+          {t.betSlip.insufficientUsdc}. <a href="https://portal.polygon.technology/bridge" target="_blank" rel="noopener noreferrer" className="text-[#58a6ff] hover:underline">{t.betSlip.bridgeUsdcToPolygon} &rarr;</a>
         </p>
       )}
 
@@ -230,7 +232,7 @@ export function BetSlip({ eventTitle, eventSlug, eventEndDate, marketId, marketQ
                 : "bg-[#21262d] text-[#484f58] cursor-not-allowed"
         )}
       >
-        {placing ? "Confirming in wallet..." : insufficientBalance ? "Insufficient USDC" : "Trade"}
+        {placing ? t.betSlip.confirmingInWallet : insufficientBalance ? t.betSlip.insufficientUsdc : t.betSlip.trade}
       </button>
 
       {/* Result / Error */}
@@ -245,8 +247,8 @@ export function BetSlip({ eventTitle, eventSlug, eventEndDate, marketId, marketQ
 
       {/* Terms */}
       <p className="text-[9px] text-[#484f58] text-center">
-        By trading, you agree to the{" "}
-        <a href="https://polymarket.com/tos" target="_blank" rel="noopener noreferrer" className="text-[#58a6ff] hover:underline">Terms of Use</a>
+        {t.betSlip.byTrading}{" "}
+        <a href="https://polymarket.com/tos" target="_blank" rel="noopener noreferrer" className="text-[#58a6ff] hover:underline">{t.betSlip.termsOfUse}</a>
       </p>
     </div>
   );
