@@ -1,12 +1,14 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 import { useAccount, useWalletClient } from "wagmi";
 import { ClobClient } from "@polymarket/clob-client";
 import { Side, OrderType } from "@polymarket/clob-client";
+import type { ApiKeyCreds } from "@polymarket/clob-client";
 
 const CLOB_HOST = "https://clob.polymarket.com";
 const POLYGON_CHAIN_ID = 137;
+const CREDS_STORAGE_KEY = "polystream-clob-creds";
 
 export interface TradeResult {
   success: boolean;
@@ -16,30 +18,67 @@ export interface TradeResult {
 }
 
 /**
+ * Load cached CLOB API credentials from localStorage.
+ * Keyed by wallet address so switching wallets gets fresh creds.
+ */
+function loadCachedCreds(address: string): ApiKeyCreds | null {
+  try {
+    const raw = localStorage.getItem(CREDS_STORAGE_KEY);
+    if (!raw) return null;
+    const data = JSON.parse(raw);
+    if (data.address?.toLowerCase() === address.toLowerCase() && data.creds) {
+      return data.creds as ApiKeyCreds;
+    }
+  } catch {}
+  return null;
+}
+
+function saveCreds(address: string, creds: ApiKeyCreds) {
+  try {
+    localStorage.setItem(CREDS_STORAGE_KEY, JSON.stringify({ address: address.toLowerCase(), creds }));
+  } catch {}
+}
+
+/**
  * Hook for placing real-money trades on Polymarket via the CLOB.
- * Uses wagmi's WalletClient as the ClobSigner for EIP-712 order signing.
  *
- * Flow:
- * 1. User connects wallet (wagmi)
- * 2. Build order with ClobClient's OrderBuilder
- * 3. Sign EIP-712 typed data with user's wallet
- * 4. Submit signed order to our API (adds builder attribution headers)
- * 5. Our API forwards to Polymarket CLOB
+ * Optimized flow (only 1 wallet signature per trade):
+ * 1. API credentials are derived ONCE and cached in localStorage
+ * 2. Each trade only requires the order EIP-712 signature
  */
 export function usePolymarketTrade() {
   const { address, chainId } = useAccount();
   const { data: walletClient } = useWalletClient();
   const [placing, setPlacing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const cachedCredsRef = useRef<ApiKeyCreds | null>(null);
 
   const isOnPolygon = chainId === POLYGON_CHAIN_ID;
   const canTrade = !!(address && walletClient && isOnPolygon);
 
+  const getOrDeriveCreds = useCallback(async (client: ClobClient, addr: string): Promise<ApiKeyCreds> => {
+    // Check ref cache first (in-memory)
+    if (cachedCredsRef.current) return cachedCredsRef.current;
+
+    // Check localStorage cache
+    const stored = loadCachedCreds(addr);
+    if (stored) {
+      cachedCredsRef.current = stored;
+      return stored;
+    }
+
+    // Derive new creds (requires one wallet signature)
+    const creds = await client.createOrDeriveApiKey();
+    cachedCredsRef.current = creds;
+    saveCreds(addr, creds);
+    return creds;
+  }, []);
+
   const placeOrder = useCallback(async (params: {
     tokenId: string;
     side: "BUY" | "SELL";
-    amount: number; // USD amount for buys, shares for sells
-    price?: number; // Limit price (optional for market orders)
+    amount: number;
+    price?: number;
     negRisk?: boolean;
     tickSize?: "0.1" | "0.01" | "0.001" | "0.0001";
   }): Promise<TradeResult> => {
@@ -54,36 +93,26 @@ export function usePolymarketTrade() {
     setError(null);
 
     try {
-      // Create ClobClient with user's wallet as signer
-      const client = new ClobClient(
-        CLOB_HOST,
-        POLYGON_CHAIN_ID,
-        walletClient, // wagmi WalletClient implements ClobSigner
-      );
+      // Create base client for cred derivation
+      const baseClient = new ClobClient(CLOB_HOST, POLYGON_CHAIN_ID, walletClient);
 
-      // First, derive API credentials (one-time EIP-712 signature)
-      let creds;
+      // Get cached or derive API credentials (only signs if first time)
+      let creds: ApiKeyCreds;
       try {
-        creds = await client.createOrDeriveApiKey();
+        creds = await getOrDeriveCreds(baseClient, address);
       } catch (e: unknown) {
-        const msg = e instanceof Error ? e.message : "Failed to derive API key";
+        // If creds derivation fails, clear cache and try once more
+        cachedCredsRef.current = null;
+        localStorage.removeItem(CREDS_STORAGE_KEY);
+        const msg = e instanceof Error ? e.message : "Failed to authenticate with Polymarket";
         setError(msg);
         return { success: false, error: msg };
       }
 
-      // Create authenticated client with derived creds
-      const authedClient = new ClobClient(
-        CLOB_HOST,
-        POLYGON_CHAIN_ID,
-        walletClient,
-        creds,
-        undefined, // signatureType (default EOA)
-        undefined, // funderAddress
-        undefined, // geoBlockToken
-        undefined, // useServerTime
-      );
+      // Create authenticated client (no signature needed here)
+      const authedClient = new ClobClient(CLOB_HOST, POLYGON_CHAIN_ID, walletClient, creds);
 
-      // Place market order (FOK — fill immediately or cancel)
+      // Place market order — this is the ONLY signature the user sees
       const result = await authedClient.createAndPostMarketOrder(
         {
           tokenID: params.tokenId,
@@ -99,7 +128,12 @@ export function usePolymarketTrade() {
       );
 
       if (result?.success === false) {
-        const msg = result.errorMsg || "Order rejected";
+        const msg = result.errorMsg || "Order rejected by Polymarket";
+        // If auth error, clear cached creds so next attempt re-derives
+        if (msg.includes("auth") || msg.includes("key") || msg.includes("401")) {
+          cachedCredsRef.current = null;
+          localStorage.removeItem(CREDS_STORAGE_KEY);
+        }
         setError(msg);
         return { success: false, error: msg, orderID: result.orderID };
       }
@@ -116,7 +150,7 @@ export function usePolymarketTrade() {
     } finally {
       setPlacing(false);
     }
-  }, [walletClient, address, isOnPolygon]);
+  }, [walletClient, address, isOnPolygon, getOrDeriveCreds]);
 
   return {
     placeOrder,
