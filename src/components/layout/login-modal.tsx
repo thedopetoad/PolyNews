@@ -3,7 +3,7 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { useAccount, useConnect, useDisconnect } from "wagmi";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { getWeb3AuthInstance, initAndRestoreWeb3Auth } from "@/lib/web3auth";
+import { getWeb3AuthInstance, ensureWeb3AuthInit } from "@/lib/web3auth";
 import { useAuthStore } from "@/stores/use-auth-store";
 import { useUser } from "@/hooks/use-user";
 
@@ -41,11 +41,16 @@ export function LoginButton() {
     return () => document.removeEventListener("mousedown", handler);
   }, []);
 
+  // Pre-initialize Web3Auth on mount so the popup opens instantly on click
+  const [web3authReady, setWeb3authReady] = useState(false);
+  useEffect(() => {
+    ensureWeb3AuthInit().then((w3a) => { if (w3a) setWeb3authReady(true); });
+  }, []);
+
   // Auto-close modal and create user when wallet connects
   useEffect(() => {
     if (wagmiConnected && wagmiAddress) {
       setLoginOpen(false);
-      // Ensure user record exists
       fetch("/api/user", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -60,24 +65,14 @@ export function LoginButton() {
       const web3auth = getWeb3AuthInstance();
       if (!web3auth) { setGoogleLoading(false); return; }
 
-      // Init with timeout — if init takes >10s, something is wrong
+      // If not ready yet (rare — init runs on mount), do a quick init
       if (web3auth.status === "not_ready") {
-        await Promise.race([
-          web3auth.init(),
-          new Promise((_, reject) => setTimeout(() => reject(new Error("Init timeout")), 10000)),
-        ]);
+        await ensureWeb3AuthInit();
       }
 
-      // Try direct Google connect first (skips Web3Auth modal)
-      // Fall back to generic connect() if connectTo fails (shows Web3Auth modal)
-      let provider;
-      try {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        provider = await (web3auth as any).connectTo("auth", { loginProvider: "google" });
-      } catch {
-        console.warn("Direct Google login failed, falling back to Web3Auth modal");
-        provider = await web3auth.connect();
-      }
+      // connectTo opens the OAuth popup IMMEDIATELY (no async delay = no popup blocker)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const provider = await (web3auth as any).connectTo("auth", { loginProvider: "google" });
 
       if (provider) {
         const accounts = (await provider.request({ method: "eth_accounts" })) as string[] | undefined;

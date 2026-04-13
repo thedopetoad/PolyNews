@@ -33,11 +33,11 @@ export function getWeb3AuthInstance(): Web3Auth | null {
 }
 
 /**
- * Initialize Web3Auth and restore any existing session.
- * Returns the connected address if a session exists, null otherwise.
- * Safe to call multiple times — deduplicates via shared promise.
+ * Ensure Web3Auth is initialized. Safe to call multiple times.
+ * Must be called BEFORE the user clicks login so the OAuth popup
+ * opens immediately (browsers block popups from delayed async calls).
  */
-export async function initAndRestoreWeb3Auth(): Promise<string | null> {
+export async function ensureWeb3AuthInit(): Promise<Web3Auth | null> {
   const w3a = getWeb3AuthInstance();
   if (!w3a) return null;
 
@@ -49,8 +49,22 @@ export async function initAndRestoreWeb3Auth(): Promise<string | null> {
       }
       await initPromise;
     }
+    return w3a;
+  } catch (err) {
+    console.error("Web3Auth init failed:", err);
+    return null;
+  }
+}
 
-    // Check if user has an existing session
+/**
+ * Initialize Web3Auth and restore any existing session.
+ * Returns the connected address if a session exists, null otherwise.
+ */
+export async function initAndRestoreWeb3Auth(): Promise<string | null> {
+  const w3a = await ensureWeb3AuthInit();
+  if (!w3a) return null;
+
+  try {
     if (w3a.connected && w3a.provider) {
       const accounts = (await w3a.provider.request({ method: "eth_accounts" })) as string[] | undefined;
       if (accounts && accounts.length > 0) {
@@ -58,7 +72,7 @@ export async function initAndRestoreWeb3Auth(): Promise<string | null> {
       }
     }
   } catch (err) {
-    console.error("Web3Auth init/restore failed:", err);
+    console.error("Web3Auth restore failed:", err);
   }
 
   return null;
