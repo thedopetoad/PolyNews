@@ -4,6 +4,7 @@ import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 import { LoginButton } from "@/components/layout/login-modal";
+import { useUser } from "@/hooks/use-user";
 import Link from "next/link";
 
 /* ─── Color palette for multi-outcome charts ─── */
@@ -255,7 +256,7 @@ function extractKeyMarkets(event: SportEvent) {
     if (!spread && q.includes("spread")) {
       spread = m;
     }
-    if (!total && q.includes("o/u") && !q.includes(":")) {
+    if (!total && (q.includes(": o/u") || (q.includes("o/u") && !q.includes(":")))) {
       total = m;
     }
   }
@@ -516,6 +517,127 @@ function LiveRadioPlayer({ teamA, teamB }: { teamA: string; teamB: string }) {
 }
 
 /* ─── Game Card (Polymarket-style) ─── */
+/* ─── Bet Slip (inline in expanded card) ─── */
+function BetSlip({ event, moneyline, teamA, teamB }: { event: SportEvent; moneyline: Market | null; teamA: string; teamB: string }) {
+  const { address, user } = useUser();
+  const [selectedOutcome, setSelectedOutcome] = useState<string | null>(null);
+  const [amount, setAmount] = useState("");
+  const [placing, setPlacing] = useState(false);
+  const [result, setResult] = useState<{ success: boolean; msg: string } | null>(null);
+
+  if (!moneyline) return null;
+
+  const outcomes = [
+    { name: teamA || moneyline.outcomes[0] || "Team A", price: moneyline.prices[0] ?? 0.5, tokenId: moneyline.clobTokenIds[0] || "" },
+    { name: teamB || moneyline.outcomes[1] || "Team B", price: moneyline.prices[1] ?? 0.5, tokenId: moneyline.clobTokenIds[1] || "" },
+  ];
+
+  const selected = outcomes.find((o) => o.name === selectedOutcome);
+  const shares = selected && amount ? parseFloat(amount) / selected.price : 0;
+  const payout = shares;
+
+  const placeBet = async () => {
+    if (!address || !selected || !amount || parseFloat(amount) <= 0) return;
+    setPlacing(true);
+    setResult(null);
+    try {
+      const res = await fetch("/api/sports/bet", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${address}` },
+        body: JSON.stringify({
+          userId: address,
+          marketId: moneyline.id,
+          marketQuestion: event.title,
+          outcome: selected.name,
+          side: "buy",
+          shares: shares,
+          price: selected.price,
+          clobTokenId: selected.tokenId,
+          eventSlug: event.slug,
+          marketEndDate: event.endDate,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setResult({ success: true, msg: `Bet placed! ${shares.toFixed(1)} shares of "${selected.name}" at ${Math.round(selected.price * 100)}¢` });
+        setAmount("");
+        setSelectedOutcome(null);
+      } else {
+        setResult({ success: false, msg: data.error || "Failed to place bet" });
+      }
+    } catch {
+      setResult({ success: false, msg: "Network error" });
+    } finally {
+      setPlacing(false);
+    }
+  };
+
+  return (
+    <div className="space-y-2">
+      <p className="text-[10px] text-[#484f58] uppercase tracking-wider">Quick Bet</p>
+      {!address ? (
+        <div className="flex items-center gap-2">
+          <p className="text-xs text-[#768390]">Connect wallet to bet</p>
+          <LoginButton />
+        </div>
+      ) : (
+        <>
+          <div className="flex gap-2">
+            {outcomes.map((o) => (
+              <button
+                key={o.name}
+                onClick={(e) => { e.stopPropagation(); setSelectedOutcome(selectedOutcome === o.name ? null : o.name); setResult(null); }}
+                className={cn(
+                  "flex-1 py-2 rounded-md text-xs font-semibold tabular-nums transition-all",
+                  selectedOutcome === o.name
+                    ? "bg-[#238636] text-white ring-1 ring-[#3fb950]"
+                    : "bg-[#21262d] text-[#e6edf3] hover:bg-[#30363d]"
+                )}
+              >
+                {abbrev(o.name)} {Math.round(o.price * 100)}¢
+              </button>
+            ))}
+          </div>
+          {selectedOutcome && (
+            <div className="flex gap-2 items-center animate-fade-in-up">
+              <input
+                type="number"
+                placeholder="Amount"
+                value={amount}
+                onChange={(e) => { e.stopPropagation(); setAmount(e.target.value); }}
+                onClick={(e) => e.stopPropagation()}
+                className="flex-1 bg-[#0d1117] border border-[#30363d] rounded-md px-3 py-1.5 text-xs text-white placeholder-[#484f58] focus:border-[#58a6ff] outline-none tabular-nums"
+                min="1"
+                max={user?.balance || 10000}
+              />
+              <button
+                onClick={(e) => { e.stopPropagation(); placeBet(); }}
+                disabled={placing || !amount || parseFloat(amount) <= 0}
+                className={cn(
+                  "px-4 py-1.5 rounded-md text-xs font-semibold transition-all",
+                  placing ? "bg-[#21262d] text-[#484f58]" : "bg-[#238636] text-white hover:bg-[#2ea043]"
+                )}
+              >
+                {placing ? "Placing..." : "Bet"}
+              </button>
+            </div>
+          )}
+          {selectedOutcome && amount && parseFloat(amount) > 0 && selected && (
+            <p className="text-[10px] text-[#768390]">
+              {shares.toFixed(1)} shares → payout {payout.toFixed(1)} AIRDROP if "{selectedOutcome}" wins
+            </p>
+          )}
+          {result && (
+            <p className={cn("text-[11px] font-medium", result.success ? "text-[#3fb950]" : "text-[#f85149]")}>
+              {result.msg}
+            </p>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 function GameCard({ event, index, sport, expanded, onToggle }: { event: SportEvent; index: number; sport: string; expanded: boolean; onToggle: () => void }) {
   const [teamA, teamB] = parseTeams(event.title);
   const { moneyline, spread, total, totalMarkets } = extractKeyMarkets(event);
@@ -566,8 +688,8 @@ function GameCard({ event, index, sport, expanded, onToggle }: { event: SportEve
   let totalOver: { label: string; price: number } | null = null;
   let totalUnder: { label: string; price: number } | null = null;
   if (total) {
-    const match = total.question.match(/[\d.]+/);
-    const val = match ? match[0] : "";
+    const match = total.question.match(/O\/U\s+([\d.]+)/i);
+    const val = match ? match[1] : "";
     totalOver = { label: `O ${val}`, price: total.prices[0] ?? 0.5 };
     totalUnder = { label: `U ${val}`, price: total.prices[1] ?? 0.5 };
   }
@@ -668,6 +790,8 @@ function GameCard({ event, index, sport, expanded, onToggle }: { event: SportEve
               <p className="text-[#e6edf3] font-medium">{time}</p>
             </div>
           </div>
+          <BetSlip event={event} moneyline={moneyline} teamA={teamA} teamB={teamB} />
+
           <Link
             href={`/sports/game?eventId=${event.id}&sport=${sport}`}
             className="inline-flex items-center gap-1.5 text-xs text-[#58a6ff] hover:underline"

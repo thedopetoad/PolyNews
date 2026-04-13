@@ -22,7 +22,7 @@ export default function HomePage() {
         </div>
         <div className="lg:col-span-1 relative">
           <div className="lg:absolute lg:inset-0">
-            <NewsFeed className="h-full" />
+            <NewsFeed className="h-full max-h-[500px] lg:max-h-none" />
           </div>
         </div>
       </div>

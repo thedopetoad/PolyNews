@@ -168,7 +168,7 @@ export async function GET(request: NextRequest) {
       const q = m.question.toLowerCase();
       if (q.includes("spread")) {
         spreadMarkets.push(parsed);
-      } else if (q.includes("o/u") && !q.includes(":")) {
+      } else if (q.includes(": o/u") || (q.includes("o/u") && !q.includes(":"))) {
         totalMarkets.push(parsed);
       } else if (q.includes(":")) {
         propMarkets.push(parsed);
