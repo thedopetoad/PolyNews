@@ -3,8 +3,7 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { useAccount, useConnect, useDisconnect } from "wagmi";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { loginWithGoogle, logoutMagic } from "@/lib/magic";
-import { useAuthStore } from "@/stores/use-auth-store";
+import { loginWithGoogle } from "@/lib/magic";
 import { useUser } from "@/hooks/use-user";
 import { useT } from "@/lib/i18n";
 
@@ -25,15 +24,13 @@ export function LoginButton() {
   const [googleLoading, setGoogleLoading] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
-  const { address: wagmiAddress, isConnected: wagmiConnected } = useAccount();
+  const { address: wagmiAddress, isConnected, connector } = useAccount();
   const { connectors, connect } = useConnect();
   const { disconnect: wagmiDisconnect } = useDisconnect();
-  const { googleAddress, setGoogleAddress } = useAuthStore();
   const { user } = useUser();
   const { t } = useT();
 
-  const connectedAddress = wagmiAddress || googleAddress;
-  const isConnected = !!(wagmiConnected || googleAddress);
+  const connectedAddress = wagmiAddress;
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -44,9 +41,9 @@ export function LoginButton() {
     return () => document.removeEventListener("mousedown", handler);
   }, []);
 
-  // Auto-close modal and create user when wallet connects
+  // Auto-close modal and create user when wallet connects (skip for magic — handled in MagicSessionRestore)
   useEffect(() => {
-    if (wagmiConnected && wagmiAddress) {
+    if (isConnected && wagmiAddress && connector?.id !== "magic") {
       setLoginOpen(false);
       fetch("/api/user", {
         method: "POST",
@@ -54,7 +51,7 @@ export function LoginButton() {
         body: JSON.stringify({ id: wagmiAddress.toLowerCase(), authMethod: "wallet", walletAddress: wagmiAddress.toLowerCase(), referredBy: new URLSearchParams(window.location.search).get("ref") || undefined }),
       }).catch(() => {});
     }
-  }, [wagmiConnected, wagmiAddress]);
+  }, [isConnected, wagmiAddress, connector]);
 
   // Google login via Magic — redirects to Google account picker, then back
   const handleGoogleLogin = useCallback(async () => {
@@ -67,15 +64,11 @@ export function LoginButton() {
     }
   }, []);
 
-  // Disconnect everything
+  // Disconnect everything — magic connector's disconnect() handles logoutMagic() internally
   const handleDisconnect = useCallback(async () => {
     setMenuOpen(false);
-    if (googleAddress) {
-      setGoogleAddress(null);
-      await logoutMagic();
-    }
-    if (wagmiConnected) wagmiDisconnect();
-  }, [wagmiConnected, wagmiDisconnect, googleAddress, setGoogleAddress]);
+    wagmiDisconnect();
+  }, [wagmiDisconnect]);
 
   // ─── Connected: address with dropdown ───
   if (isConnected && connectedAddress) {
@@ -131,6 +124,7 @@ export function LoginButton() {
   };
   const seen = new Set<string>();
   const uniqueWallets = connectors.filter((c) => {
+    if (c.id === "magic") return false; // Magic connector is handled by the Google button
     const name = walletNames[c.id] || c.name;
     if (seen.has(name)) return false;
     seen.add(name); return true;

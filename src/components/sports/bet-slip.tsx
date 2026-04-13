@@ -4,10 +4,9 @@ import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { useUser } from "@/hooks/use-user";
 import { usePolymarketTrade } from "@/hooks/use-polymarket-trade";
-import { useAuthStore } from "@/stores/use-auth-store";
 import { LoginButton } from "@/components/layout/login-modal";
 import { useT } from "@/lib/i18n";
-import { useSwitchChain, useBalance, useAccount } from "wagmi";
+import { useSwitchChain, useBalance } from "wagmi";
 import { DepositModal } from "@/components/portfolio/deposit-modal";
 import { polygon } from "wagmi/chains";
 
@@ -42,15 +41,13 @@ export function BetSlip({ eventTitle, eventSlug, eventEndDate, marketId, marketQ
   const { address, isConnected } = useUser();
   const { placeOrder, placing, error: tradeError, canTrade, isOnPolygon } = usePolymarketTrade();
   const { switchChain } = useSwitchChain();
-  const googleAddress = useAuthStore((s) => s.googleAddress);
-  const isGoogleUser = !!googleAddress && !useAccount().isConnected;
 
-  // Fetch real USDC balance on Polygon (only for wallet users on Polygon)
+  // Fetch real USDC balance on Polygon
   const { data: usdcBalance } = useBalance({
     address: address as `0x${string}` | undefined,
     token: USDC_ADDRESS,
     chainId: polygon.id,
-    query: { enabled: !!address && (isOnPolygon || isGoogleUser) },
+    query: { enabled: !!address && isOnPolygon },
   });
   const usdcBal = usdcBalance ? parseFloat(usdcBalance.formatted) : 0;
   const { t } = useT();
@@ -100,7 +97,7 @@ export function BetSlip({ eventTitle, eventSlug, eventEndDate, marketId, marketQ
     );
   }
 
-  if (!isOnPolygon && !isGoogleUser) {
+  if (!isOnPolygon) {
     return (
       <div className="space-y-2" onClick={(e) => e.stopPropagation()}>
         <button
@@ -109,16 +106,6 @@ export function BetSlip({ eventTitle, eventSlug, eventEndDate, marketId, marketQ
         >
           {t.betSlip.switchToPolygon}
         </button>
-      </div>
-    );
-  }
-
-  // Google/Magic users need a wallet for CLOB trading
-  if (isGoogleUser && !canTrade) {
-    return (
-      <div className="space-y-2 text-center" onClick={(e) => e.stopPropagation()}>
-        <p className="text-xs text-[#768390]">{t.login.connectWalletToTrade}</p>
-        <LoginButton />
       </div>
     );
   }

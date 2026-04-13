@@ -3,7 +3,6 @@
 import { useState, useEffect } from "react";
 import { useUser } from "@/hooks/use-user";
 import { useAccount, useBalance } from "wagmi";
-import { useAuthStore } from "@/stores/use-auth-store";
 import { LoginButton } from "@/components/layout/login-modal";
 import { cn } from "@/lib/utils";
 import { useT } from "@/lib/i18n";
@@ -34,10 +33,8 @@ function formatUsd(n: number): string {
 export default function PortfolioPage() {
   const { t } = useT();
   const { address, isConnected, user, positions: paperPositions } = useUser();
-  const { isConnected: wagmiConnected, chainId } = useAccount();
-  const googleAddress = useAuthStore((s) => s.googleAddress);
-  const isGoogleUser = !!googleAddress && !wagmiConnected;
-  const isOnPolygon = chainId === POLYGON_CHAIN_ID || isGoogleUser;
+  const { chainId } = useAccount();
+  const isOnPolygon = chainId === POLYGON_CHAIN_ID;
 
   // Real USDC balance
   const { data: usdcBalance } = useBalance({
