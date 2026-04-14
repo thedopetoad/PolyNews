@@ -14,10 +14,12 @@
 
 import { useState, useCallback } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { useWalletClient, useAccount } from "wagmi";
-import { parseUnits, isAddress, formatUnits } from "viem";
+import { useWalletClient } from "wagmi";
+import { parseUnits, isAddress, createWalletClient, custom } from "viem";
+import { polygon } from "viem/chains";
 import { RelayClient } from "@polymarket/builder-relayer-client";
-// Use dynamic import to avoid version mismatch between builder-signing-sdk 1.0.0 and 0.0.8
+import { useAuthStore } from "@/stores/use-auth-store";
+import { getMagic } from "@/lib/magic";
 import { RELAYER_URL, USDC_E, deriveProxyAddress, encodeUsdcTransfer } from "@/lib/relay";
 
 const BRIDGE_API = "https://bridge.polymarket.com";
@@ -41,7 +43,7 @@ interface WithdrawModalProps {
 
 export function WithdrawModal({ open, onOpenChange, usdcBalance, userAddress }: WithdrawModalProps) {
   const { data: walletClient } = useWalletClient();
-  const { connector } = useAccount();
+  const googleAddress = useAuthStore((s) => s.googleAddress);
 
   const [recipient, setRecipient] = useState("");
   const [amount, setAmount] = useState("");
@@ -50,8 +52,8 @@ export function WithdrawModal({ open, onOpenChange, usdcBalance, userAddress }: 
   const [txHash, setTxHash] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const isMagicUser = connector?.id === "magic";
-  // Wallet users have walletClient, Magic users have the connector's provider
+  const isMagicUser = !!googleAddress;
+  // Wallet users have walletClient, Magic users have Magic's rpcProvider
   const canWithdraw = !!(userAddress && (walletClient || isMagicUser));
   const selectedDest = DEST_CHAINS.find((c) => c.id === destChain)!;
   const isCrossChain = destChain !== "polygon";
@@ -84,11 +86,19 @@ export function WithdrawModal({ open, onOpenChange, usdcBalance, userAddress }: 
         },
       });
 
-      // Get signer: walletClient for browser wallets, connector provider for Magic
+      // Get signer: walletClient for browser wallets, or wrap Magic's
+      // rpcProvider into a viem WalletClient for Google users.
+      // Magic's provider supports personal_sign which is what the relay needs.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       let signer: any = walletClient;
-      if (!signer && isMagicUser && connector) {
-        signer = await connector.getProvider();
+      if (!signer && isMagicUser) {
+        const magic = getMagic();
+        if (!magic) throw new Error("Magic not initialized");
+        signer = createWalletClient({
+          account: userAddress as `0x${string}`,
+          chain: polygon,
+          transport: custom(magic.rpcProvider),
+        });
       }
       if (!signer) throw new Error("No wallet signer available");
 
@@ -150,7 +160,7 @@ export function WithdrawModal({ open, onOpenChange, usdcBalance, userAddress }: 
       setError((err as Error).message || "Withdrawal failed");
       setStatus("error");
     }
-  }, [userAddress, walletClient, connector, isMagicUser, recipient, amount, usdcBalance, isCrossChain, selectedDest]);
+  }, [userAddress, walletClient, isMagicUser, recipient, amount, usdcBalance, isCrossChain, selectedDest]);
 
   const handleClose = (next: boolean) => {
     if (!next && status !== "signing" && status !== "submitting" && status !== "polling") {
