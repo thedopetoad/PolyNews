@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils";
 import { useUser } from "@/hooks/use-user";
 import { usePolymarketTrade } from "@/hooks/use-polymarket-trade";
 import { LoginButton } from "@/components/layout/login-modal";
+import { DepositModal } from "@/components/portfolio/deposit-modal";
 import { useT } from "@/lib/i18n";
 import { useSwitchChain, useBalance } from "wagmi";
 import { polygon } from "wagmi/chains";
@@ -55,6 +56,7 @@ export function BetSlip({ eventTitle, eventSlug, eventEndDate, marketId, marketQ
   const [selectedOutcome, setSelectedOutcome] = useState<number>(0);
   const [amount, setAmount] = useState("");
   const [result, setResult] = useState<{ success: boolean; msg: string } | null>(null);
+  const [depositOpen, setDepositOpen] = useState(false);
 
   if (outcomes.length === 0) return null;
 
@@ -200,7 +202,11 @@ export function BetSlip({ eventTitle, eventSlug, eventEndDate, marketId, marketQ
       {/* Insufficient balance warning */}
       {insufficientBalance && (
         <p className="text-[10px] text-[#d29922] bg-[#d29922]/10 px-2 py-1.5 rounded">
-          {t.betSlip.insufficientUsdc}. <a href="https://portal.polygon.technology/bridge" target="_blank" rel="noopener noreferrer" className="text-[#58a6ff] hover:underline">{t.betSlip.bridgeUsdcToPolygon} &rarr;</a>
+          {t.betSlip.insufficientUsdc}.{" "}
+          <button onClick={() => setDepositOpen(true)} className="text-[#58a6ff] hover:underline">
+            {t.portfolio.depositUsdc} &rarr;
+          </button>
+          <DepositModal open={depositOpen} onOpenChange={setDepositOpen} />
         </p>
       )}
 
