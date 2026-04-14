@@ -17,7 +17,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { useWalletClient } from "wagmi";
 import { parseUnits, isAddress, createWalletClient, custom } from "viem";
 import { polygon } from "viem/chains";
-import { RelayClient } from "@polymarket/builder-relayer-client";
+import { RelayClient, RelayerTxType } from "@polymarket/builder-relayer-client";
 import { useAuthStore } from "@/stores/use-auth-store";
 import { getMagic } from "@/lib/magic";
 import { RELAYER_URL, USDC_E, deriveProxyAddress, encodeUsdcTransfer } from "@/lib/relay";
@@ -108,6 +108,7 @@ export function WithdrawModal({ open, onOpenChange, usdcBalance, userAddress }: 
         137, // Polygon
         signer,
         builderConfig as any,
+        RelayerTxType.PROXY, // Polymarket uses proxy wallets, not Safe wallets
       );
 
       let transferTo = recipient;
