@@ -10,6 +10,7 @@ import { useT } from "@/lib/i18n";
 import { POLYMARKET_BASE_URL } from "@/lib/constants";
 import Link from "next/link";
 import { BridgeDepositModal } from "@/components/portfolio/bridge-deposit-modal";
+import { WithdrawModal } from "@/components/portfolio/withdraw-modal";
 
 // USDC.e on Polygon — required for Polymarket CLOB trading. See src/lib/relay.ts.
 const USDC_ADDRESS = "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174" as `0x${string}`;
@@ -56,10 +57,9 @@ export default function PortfolioPage() {
   // Tab state
   const [tab, setTab] = useState<"positions" | "history">("positions");
 
-  // Deposit modal — single path, bridge.polymarket.com
+  // Deposit + Withdraw modals
   const [depositOpen, setDepositOpen] = useState(false);
-  // Withdrawals: users go to polymarket.com directly. We don't custody, so
-  // there's nothing to sign out. Button links out instead of opening a modal.
+  const [withdrawOpen, setWithdrawOpen] = useState(false);
 
   // Referral count
   const [referralCount, setReferralCount] = useState<number>(0);
@@ -120,16 +120,15 @@ export default function PortfolioPage() {
             >
               {t.portfolio.deposit}
             </button>
-            <a
-              href="https://polymarket.com/profile/settings"
-              target="_blank"
-              rel="noopener noreferrer"
+            <button
+              onClick={() => setWithdrawOpen(true)}
               className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md text-xs font-medium bg-[#21262d] text-[#e6edf3] hover:bg-[#30363d] transition-colors"
             >
-              {t.portfolio.withdraw} ↗
-            </a>
+              {t.portfolio.withdraw}
+            </button>
           </div>
           <BridgeDepositModal open={depositOpen} onOpenChange={setDepositOpen} recipientAddress={address} />
+          <WithdrawModal open={withdrawOpen} onOpenChange={setWithdrawOpen} usdcBalance={usdcBal} userAddress={address} />
         </div>
 
         {/* Paper Portfolio */}
