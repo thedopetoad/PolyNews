@@ -11,6 +11,7 @@ import { POLYMARKET_BASE_URL } from "@/lib/constants";
 import Link from "next/link";
 import { BridgeDepositModal } from "@/components/portfolio/bridge-deposit-modal";
 import { WithdrawModal } from "@/components/portfolio/withdraw-modal";
+import { deriveProxyAddress } from "@/lib/relay";
 
 // USDC.e on Polygon — required for Polymarket CLOB trading. See src/lib/relay.ts.
 const USDC_ADDRESS = "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174" as `0x${string}`;
@@ -40,14 +41,26 @@ export default function PortfolioPage() {
   const isGoogleUser = !!googleAddress && !wagmiConnected;
   const isOnPolygon = chainId === POLYGON_CHAIN_ID || isGoogleUser;
 
-  // Real USDC balance
-  const { data: usdcBalance } = useBalance({
+  // Polymarket proxy wallet address (where deposited USDC.e actually lives)
+  const proxyAddress = address ? deriveProxyAddress(address) : undefined;
+
+  // Read USDC.e balance from the proxy wallet (not the EOA)
+  const { data: proxyUsdcBalance } = useBalance({
+    address: proxyAddress as `0x${string}` | undefined,
+    token: USDC_ADDRESS,
+    chainId: POLYGON_CHAIN_ID,
+    query: { enabled: !!proxyAddress && isOnPolygon },
+  });
+  // Also check EOA balance as fallback
+  const { data: eoaUsdcBalance } = useBalance({
     address: address as `0x${string}` | undefined,
     token: USDC_ADDRESS,
     chainId: POLYGON_CHAIN_ID,
     query: { enabled: !!address && isOnPolygon },
   });
-  const usdcBal = usdcBalance ? parseFloat(usdcBalance.formatted) : 0;
+  const proxyBal = proxyUsdcBalance ? parseFloat(proxyUsdcBalance.formatted) : 0;
+  const eoaBal = eoaUsdcBalance ? parseFloat(eoaUsdcBalance.formatted) : 0;
+  const usdcBal = proxyBal + eoaBal;
 
   // Paper portfolio value
   const paperBalance = user?.balance || 0;
