@@ -102,13 +102,6 @@ export function WithdrawModal({ open, onOpenChange, usdcBalance, userAddress }: 
       }
       if (!signer) throw new Error("No wallet signer available");
 
-      // Override estimateGas to return a safe default for relay transactions.
-      // The SDK's getGasLimit tries estimateGas which returns incorrect values
-      // for proxy relay txns (doesn't account for relay hub overhead).
-      // Polymarket's own example uses hardcoded gas limits around 650k-3M.
-      const originalEstimateGas = signer.estimateGas?.bind(signer);
-      signer.estimateGas = async () => BigInt(3_000_000);
-
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const relayClient = new RelayClient(
         RELAYER_URL,
@@ -117,6 +110,17 @@ export function WithdrawModal({ open, onOpenChange, usdcBalance, userAddress }: 
         builderConfig as any,
         RelayerTxType.PROXY, // Polymarket uses proxy wallets, not Safe wallets
       );
+
+      // Patch: The SDK's getGasLimit uses publicClient.estimateGas which returns
+      // incorrect values for proxy relay txns. The ViemSigner creates its own
+      // publicClient so our walletClient override doesn't work. Monkey-patch
+      // the internal signer's estimateGas to return a safe default (3M).
+      // Polymarket's own example uses hardcoded gas limits around 650k-3M.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const internalSigner = (relayClient as any).signer;
+      if (internalSigner?.estimateGas) {
+        internalSigner.estimateGas = async () => BigInt(3_000_000);
+      }
 
       let transferTo = recipient;
 
