@@ -132,9 +132,10 @@ export function WithdrawModal({ open, onOpenChange, usdcBalance, userAddress }: 
         }
 
         const bridgeData = await bridgeRes.json();
-        // Get the right address type (evm for ETH/Base, svm for Solana)
-        const addrType = selectedDest.chainId === "1151111081099710" ? "svm" : "evm";
-        transferTo = bridgeData.address?.[addrType];
+        // Always use the EVM deposit address — the relay transfer happens on Polygon.
+        // The bridge receives USDC.e at this EVM address and forwards to the
+        // destination chain (Ethereum, Base, Solana, etc.) automatically.
+        transferTo = bridgeData.address?.evm;
         if (!transferTo) throw new Error("No bridge address returned");
       }
 
