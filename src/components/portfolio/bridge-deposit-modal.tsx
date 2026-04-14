@@ -21,6 +21,7 @@ import Image from "next/image";
 import { QRCodeSVG } from "qrcode.react";
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { deriveProxyAddress } from "@/lib/relay";
 
 const BRIDGE_API = "https://bridge.polymarket.com";
 
@@ -79,8 +80,11 @@ export function BridgeDepositModal({ open, onOpenChange, recipientAddress }: Bri
   const [tokenMenuOpen, setTokenMenuOpen] = useState(false);
 
   // Fetch supported assets + deposit addresses when modal opens
+  // Pass the PROXY wallet address to the bridge — Polymarket deposits should
+  // land in the proxy wallet (CREATE2 derived), not the EOA directly.
   useEffect(() => {
     if (!open || !recipientAddress) return;
+    const proxyAddr = deriveProxyAddress(recipientAddress);
     let cancelled = false;
     setLoading(true);
     setError(null);
@@ -90,7 +94,7 @@ export function BridgeDepositModal({ open, onOpenChange, recipientAddress }: Bri
       fetch(`${BRIDGE_API}/deposit`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ address: recipientAddress }),
+        body: JSON.stringify({ address: proxyAddr }),
       }).then((r) => r.json()),
     ])
       .then(([assetsData, depositData]) => {
