@@ -4,7 +4,9 @@ import {
   timestamp,
   real,
   boolean,
+  bigint,
   uniqueIndex,
+  index,
 } from "drizzle-orm/pg-core";
 
 // Users - identified by wallet address or OAuth ID
@@ -83,6 +85,84 @@ export const youtubeStreamCache = pgTable("youtube_stream_cache", {
   channelId: text("channel_id").primaryKey(),
   channelName: text("channel_name").notNull(),
   streams: text("streams").notNull(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+// ─── Custody vault ─────────────────────────────────────────────────────────
+// Mirror of PolyStreamVault on-chain state. Source of truth for the user's
+// "real money" balance shown in the portfolio. Reconciled against on-chain
+// events by /api/vault/sync.
+export const vaultBalances = pgTable("vault_balances", {
+  userId: text("user_id").primaryKey().references(() => users.id),
+  // Balance in USDC.e smallest units (6 decimals). Stored as text to preserve
+  // full uint256 precision; JS BigInt handles arithmetic.
+  balance: text("balance").notNull().default("0"),
+  totalDeposited: text("total_deposited").notNull().default("0"),
+  totalWithdrawn: text("total_withdrawn").notNull().default("0"),
+  maticDispensed: text("matic_dispensed").notNull().default("0"),
+  hasMaticAirdrop: boolean("has_matic_airdrop").notNull().default(false),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+// Every on-chain vault event indexed from the contract. Idempotent via
+// (txHash, logIndex) unique constraint — re-running the indexer is safe.
+export const vaultEvents = pgTable(
+  "vault_events",
+  {
+    id: text("id").primaryKey(),                    // `${txHash}-${logIndex}`
+    kind: text("kind").notNull(),                   // deposit | withdrawal | matic_dispensed
+    userId: text("user_id"),                        // nullable: not all events tie to a user row (e.g. if user doesn't exist yet in DB)
+    // Amount in smallest units (USDC.e for deposit/withdrawal, wei for matic).
+    amount: text("amount").notNull(),
+    // For withdrawals: the off-vault destination address. For deposits: sender.
+    counterparty: text("counterparty"),
+    // For withdrawals: the bytes32 withdrawId correlated with a DB withdrawal record.
+    withdrawId: text("withdraw_id"),
+    txHash: text("tx_hash").notNull(),
+    logIndex: bigint("log_index", { mode: "number" }).notNull(),
+    blockNumber: bigint("block_number", { mode: "number" }).notNull(),
+    blockTimestamp: timestamp("block_timestamp"),
+    processedAt: timestamp("processed_at").notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("vault_events_tx_log_idx").on(table.txHash, table.logIndex),
+    index("vault_events_user_idx").on(table.userId),
+    index("vault_events_kind_idx").on(table.kind),
+  ]
+);
+
+// Pending withdrawal intents — user clicks Withdraw, backend queues an intent,
+// admin tx broadcasts it and flips status. Acts as idempotency key so a retry
+// doesn't double-pay.
+export const vaultWithdrawals = pgTable(
+  "vault_withdrawals",
+  {
+    id: text("id").primaryKey(),                    // also used as on-chain withdrawId (bytes32 = keccak(id))
+    userId: text("user_id").notNull().references(() => users.id),
+    amount: text("amount").notNull(),               // USDC.e smallest units
+    toAddress: text("to_address").notNull(),
+    toChainId: bigint("to_chain_id", { mode: "number" }).notNull(),
+    // If crossing chains, we withdraw USDC.e from vault to Relay's depository
+    // via an admin-signed approve+deposit, so this field stores the Relay
+    // quote's requestId. If same-chain (Polygon USDC.e), this is null.
+    relayRequestId: text("relay_request_id"),
+    status: text("status").notNull().default("pending"),  // pending | signing | broadcast | confirmed | failed
+    txHash: text("tx_hash"),
+    error: text("error"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => [
+    index("vault_withdrawals_user_idx").on(table.userId),
+    index("vault_withdrawals_status_idx").on(table.status),
+  ]
+);
+
+// Cursor for the event indexer — last processed block, so incremental polls
+// don't re-scan from genesis.
+export const vaultSyncState = pgTable("vault_sync_state", {
+  id: text("id").primaryKey(),                      // always "singleton"
+  lastProcessedBlock: bigint("last_processed_block", { mode: "number" }).notNull().default(0),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 

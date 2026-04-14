@@ -20,8 +20,16 @@ import {
   phantomWallet,
 } from "@rainbow-me/rainbowkit/wallets";
 import { polygon } from "wagmi/chains";
+import { ConnectionProvider, WalletProvider } from "@solana/wallet-adapter-react";
 
 import "@rainbow-me/rainbowkit/styles.css";
+
+// Solana RPC used by the deposit modal when user bridges SOL/USDC from Solana
+// to Polygon via Relay. Wallet Standard-compliant wallets (Phantom, Solflare,
+// Backpack) auto-register, so `wallets` can be empty. This provider is scoped
+// independently from wagmi — connecting Phantom's Solana side here does NOT
+// affect wagmi's active EVM account.
+const SOLANA_RPC = "https://solana-rpc.publicnode.com";
 
 const projectId =
   process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID || "placeholder";
@@ -44,11 +52,16 @@ const rainbowConnectors = connectorsForWallets(
   }
 );
 
+// viem's default Polygon RPC is polygon-rpc.com which has intermittent CORS
+// and "Failed to fetch" errors from browsers. Pin to drpc.org (public, reliable)
+// so wagmi quote/simulate calls don't race Magic's RPC failure.
+const POLYGON_RPC = "https://polygon.drpc.org";
+
 const config = createConfig({
   connectors: [...rainbowConnectors, magicConnector()],
   chains: [polygon],
   transports: {
-    [polygon.id]: http(),
+    [polygon.id]: http(POLYGON_RPC),
   },
   ssr: true,
 });
@@ -141,21 +154,25 @@ export function Providers({ children }: { children: React.ReactNode }) {
   return (
     <WagmiProvider config={config}>
       <QueryClientProvider client={queryClient}>
-        <RainbowKitProvider
-          theme={darkTheme({
-            accentColor: "#58a6ff",
-            accentColorForeground: "white",
-            borderRadius: "medium",
-            overlayBlur: "small",
-          })}
-        >
-          <TooltipProvider>
-            <I18nProvider>
-              <MagicSessionRestore />
-              {children}
-            </I18nProvider>
-          </TooltipProvider>
-        </RainbowKitProvider>
+        <ConnectionProvider endpoint={SOLANA_RPC}>
+          <WalletProvider wallets={[]} autoConnect={false}>
+            <RainbowKitProvider
+              theme={darkTheme({
+                accentColor: "#58a6ff",
+                accentColorForeground: "white",
+                borderRadius: "medium",
+                overlayBlur: "small",
+              })}
+            >
+              <TooltipProvider>
+                <I18nProvider>
+                  <MagicSessionRestore />
+                  {children}
+                </I18nProvider>
+              </TooltipProvider>
+            </RainbowKitProvider>
+          </WalletProvider>
+        </ConnectionProvider>
       </QueryClientProvider>
     </WagmiProvider>
   );

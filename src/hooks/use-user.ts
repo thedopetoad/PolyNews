@@ -93,10 +93,13 @@ export function useUser() {
   const googleAddress = useAuthStore((s) => s.googleAddress);
   const queryClient = useQueryClient();
 
-  // Unified: use wagmi address if connected, otherwise Google address
-  const address = wagmiAddress || googleAddress;
-  const isConnected = !!(wagmiConnected || googleAddress);
-  const authMethod = wagmiAddress ? "wallet" : "google";
+  // Prefer Google (Magic) address when it's set — otherwise a wallet connected
+  // for side tasks (e.g. Phantom inside the LI.FI deposit widget) would hijack
+  // the primary identity via wagmi's active-account state. Explicit logout
+  // clears googleAddress so the user can switch identities intentionally.
+  const address = googleAddress || wagmiAddress;
+  const isConnected = !!(googleAddress || wagmiConnected);
+  const authMethod = googleAddress ? "google" : "wallet";
 
   const userQuery = useQuery({
     queryKey: ["user", address],

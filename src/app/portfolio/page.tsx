@@ -11,7 +11,10 @@ import { POLYMARKET_BASE_URL } from "@/lib/constants";
 import Link from "next/link";
 import { DepositModal } from "@/components/portfolio/deposit-modal";
 import { WithdrawModal } from "@/components/portfolio/withdraw-modal";
+import { VaultDepositModal } from "@/components/portfolio/vault-deposit-modal";
+import { VaultWithdrawModal } from "@/components/portfolio/vault-withdraw-modal";
 
+// USDC.e on Polygon — required for Polymarket CLOB trading. See src/lib/relay.ts.
 const USDC_ADDRESS = "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174" as `0x${string}`;
 const POLYGON_CHAIN_ID = 137;
 
@@ -57,8 +60,29 @@ export default function PortfolioPage() {
   const [tab, setTab] = useState<"positions" | "history">("positions");
 
   // Deposit/Withdraw modals
-  const [depositOpen, setDepositOpen] = useState(false);
-  const [withdrawOpen, setWithdrawOpen] = useState(false);
+  const [depositOpen, setDepositOpen] = useState(false);    // Cross-chain bridge (Relay)
+  const [withdrawOpen, setWithdrawOpen] = useState(false);  // Legacy same-chain withdraw (deprecated, see vault)
+  const [vaultDepositOpen, setVaultDepositOpen] = useState(false);
+  const [vaultWithdrawOpen, setVaultWithdrawOpen] = useState(false);
+
+  // Vault balance — sourced from our DB, mirror of on-chain PolyStreamVault state.
+  // Null vaultAddress = NEXT_PUBLIC_VAULT_ADDRESS env var isn't set yet (vault
+  // not deployed / configured), so we hide the vault UI until it is.
+  const vaultAddress = process.env.NEXT_PUBLIC_VAULT_ADDRESS || null;
+  const [vaultBalance, setVaultBalance] = useState(0);
+  const refetchVaultBalance = () => {
+    if (!address) return;
+    fetch(`/api/vault/balance?userId=${address}`)
+      .then((r) => r.ok ? r.json() : null)
+      .then((d) => {
+        if (d?.balance !== undefined) {
+          // balance is in USDC.e smallest units (6 decimals) as a string
+          setVaultBalance(Number(BigInt(d.balance)) / 1_000_000);
+        }
+      })
+      .catch(() => {});
+  };
+  useEffect(() => { refetchVaultBalance(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [address]);
 
   // Referral count
   const [referralCount, setReferralCount] = useState<number>(0);
@@ -102,31 +126,76 @@ export default function PortfolioPage() {
 
       {/* Balance Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-        {/* Real USDC */}
-        <div className="rounded-xl border border-[#21262d] bg-[#161b22] p-5">
-          <div className="flex items-center justify-between mb-1">
-            <p className="text-[10px] text-[#484f58] uppercase tracking-wider">{t.portfolio.availableToTrade}</p>
-            <span className="text-[10px] text-[#3fb950] bg-[#3fb950]/10 px-1.5 py-0.5 rounded font-medium">USDC</span>
+        {/* PolyStream Vault Balance (custody) — shown when vault is configured */}
+        {vaultAddress ? (
+          <div className="rounded-xl border border-[#21262d] bg-[#161b22] p-5">
+            <div className="flex items-center justify-between mb-1">
+              <p className="text-[10px] text-[#484f58] uppercase tracking-wider">Vault Balance</p>
+              <span className="text-[10px] text-[#58a6ff] bg-[#58a6ff]/10 px-1.5 py-0.5 rounded font-medium">USDC.e</span>
+            </div>
+            <p className="text-3xl font-bold text-white tabular-nums">{formatUsd(vaultBalance)}</p>
+            <p className="text-xs text-[#484f58] mt-1">Custodied — gasless in & out</p>
+            <div className="flex gap-2 mt-3 flex-wrap">
+              <button
+                onClick={() => setVaultDepositOpen(true)}
+                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md text-xs font-medium bg-[#58a6ff]/10 text-[#58a6ff] hover:bg-[#58a6ff]/20 transition-colors"
+              >
+                Deposit
+              </button>
+              <button
+                onClick={() => setVaultWithdrawOpen(true)}
+                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md text-xs font-medium bg-[#21262d] text-[#e6edf3] hover:bg-[#30363d] transition-colors"
+              >
+                Withdraw
+              </button>
+              <button
+                onClick={() => setDepositOpen(true)}
+                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md text-xs font-medium bg-[#21262d] text-[#768390] hover:bg-[#30363d] transition-colors"
+              >
+                Bridge
+              </button>
+            </div>
+            <VaultDepositModal
+              open={vaultDepositOpen}
+              onOpenChange={setVaultDepositOpen}
+              vaultAddress={vaultAddress}
+              onDeposited={refetchVaultBalance}
+            />
+            <VaultWithdrawModal
+              open={vaultWithdrawOpen}
+              onOpenChange={setVaultWithdrawOpen}
+              vaultBalance={vaultBalance}
+              onWithdrawn={refetchVaultBalance}
+            />
+            <DepositModal open={depositOpen} onOpenChange={setDepositOpen} recipientAddress={address} />
           </div>
-          <p className="text-3xl font-bold text-white tabular-nums">{formatUsd(usdcBal)}</p>
-          <p className="text-xs text-[#484f58] mt-1">{t.portfolio.polygonNetwork}</p>
-          <div className="flex gap-2 mt-3">
-            <button
-              onClick={() => setDepositOpen(true)}
-              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md text-xs font-medium bg-[#58a6ff]/10 text-[#58a6ff] hover:bg-[#58a6ff]/20 transition-colors"
-            >
-              {t.portfolio.deposit}
-            </button>
-            <button
-              onClick={() => setWithdrawOpen(true)}
-              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md text-xs font-medium bg-[#21262d] text-[#e6edf3] hover:bg-[#30363d] transition-colors"
-            >
-              {t.portfolio.withdraw}
-            </button>
+        ) : (
+          // Fallback: vault not configured yet, show the old direct-EOA balance card
+          <div className="rounded-xl border border-[#21262d] bg-[#161b22] p-5">
+            <div className="flex items-center justify-between mb-1">
+              <p className="text-[10px] text-[#484f58] uppercase tracking-wider">{t.portfolio.availableToTrade}</p>
+              <span className="text-[10px] text-[#d29922] bg-[#d29922]/10 px-1.5 py-0.5 rounded font-medium">Coming Soon</span>
+            </div>
+            <p className="text-3xl font-bold text-white tabular-nums">{formatUsd(usdcBal)}</p>
+            <p className="text-xs text-[#484f58] mt-1">Real-money deposits are launching alongside our custody vault. Paper trade with AIRDROP for now.</p>
+            <div className="flex gap-2 mt-3">
+              <button
+                disabled
+                title="Deposits disabled \u2014 custody vault coming soon"
+                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md text-xs font-medium bg-[#21262d] text-[#484f58] cursor-not-allowed"
+              >
+                {t.portfolio.deposit}
+              </button>
+              <button
+                disabled
+                title="Withdrawals disabled \u2014 custody vault coming soon"
+                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md text-xs font-medium bg-[#21262d] text-[#484f58] cursor-not-allowed"
+              >
+                {t.portfolio.withdraw}
+              </button>
+            </div>
           </div>
-          <DepositModal open={depositOpen} onOpenChange={setDepositOpen} />
-          <WithdrawModal open={withdrawOpen} onOpenChange={setWithdrawOpen} usdcBalance={usdcBal} />
-        </div>
+        )}
 
         {/* Paper Portfolio */}
         <div className="rounded-xl border border-[#21262d] bg-[#161b22] p-5">

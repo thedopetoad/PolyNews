@@ -10,7 +10,8 @@ import { useT } from "@/lib/i18n";
 import { useSwitchChain, useBalance } from "wagmi";
 import { polygon } from "wagmi/chains";
 
-// USDC.e on Polygon
+// USDC.e on Polygon — required for Polymarket CLOB (their CLOB uses USDC.e as
+// collateral, orders against native USDC get rejected).
 const USDC_ADDRESS = "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174" as `0x${string}`;
 
 interface BetOutcome {
@@ -206,7 +207,7 @@ export function BetSlip({ eventTitle, eventSlug, eventEndDate, marketId, marketQ
           <button onClick={() => setDepositOpen(true)} className="text-[#58a6ff] hover:underline">
             {t.portfolio.depositUsdc} &rarr;
           </button>
-          <DepositModal open={depositOpen} onOpenChange={setDepositOpen} />
+          <DepositModal open={depositOpen} onOpenChange={setDepositOpen} recipientAddress={address} />
         </p>
       )}
 

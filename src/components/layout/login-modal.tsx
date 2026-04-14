@@ -33,8 +33,10 @@ export function LoginButton() {
   const { user } = useUser();
   const { t } = useT();
 
-  const connectedAddress = wagmiAddress || googleAddress;
-  const isConnected = !!(wagmiConnected || googleAddress);
+  // Prefer Google address so a side-wallet connected via the LI.FI deposit
+  // widget (e.g. Phantom) can't hijack the primary session via wagmi.
+  const connectedAddress = googleAddress || wagmiAddress;
+  const isConnected = !!(googleAddress || wagmiConnected);
 
   // Close dropdown on outside click
   useEffect(() => {

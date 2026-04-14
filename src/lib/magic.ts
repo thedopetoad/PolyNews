@@ -18,9 +18,11 @@ export function getMagic(): any {
   if (typeof window === "undefined") return null;
 
   if (!magicInstance) {
+    // polygon-rpc.com has intermittent CORS + "Failed to fetch" errors when
+    // called from Magic's iframe. drpc.org is reliable and CORS-friendly.
     magicInstance = new Magic(MAGIC_API_KEY, {
       network: {
-        rpcUrl: "https://polygon-rpc.com/",
+        rpcUrl: "https://polygon.drpc.org",
         chainId: 137,
       },
       extensions: [new OAuthExtension()],
