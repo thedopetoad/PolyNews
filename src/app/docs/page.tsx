@@ -256,7 +256,7 @@ const sections: DocSection[] = [
           <p>YOUTUBE_API_KEY=AIza...</p>
           <p>NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=...</p>
           <p>NEXT_PUBLIC_WEB3AUTH_CLIENT_ID=...</p>
-          <p>POLYMARKET_BUILDER_API_KEY=... (for future sports betting)</p>
+          <p>POLYMARKET_BUILDER_API_KEY=... (server-only, read by /api/polymarket/builder-headers)</p>
           <p>POLYMARKET_BUILDER_SECRET=...</p>
           <p>POLYMARKET_BUILDER_PASSPHRASE=...</p>
         </div>

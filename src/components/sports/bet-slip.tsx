@@ -5,7 +5,7 @@ import { cn } from "@/lib/utils";
 import { useUser } from "@/hooks/use-user";
 import { usePolymarketTrade } from "@/hooks/use-polymarket-trade";
 import { LoginButton } from "@/components/layout/login-modal";
-import { DepositModal } from "@/components/portfolio/deposit-modal";
+import { BridgeDepositModal } from "@/components/portfolio/bridge-deposit-modal";
 import { useT } from "@/lib/i18n";
 import { useSwitchChain, useBalance } from "wagmi";
 import { polygon } from "wagmi/chains";
@@ -207,7 +207,7 @@ export function BetSlip({ eventTitle, eventSlug, eventEndDate, marketId, marketQ
           <button onClick={() => setDepositOpen(true)} className="text-[#58a6ff] hover:underline">
             {t.portfolio.depositUsdc} &rarr;
           </button>
-          <DepositModal open={depositOpen} onOpenChange={setDepositOpen} recipientAddress={address} />
+          <BridgeDepositModal open={depositOpen} onOpenChange={setDepositOpen} recipientAddress={address} />
         </p>
       )}
 

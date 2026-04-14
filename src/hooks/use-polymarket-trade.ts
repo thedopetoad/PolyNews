@@ -5,10 +5,33 @@ import { useAccount, useWalletClient } from "wagmi";
 import { ClobClient } from "@polymarket/clob-client";
 import { Side, OrderType } from "@polymarket/clob-client";
 import type { ApiKeyCreds } from "@polymarket/clob-client";
+import { BuilderConfig } from "@polymarket/builder-signing-sdk";
 
 const CLOB_HOST = "https://clob.polymarket.com";
 const POLYGON_CHAIN_ID = 137;
 const CREDS_STORAGE_KEY = "polystream-clob-creds";
+
+/**
+ * Remote BuilderConfig — points at our server-side signer so polystream's
+ * builder rewards are attributed to every trade without leaking the HMAC
+ * secret to the browser. The ClobClient's builders flow auto-calls this URL
+ * before mutating requests. If the endpoint returns 503 (builder creds not
+ * set), ClobClient falls back to placing orders without builder headers —
+ * trades still work, just no reward attribution.
+ *
+ * Lazy-instantiated because BuilderConfig validates that the URL is absolute
+ * (`http(s)://...`) and relative paths blow up during SSR prerender where
+ * `window` isn't defined. We only need this object at trade time in the
+ * browser, so building it on demand is fine.
+ */
+function getBuilderConfig(): BuilderConfig | undefined {
+  if (typeof window === "undefined") return undefined;
+  return new BuilderConfig({
+    remoteBuilderConfig: {
+      url: `${window.location.origin}/api/polymarket/builder-headers`,
+    },
+  });
+}
 
 export interface TradeResult {
   success: boolean;
@@ -93,7 +116,9 @@ export function usePolymarketTrade() {
     setError(null);
 
     try {
-      // Create base client for cred derivation
+      // Create base client for cred derivation. Builder config intentionally
+      // OMITTED here — cred derivation endpoints don't accept builder headers
+      // and would 400 if we sent them.
       const baseClient = new ClobClient(CLOB_HOST, POLYGON_CHAIN_ID, walletClient);
 
       // Get cached or derive API credentials (only signs if first time)
@@ -109,8 +134,20 @@ export function usePolymarketTrade() {
         return { success: false, error: msg };
       }
 
-      // Create authenticated client (no signature needed here)
-      const authedClient = new ClobClient(CLOB_HOST, POLYGON_CHAIN_ID, walletClient, creds);
+      // Create authenticated client with builder attribution. The 5th-8th
+      // positional args (signatureType, funderAddress, geoBlockToken,
+      // useServerTime) stay default; we only need to pass `builderConfig` at
+      // position 9. Every subsequent order POST will hit our remote signer
+      // for `POLY_BUILDER_*` headers so the trade credits polystream's
+      // builder rewards account.
+      const authedClient = new ClobClient(
+        CLOB_HOST,
+        POLYGON_CHAIN_ID,
+        walletClient,
+        creds,
+        undefined, undefined, undefined, undefined,
+        getBuilderConfig(),
+      );
 
       // Place market order — this is the ONLY signature the user sees
       const result = await authedClient.createAndPostMarketOrder(
