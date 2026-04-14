@@ -51,11 +51,13 @@ export function WithdrawModal({ open, onOpenChange, usdcBalance, userAddress }: 
   const [error, setError] = useState<string | null>(null);
 
   const isMagicUser = connector?.id === "magic";
+  // Wallet users have walletClient, Magic users have the connector's provider
+  const canWithdraw = !!(userAddress && (walletClient || isMagicUser));
   const selectedDest = DEST_CHAINS.find((c) => c.id === destChain)!;
   const isCrossChain = destChain !== "polygon";
 
   const handleWithdraw = useCallback(async () => {
-    if (!userAddress || !walletClient) return;
+    if (!userAddress) return;
 
     setError(null);
     setTxHash(null);
@@ -82,11 +84,19 @@ export function WithdrawModal({ open, onOpenChange, usdcBalance, userAddress }: 
         },
       });
 
+      // Get signer: walletClient for browser wallets, connector provider for Magic
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      let signer: any = walletClient;
+      if (!signer && isMagicUser && connector) {
+        signer = await connector.getProvider();
+      }
+      if (!signer) throw new Error("No wallet signer available");
+
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const relayClient = new RelayClient(
         RELAYER_URL,
         137, // Polygon
-        walletClient,
+        signer,
         builderConfig as any,
       );
 
@@ -140,7 +150,7 @@ export function WithdrawModal({ open, onOpenChange, usdcBalance, userAddress }: 
       setError((err as Error).message || "Withdrawal failed");
       setStatus("error");
     }
-  }, [userAddress, walletClient, recipient, amount, usdcBalance, isCrossChain, selectedDest]);
+  }, [userAddress, walletClient, connector, isMagicUser, recipient, amount, usdcBalance, isCrossChain, selectedDest]);
 
   const handleClose = (next: boolean) => {
     if (!next && status !== "signing" && status !== "submitting" && status !== "polling") {
@@ -260,13 +270,13 @@ export function WithdrawModal({ open, onOpenChange, usdcBalance, userAddress }: 
           {status !== "success" && (
             <button
               onClick={handleWithdraw}
-              disabled={isProcessing || !walletClient}
+              disabled={isProcessing || !canWithdraw}
               className="w-full py-3 rounded-lg text-sm font-semibold bg-[#58a6ff] text-white hover:bg-[#4d8fea] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {status === "signing" ? "Sign in wallet..." :
                status === "submitting" ? "Setting up bridge..." :
                status === "polling" ? "Confirming on-chain..." :
-               !walletClient ? "Connect wallet to withdraw" :
+               !canWithdraw ? "Connect wallet to withdraw" :
                "Withdraw"}
             </button>
           )}
