@@ -102,6 +102,13 @@ export function WithdrawModal({ open, onOpenChange, usdcBalance, userAddress }: 
       }
       if (!signer) throw new Error("No wallet signer available");
 
+      // Override estimateGas to return a safe default for relay transactions.
+      // The SDK's getGasLimit tries estimateGas which returns incorrect values
+      // for proxy relay txns (doesn't account for relay hub overhead).
+      // Polymarket's own example uses hardcoded gas limits around 650k-3M.
+      const originalEstimateGas = signer.estimateGas?.bind(signer);
+      signer.estimateGas = async () => BigInt(3_000_000);
+
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const relayClient = new RelayClient(
         RELAYER_URL,
