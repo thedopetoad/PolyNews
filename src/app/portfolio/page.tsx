@@ -119,6 +119,7 @@ export default function PortfolioPage() {
 
   // Copy feedback
   const [copied, setCopied] = useState<"code" | "link" | null>(null);
+  const [referralExpanded, setReferralExpanded] = useState(false);
   const handleCopy = (text: string, type: "code" | "link") => {
     navigator.clipboard.writeText(text);
     setCopied(type);
@@ -242,53 +243,76 @@ export default function PortfolioPage() {
 
       {/* Referral Program */}
       {user && (
-        <div className="rounded-xl border border-[#21262d] bg-[#161b22] p-5 mb-8">
-          <div className="flex items-center justify-between">
+        <div className="rounded-xl border border-[#21262d] bg-[#161b22] mb-8">
+          <button
+            type="button"
+            onClick={() => setReferralExpanded((v) => !v)}
+            aria-expanded={referralExpanded}
+            className="w-full flex items-center justify-between p-5 text-left hover:bg-[#1c2128]/40 transition-colors rounded-xl"
+          >
             <div>
               <p className="text-sm font-semibold text-white mb-1">Referral Program</p>
               <p className="text-xs text-[#768390]">
                 Share your code and earn <span className="text-[#3fb950] font-semibold">5,000 AIRDROP</span> for every friend who signs up and claims their bonus.
               </p>
             </div>
-          </div>
-          <div className="flex items-center gap-3 mt-3">
-            <div className="flex-1 bg-[#0d1117] border border-[#30363d] rounded-lg px-4 py-2.5 font-mono text-sm text-[#e6edf3] select-all">
-              {user.referralCode}
-            </div>
-            <button
-              onClick={() => handleCopy(user.referralCode, "code")}
-              className="px-4 py-2.5 rounded-lg text-xs font-semibold bg-[#238636] text-white hover:bg-[#2ea043] transition-colors whitespace-nowrap"
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className={cn("text-[#768390] shrink-0 ml-3 transition-transform", referralExpanded && "rotate-180")}
             >
-              {copied === "code" ? "Copied!" : "Copy Code"}
-            </button>
-            <button
-              onClick={() => handleCopy(`${window.location.origin}?ref=${user.referralCode}`, "link")}
-              className="px-4 py-2.5 rounded-lg text-xs font-semibold bg-[#21262d] text-[#e6edf3] hover:bg-[#30363d] transition-colors whitespace-nowrap"
-            >
-              {copied === "link" ? "Copied!" : "Copy Link"}
-            </button>
-          </div>
-          <div className="mt-3 grid grid-cols-4 gap-3 text-center">
-            <div className="bg-[#0d1117] rounded-lg p-3">
-              <p className="text-lg font-bold text-[#3fb950]">{referralCount}</p>
-              <p className="text-[10px] text-[#484f58]">Friends referred</p>
-            </div>
-            <div className="bg-[#0d1117] rounded-lg p-3">
-              <p className="text-lg font-bold text-white">5,000</p>
-              <p className="text-[10px] text-[#484f58]">AIRDROP per referral</p>
-            </div>
-            <div className="bg-[#0d1117] rounded-lg p-3">
-              <p className="text-lg font-bold text-white">100</p>
-              <p className="text-[10px] text-[#484f58]">Daily claim</p>
-            </div>
-            <div className="bg-[#0d1117] rounded-lg p-3">
-              <p className="text-lg font-bold text-white">1,000</p>
-              <p className="text-[10px] text-[#484f58]">Signup bonus</p>
-            </div>
-          </div>
+              <polyline points="6 9 12 15 18 9" />
+            </svg>
+          </button>
+          {referralExpanded && (
+            <div className="px-5 pb-5">
+              <div className="flex items-center gap-3">
+                <div className="flex-1 bg-[#0d1117] border border-[#30363d] rounded-lg px-4 py-2.5 font-mono text-sm text-[#e6edf3] select-all">
+                  {user.referralCode}
+                </div>
+                <button
+                  onClick={() => handleCopy(user.referralCode, "code")}
+                  className="px-4 py-2.5 rounded-lg text-xs font-semibold bg-[#238636] text-white hover:bg-[#2ea043] transition-colors whitespace-nowrap"
+                >
+                  {copied === "code" ? "Copied!" : "Copy Code"}
+                </button>
+                <button
+                  onClick={() => handleCopy(`${window.location.origin}?ref=${user.referralCode}`, "link")}
+                  className="px-4 py-2.5 rounded-lg text-xs font-semibold bg-[#21262d] text-[#e6edf3] hover:bg-[#30363d] transition-colors whitespace-nowrap"
+                >
+                  {copied === "link" ? "Copied!" : "Copy Link"}
+                </button>
+              </div>
+              <div className="mt-3 grid grid-cols-4 gap-3 text-center">
+                <div className="bg-[#0d1117] rounded-lg p-3">
+                  <p className="text-lg font-bold text-[#3fb950]">{referralCount}</p>
+                  <p className="text-[10px] text-[#484f58]">Friends referred</p>
+                </div>
+                <div className="bg-[#0d1117] rounded-lg p-3">
+                  <p className="text-lg font-bold text-white">5,000</p>
+                  <p className="text-[10px] text-[#484f58]">AIRDROP per referral</p>
+                </div>
+                <div className="bg-[#0d1117] rounded-lg p-3">
+                  <p className="text-lg font-bold text-white">100</p>
+                  <p className="text-[10px] text-[#484f58]">Daily claim</p>
+                </div>
+                <div className="bg-[#0d1117] rounded-lg p-3">
+                  <p className="text-lg font-bold text-white">1,000</p>
+                  <p className="text-[10px] text-[#484f58]">Signup bonus</p>
+                </div>
+              </div>
 
-          {/* Enter referral code — only if not already referred */}
-          <ReferralCodeInput userId={user.id} referredBy={user.referredBy} />
+              {/* Enter referral code — only if not already referred */}
+              <ReferralCodeInput userId={user.id} referredBy={user.referredBy} />
+            </div>
+          )}
         </div>
       )}
 
