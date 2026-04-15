@@ -920,7 +920,7 @@ function SportsContent() {
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-      <div className={cn("flex gap-6", selectedBet && "lg:flex-row")}>
+      <div className="flex gap-6">
       {/* Main content */}
       <div className="flex-1 min-w-0">
       {/* Header */}
@@ -1175,20 +1175,30 @@ function SportsContent() {
       </div>
       </div>{/* end flex-1 main content */}
 
-      {/* Sidebar Bet Slip */}
-      {selectedBet && (
-        <div className="hidden lg:block w-80 flex-shrink-0">
-          <div className="sticky top-20 rounded-xl border border-[#21262d] bg-[#161b22] p-4 space-y-1">
-            <div className="flex items-center justify-between mb-2">
-              <p className="text-sm font-semibold text-white">{selectedBet.eventTitle}</p>
-              <button onClick={() => setSelectedBet(null)} className="text-[#484f58] hover:text-white transition-colors">
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-              </button>
+      {/* Sidebar Bet Slip — always visible on desktop, updates when a game is clicked */}
+      <div className="hidden lg:block w-80 flex-shrink-0">
+        <div className="sticky top-20 rounded-xl border border-[#21262d] bg-[#161b22] p-4 space-y-1">
+          {selectedBet ? (
+            <>
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-sm font-semibold text-white">{selectedBet.eventTitle}</p>
+                <button onClick={() => setSelectedBet(null)} className="text-[#484f58] hover:text-white transition-colors" title="Clear selection">
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                </button>
+              </div>
+              <BetSlip {...selectedBet} />
+            </>
+          ) : (
+            <div className="py-12 text-center space-y-3">
+              <div className="text-3xl">🎯</div>
+              <p className="text-sm font-medium text-[#e6edf3]">Bet Slip</p>
+              <p className="text-xs text-[#484f58] leading-relaxed max-w-[200px] mx-auto">
+                Click on a game and tap <span className="text-[#58a6ff] font-medium">Bet on this game</span> to place a trade.
+              </p>
             </div>
-            <BetSlip {...selectedBet} />
-          </div>
+          )}
         </div>
-      )}
+      </div>
       </div>{/* end flex container */}
     </div>
   );
