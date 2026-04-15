@@ -183,7 +183,6 @@ export default function PortfolioPage() {
           <DidYouSendModal
             open={confirmDeposit !== null}
             onOpenChange={(o) => { if (!o) setConfirmDeposit(null); }}
-            chainName={confirmDeposit?.chain ?? ""}
             onAnswer={(yes) => {
               if (yes && confirmDeposit) {
                 startPending("deposit", confirmDeposit.chain);

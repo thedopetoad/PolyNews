@@ -80,6 +80,10 @@ export const es: TranslationKeys = {
     side: "Lado",
     price: "Precio",
     when: "Cu\u00e1ndo",
+    didYouSendTitle: "\u00bfEnviaste fondos?",
+    didYouSendDesc: "Si enviaste fondos, los rastrearemos y te avisaremos cuando lleguen.",
+    yes: "S\u00ed",
+    no: "No",
   },
   trade: {
     title: "Trade Simulado",

@@ -80,6 +80,10 @@ export const pt: TranslationKeys = {
     side: "Lado",
     price: "Pre\u00e7o",
     when: "Quando",
+    didYouSendTitle: "Voc\u00ea enviou fundos?",
+    didYouSendDesc: "Se voc\u00ea enviou fundos, vamos rastre\u00e1-los e avisar quando chegarem.",
+    yes: "Sim",
+    no: "N\u00e3o",
   },
   trade: {
     title: "Trade Simulado",

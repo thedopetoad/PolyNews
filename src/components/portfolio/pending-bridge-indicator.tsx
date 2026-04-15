@@ -28,7 +28,7 @@ export function PendingBridgeIndicator({ state, onDismiss }: Props) {
     const label =
       state.type === "deposit"
         ? `Deposit received from ${state.chain}`
-        : `Delivered to ${state.chain}`;
+        : "Delivered to your wallet";
     return (
       <div className="mt-3 pt-3 border-t border-[#21262d] animate-in fade-in duration-300">
         <div className="flex items-center justify-between mb-1.5">

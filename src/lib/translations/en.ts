@@ -78,6 +78,10 @@ export const en = {
     side: "Side",
     price: "Price",
     when: "When",
+    didYouSendTitle: "Did you send funds?",
+    didYouSendDesc: "If you sent funds, we'll track and notify you when they land.",
+    yes: "Yes",
+    no: "No",
   },
   trade: {
     title: "Paper Trade",
