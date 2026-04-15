@@ -14,7 +14,7 @@
  * anchor its countdown to the real wall-clock start rather than guessing.
  */
 
-import { createPublicClient, erc20Abi, http } from "viem";
+import { createPublicClient, erc20Abi, http, type Chain } from "viem";
 import {
   arbitrum,
   base,
@@ -32,7 +32,7 @@ export interface WatchResult {
 
 // Public RPCs we can hit without an API key. drpc.org is the same provider
 // wagmi's Polygon config uses.
-const EVM_CHAINS: Record<string, { chain: typeof mainnet; rpc: string; usdc: `0x${string}` }> = {
+const EVM_CHAINS: Record<string, { chain: Chain; rpc: string; usdc: `0x${string}` }> = {
   "1": {
     chain: mainnet,
     rpc: "https://eth.drpc.org",
@@ -94,11 +94,11 @@ async function checkEvm(chainId: string, address: string): Promise<WatchResult> 
     client.getTransactionCount({ address: addr }),
   ]);
 
-  const native = nativeBal.status === "fulfilled" ? nativeBal.value : 0n;
-  const usdc = usdcBal.status === "fulfilled" ? usdcBal.value : 0n;
+  const native = nativeBal.status === "fulfilled" ? nativeBal.value : BigInt(0);
+  const usdc = usdcBal.status === "fulfilled" ? usdcBal.value : BigInt(0);
   const count = txCount.status === "fulfilled" ? txCount.value : 0;
 
-  if (native > 0n || usdc > 0n || count > 0) {
+  if (native > BigInt(0) || usdc > BigInt(0) || count > 0) {
     // We detected something. Try to pin down when — grab the most recent
     // block and use its timestamp. Good enough; actual tx lookup is costlier.
     try {
