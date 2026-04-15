@@ -14,7 +14,7 @@
 
 import { useState, useCallback } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { useWalletClient } from "wagmi";
+import { useAccount, useWalletClient } from "wagmi";
 import { parseUnits, isAddress, createWalletClient, custom } from "viem";
 import { polygon } from "viem/chains";
 import { RelayClient, RelayerTxType } from "@polymarket/builder-relayer-client";
@@ -42,7 +42,11 @@ interface WithdrawModalProps {
 }
 
 export function WithdrawModal({ open, onOpenChange, usdcBalance, userAddress }: WithdrawModalProps) {
-  const { data: walletClient } = useWalletClient();
+  // Explicitly scope the wallet client to Polygon so wagmi doesn't return
+  // undefined when the connected wallet is currently on a different chain
+  // (e.g. Phantom in Solana mode still exposes window.ethereum for signing).
+  const { data: walletClient } = useWalletClient({ chainId: polygon.id });
+  const { isConnected: wagmiConnected } = useAccount();
   const googleAddress = useAuthStore((s) => s.googleAddress);
 
   const [recipient, setRecipient] = useState("");
@@ -53,8 +57,10 @@ export function WithdrawModal({ open, onOpenChange, usdcBalance, userAddress }: 
   const [error, setError] = useState<string | null>(null);
 
   const isMagicUser = !!googleAddress;
-  // Wallet users have walletClient, Magic users have Magic's rpcProvider
-  const canWithdraw = !!(userAddress && (walletClient || isMagicUser));
+  // Gate on connection state, not walletClient presence — the latter can race
+  // during chain switches and be undefined even though the user is signed in.
+  // We'll build a walletClient on-demand inside handleWithdraw if needed.
+  const canWithdraw = !!(userAddress && (wagmiConnected || isMagicUser));
   const selectedDest = DEST_CHAINS.find((c) => c.id === destChain)!;
   const isCrossChain = destChain !== "polygon";
 
@@ -98,6 +104,19 @@ export function WithdrawModal({ open, onOpenChange, usdcBalance, userAddress }: 
           account: userAddress as `0x${string}`,
           chain: polygon,
           transport: custom(magic.rpcProvider),
+        });
+      }
+      // Fallback for wagmi-connected wallets whose walletClient hasn't
+      // materialised (e.g. Phantom while its UI is on Solana). The injected
+      // ethereum provider can still personal_sign, which is all the relay needs.
+      if (!signer && wagmiConnected) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const injected = (window as any).ethereum;
+        if (!injected) throw new Error("No injected wallet provider found");
+        signer = createWalletClient({
+          account: userAddress as `0x${string}`,
+          chain: polygon,
+          transport: custom(injected),
         });
       }
       if (!signer) throw new Error("No wallet signer available");
@@ -182,7 +201,7 @@ export function WithdrawModal({ open, onOpenChange, usdcBalance, userAddress }: 
       setError((err as Error).message || "Withdrawal failed");
       setStatus("error");
     }
-  }, [userAddress, walletClient, isMagicUser, recipient, amount, usdcBalance, isCrossChain, selectedDest]);
+  }, [userAddress, walletClient, wagmiConnected, isMagicUser, recipient, amount, usdcBalance, isCrossChain, selectedDest]);
 
   const handleClose = (next: boolean) => {
     if (!next && status !== "signing" && status !== "submitting" && status !== "polling") {
