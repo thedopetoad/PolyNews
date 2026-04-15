@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useUser } from "@/hooks/use-user";
-import { useAccount, useBalance } from "wagmi";
+import { useBalance } from "wagmi";
 import { useAuthStore } from "@/stores/use-auth-store";
 import { LoginButton } from "@/components/layout/login-modal";
 import { cn } from "@/lib/utils";
@@ -36,27 +36,27 @@ function formatUsd(n: number): string {
 export default function PortfolioPage() {
   const { t } = useT();
   const { address, isConnected, user, positions: paperPositions } = useUser();
-  const { isConnected: wagmiConnected, chainId } = useAccount();
   const googleAddress = useAuthStore((s) => s.googleAddress);
-  const isGoogleUser = !!googleAddress && !wagmiConnected;
-  const isOnPolygon = chainId === POLYGON_CHAIN_ID || isGoogleUser;
 
   // Polymarket proxy wallet address (where deposited USDC.e actually lives)
   const proxyAddress = address ? deriveProxyAddress(address) : undefined;
 
-  // Read USDC.e balance from the proxy wallet (not the EOA)
+  // Read USDC.e balance from the proxy wallet (not the EOA).
+  // We always read from Polygon regardless of which chain the connected wallet
+  // is on — the balance is held on Polygon whether the user is currently
+  // signed into Phantom/MetaMask on Solana, Ethereum, or anywhere else.
   const { data: proxyUsdcBalance } = useBalance({
     address: proxyAddress as `0x${string}` | undefined,
     token: USDC_ADDRESS,
     chainId: POLYGON_CHAIN_ID,
-    query: { enabled: !!proxyAddress && isOnPolygon },
+    query: { enabled: !!proxyAddress },
   });
   // Also check EOA balance as fallback
   const { data: eoaUsdcBalance } = useBalance({
     address: address as `0x${string}` | undefined,
     token: USDC_ADDRESS,
     chainId: POLYGON_CHAIN_ID,
-    query: { enabled: !!address && isOnPolygon },
+    query: { enabled: !!address },
   });
   const proxyBal = proxyUsdcBalance ? parseFloat(proxyUsdcBalance.formatted) : 0;
   const eoaBal = eoaUsdcBalance ? parseFloat(eoaUsdcBalance.formatted) : 0;
