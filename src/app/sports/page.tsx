@@ -189,7 +189,14 @@ interface League {
   name: string;
   emoji: string;
   seriesId: string;
-  image: string;
+  image?: string;
+}
+
+interface SportCategory {
+  code: string;
+  name: string;
+  emoji: string;
+  leagues: League[];
 }
 
 interface Market {
@@ -761,6 +768,10 @@ function SportsContent() {
   // card; when false, it hugs the selected league's button. Clicking the
   // header toggles back to "all", clicking a sport toggles to that sport.
   const [spotlightOnAll, setSpotlightOnAll] = useState(true);
+  // Which sidebar categories are expanded. Starts empty; the category
+  // containing the currently-selected league is auto-expanded by effect
+  // below so users always see their selection in context.
+  const [expandedCats, setExpandedCats] = useState<Set<string>>(new Set());
 
   const { data: leaguesData } = useQuery({
     queryKey: ["sports-leagues"],
@@ -788,7 +799,20 @@ function SportsContent() {
   });
 
   const leagues: League[] = leaguesData?.leagues || [];
+  const categories: SportCategory[] = leaguesData?.categories || [];
   const events: SportEvent[] = eventsData?.events || [];
+
+  // Auto-expand the category containing the currently-selected league so
+  // the selection is always visible, without clobbering user-toggled state.
+  useEffect(() => {
+    if (spotlightOnAll || categories.length === 0) return;
+    const parent = categories.find((c) =>
+      c.leagues.some((l) => l.code === selectedSport)
+    );
+    if (parent && !expandedCats.has(parent.code)) {
+      setExpandedCats((prev) => new Set(prev).add(parent.code));
+    }
+  }, [selectedSport, spotlightOnAll, categories, expandedCats]);
 
   // ALL live games — one call to Polymarket's `live=true` filter, same
   // source that powers polymarket.com's Sports Live page. Each event
@@ -979,38 +1003,87 @@ function SportsContent() {
             </button>
 
             <div className="space-y-0.5">
-              {leagues.map((league) => {
-                const isSelected = !spotlightOnAll && selectedSport === league.code;
+              {categories.map((cat) => {
+                const isExpanded = expandedCats.has(cat.code);
                 return (
-                  <button
-                    key={league.code}
-                    onClick={() => {
-                      setSelectedSport(league.code);
-                      setSpotlightOnAll(false);
-                    }}
-                    className={cn(
-                      "relative w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-[13px] transition-colors text-left group",
-                      isSelected
-                        ? "text-white font-medium bg-[#1c2128]"
-                        : "text-[#768390] hover:text-[#e6edf3] hover:bg-[#161b22]"
+                  <div key={cat.code}>
+                    {/* Category header — click to expand/collapse */}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setExpandedCats((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(cat.code)) next.delete(cat.code);
+                          else next.add(cat.code);
+                          return next;
+                        })
+                      }
+                      className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-[13px] text-[#adbac7] hover:text-white hover:bg-[#161b22] transition-colors text-left"
+                    >
+                      <span className="text-base w-5 text-center flex-shrink-0">{cat.emoji}</span>
+                      <span className="truncate flex-1 font-medium">{cat.name}</span>
+                      <span className="text-[10px] text-[#484f58] tabular-nums">{cat.leagues.length}</span>
+                      <svg
+                        width="10"
+                        height="10"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2.5"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        className={cn(
+                          "text-[#484f58] transition-transform",
+                          isExpanded ? "rotate-180" : ""
+                        )}
+                      >
+                        <polyline points="6 9 12 15 18 9" />
+                      </svg>
+                    </button>
+                    {/* Leagues in this category */}
+                    {isExpanded && (
+                      <div className="mt-0.5 mb-1 ml-2 pl-2 border-l border-[#21262d] space-y-0.5">
+                        {cat.leagues.map((league) => {
+                          const isSelected = !spotlightOnAll && selectedSport === league.code;
+                          return (
+                            <button
+                              key={league.code}
+                              onClick={() => {
+                                setSelectedSport(league.code);
+                                setSpotlightOnAll(false);
+                              }}
+                              className={cn(
+                                "relative w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md text-[12px] transition-colors text-left",
+                                isSelected
+                                  ? "text-white font-medium bg-[#1c2128]"
+                                  : "text-[#768390] hover:text-[#e6edf3] hover:bg-[#161b22]"
+                              )}
+                            >
+                              {isSelected && (
+                                <motion.div
+                                  layoutId="sports-spotlight"
+                                  aria-hidden="true"
+                                  className="absolute inset-0 rounded-md pointer-events-none border border-[#58a6ff]/55 shadow-[0_0_18px_-4px_rgba(88,166,255,0.5)]"
+                                  transition={{ type: "spring", stiffness: 380, damping: 34 }}
+                                />
+                              )}
+                              {league.image ? (
+                                <img
+                                  src={league.image}
+                                  alt={league.name}
+                                  className="relative w-4 h-4 rounded-sm object-contain flex-shrink-0"
+                                  onError={(e) => ((e.currentTarget as HTMLImageElement).style.display = "none")}
+                                />
+                              ) : (
+                                <span className="relative text-sm w-4 text-center flex-shrink-0">{league.emoji}</span>
+                              )}
+                              <span className="relative truncate">{league.name}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
                     )}
-                  >
-                    {/* Spotlight when this button is selected — hugs the button */}
-                    {isSelected && (
-                      <motion.div
-                        layoutId="sports-spotlight"
-                        aria-hidden="true"
-                        className="absolute inset-0 rounded-lg pointer-events-none border border-[#58a6ff]/55 shadow-[0_0_20px_-4px_rgba(88,166,255,0.5)]"
-                        transition={{ type: "spring", stiffness: 380, damping: 34 }}
-                      />
-                    )}
-                    {league.image ? (
-                      <img src={league.image} alt={league.name} className="relative w-5 h-5 rounded-sm object-contain flex-shrink-0" />
-                    ) : (
-                      <span className="relative text-base w-5 text-center flex-shrink-0">{league.emoji}</span>
-                    )}
-                    <span className="relative truncate">{league.name}</span>
-                  </button>
+                  </div>
                 );
               })}
             </div>

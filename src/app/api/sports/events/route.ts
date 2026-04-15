@@ -4,13 +4,28 @@ const GAMMA_API = "https://gamma-api.polymarket.com";
 const CLOB_API = "https://clob.polymarket.com";
 const ESPN_API = "https://site.api.espn.com/apis/site/v2/sports";
 
-// Map sport codes to series IDs
+// Map sport codes to series IDs. Keep in sync with /api/sports/leagues.
 const SERIES_MAP: Record<string, string> = {
-  mlb: "3", nba: "10345", nfl: "10187", nhl: "10346",
-  epl: "10188", lal: "10193", bun: "10194", ucl: "10204",
-  ufc: "10500", ipl: "44", mls: "10189", ncaab: "39",
+  // Basketball
+  nba: "10345", ncaab: "39", fibaam: "11472", fibaeu: "11474",
+  // Soccer
+  epl: "10188", lal: "10193", bun: "10194", ucl: "10204", mls: "10189",
+  bun2: "10670", efl: "10355", ere: "10286", coplib: "10289", argpd: "10285",
+  brsa: "10359", rpl: "10313", fifafri: "10238", ccc: "11464",
+  wsawq: "11437", fifawc: "11448",
+  // Baseball
+  mlb: "3", kbo: "10370",
+  // Football / Hockey / Tennis
+  nfl: "10187", nhl: "10346", olyhk: "11136",
   atp: "10365", wta: "10366",
-  cs: "10310", lol: "10311", dota: "10309", val: "10369",
+  // Cricket
+  ipl: "44", mlc: "11221", intcri: "10528",
+  "cri-in": "10748", "cri-pk": "10751", "cri-sa": "10753",
+  cpl: "11216", wpl: "10908",
+  // MMA / Golf / Rugby / Chess
+  ufc: "10500", pga: "10976", "rugby-t14": "10841", chess: "11480",
+  // Esports
+  cs: "10310", lol: "10311", dota: "10309", val: "10369", easfifa: "10428",
 };
 
 // Map sport codes to ESPN paths
