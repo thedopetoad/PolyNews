@@ -39,9 +39,15 @@ interface WithdrawModalProps {
   onOpenChange: (open: boolean) => void;
   usdcBalance: number;
   userAddress: string | null;
+  /**
+   * Called when the relay transaction confirms. The portfolio page uses this
+   * to start a pending-withdraw tracker — mostly useful for cross-chain
+   * withdraws where the bridge still needs to deliver to the destination.
+   */
+  onWithdrawInitiated?: (chainName: string) => void;
 }
 
-export function WithdrawModal({ open, onOpenChange, usdcBalance, userAddress }: WithdrawModalProps) {
+export function WithdrawModal({ open, onOpenChange, usdcBalance, userAddress, onWithdrawInitiated }: WithdrawModalProps) {
   // Explicitly scope the wallet client to Polygon so wagmi doesn't return
   // undefined when the connected wallet is currently on a different chain
   // (e.g. Phantom in Solana mode still exposes window.ethereum for signing).
@@ -196,12 +202,23 @@ export function WithdrawModal({ open, onOpenChange, usdcBalance, userAddress }: 
 
       setTxHash(hash);
       setStatus("success");
+
+      // Kick off the pending-withdraw indicator for the destination chain.
+      // Map our internal ids to the human names that usePendingBridge knows.
+      const CHAIN_NAMES: Record<string, string> = {
+        polygon: "Polygon",
+        ethereum: "Ethereum",
+        base: "Base",
+        solana: "Solana",
+      };
+      const chainName = CHAIN_NAMES[destChain] ?? selectedDest.label;
+      onWithdrawInitiated?.(chainName);
     } catch (err) {
       console.error("Withdraw failed:", err);
       setError((err as Error).message || "Withdrawal failed");
       setStatus("error");
     }
-  }, [userAddress, walletClient, wagmiConnected, isMagicUser, recipient, amount, usdcBalance, isCrossChain, selectedDest]);
+  }, [userAddress, walletClient, wagmiConnected, isMagicUser, recipient, amount, usdcBalance, isCrossChain, selectedDest, destChain, onWithdrawInitiated]);
 
   const handleClose = (next: boolean) => {
     if (!next && status !== "signing" && status !== "submitting" && status !== "polling") {

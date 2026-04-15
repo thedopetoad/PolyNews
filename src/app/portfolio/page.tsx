@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useUser } from "@/hooks/use-user";
 import { useBalance } from "wagmi";
 import { useAuthStore } from "@/stores/use-auth-store";
@@ -11,7 +11,9 @@ import { POLYMARKET_BASE_URL } from "@/lib/constants";
 import Link from "next/link";
 import { BridgeDepositModal } from "@/components/portfolio/bridge-deposit-modal";
 import { WithdrawModal } from "@/components/portfolio/withdraw-modal";
+import { PendingBridgeIndicator } from "@/components/portfolio/pending-bridge-indicator";
 import { deriveProxyAddress } from "@/lib/relay";
+import { usePendingBridge } from "@/hooks/use-pending-bridge";
 
 // USDC.e on Polygon — required for Polymarket CLOB trading. See src/lib/relay.ts.
 const USDC_ADDRESS = "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174" as `0x${string}`;
@@ -41,26 +43,43 @@ export default function PortfolioPage() {
   // Polymarket proxy wallet address (where deposited USDC.e actually lives)
   const proxyAddress = address ? deriveProxyAddress(address) : undefined;
 
+  // Pending bridge tracker — controls whether to poll balance aggressively.
+  const { pending, start: startPending, dismiss: dismissPending } = usePendingBridge();
+
   // Read USDC.e balance from the proxy wallet (not the EOA).
   // We always read from Polygon regardless of which chain the connected wallet
   // is on — the balance is held on Polygon whether the user is currently
   // signed into Phantom/MetaMask on Solana, Ethereum, or anywhere else.
+  // When a bridge is pending we poll every 8s so the indicator auto-dismisses
+  // as soon as funds land; otherwise we rely on react-query's default staleness.
+  const refetchInterval = pending ? 8_000 : false;
   const { data: proxyUsdcBalance } = useBalance({
     address: proxyAddress as `0x${string}` | undefined,
     token: USDC_ADDRESS,
     chainId: POLYGON_CHAIN_ID,
-    query: { enabled: !!proxyAddress },
+    query: { enabled: !!proxyAddress, refetchInterval },
   });
   // Also check EOA balance as fallback
   const { data: eoaUsdcBalance } = useBalance({
     address: address as `0x${string}` | undefined,
     token: USDC_ADDRESS,
     chainId: POLYGON_CHAIN_ID,
-    query: { enabled: !!address },
+    query: { enabled: !!address, refetchInterval },
   });
   const proxyBal = proxyUsdcBalance ? parseFloat(proxyUsdcBalance.formatted) : 0;
   const eoaBal = eoaUsdcBalance ? parseFloat(eoaUsdcBalance.formatted) : 0;
   const usdcBal = proxyBal + eoaBal;
+
+  // Auto-dismiss the pending indicator once the balance increases — that means
+  // a deposit actually landed. Skip for withdraws: their balance went DOWN,
+  // and cross-chain delivery isn't observable from the Polygon balance anyway.
+  const prevBalRef = useRef<number>(usdcBal);
+  useEffect(() => {
+    if (pending?.type === "deposit" && usdcBal > prevBalRef.current + 0.001) {
+      dismissPending();
+    }
+    prevBalRef.current = usdcBal;
+  }, [usdcBal, pending, dismissPending]);
 
   // Paper portfolio value
   const paperBalance = user?.balance || 0;
@@ -140,8 +159,28 @@ export default function PortfolioPage() {
               {t.portfolio.withdraw}
             </button>
           </div>
-          <BridgeDepositModal open={depositOpen} onOpenChange={setDepositOpen} recipientAddress={address} />
-          <WithdrawModal open={withdrawOpen} onOpenChange={setWithdrawOpen} usdcBalance={usdcBal} userAddress={address} />
+          {pending && (
+            <PendingBridgeIndicator
+              type={pending.type}
+              chain={pending.chain}
+              etaSeconds={pending.etaSeconds}
+              startedAt={pending.startedAt}
+              onDismiss={dismissPending}
+            />
+          )}
+          <BridgeDepositModal
+            open={depositOpen}
+            onOpenChange={setDepositOpen}
+            recipientAddress={address}
+            onDepositInitiated={(chain) => startPending("deposit", chain)}
+          />
+          <WithdrawModal
+            open={withdrawOpen}
+            onOpenChange={setWithdrawOpen}
+            usdcBalance={usdcBal}
+            userAddress={address}
+            onWithdrawInitiated={(chain) => startPending("withdraw", chain)}
+          />
         </div>
 
         {/* Paper Portfolio */}

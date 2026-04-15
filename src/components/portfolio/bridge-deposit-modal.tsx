@@ -64,9 +64,15 @@ interface BridgeDepositModalProps {
   onOpenChange: (open: boolean) => void;
   /** User's EVM address (Magic / RainbowKit) — used to fetch their unique deposit addresses */
   recipientAddress: string | null;
+  /**
+   * Called when the user closes the modal after a deposit address was visible.
+   * The portfolio page uses this to kick off a pending-deposit indicator.
+   * `chainName` is the human name of the chain they had selected (e.g. "Ethereum").
+   */
+  onDepositInitiated?: (chainName: string) => void;
 }
 
-export function BridgeDepositModal({ open, onOpenChange, recipientAddress }: BridgeDepositModalProps) {
+export function BridgeDepositModal({ open, onOpenChange, recipientAddress, onDepositInitiated }: BridgeDepositModalProps) {
   const [assets, setAssets] = useState<SupportedAsset[] | null>(null);
   const [addresses, setAddresses] = useState<DepositAddresses | null>(null);
   const [loading, setLoading] = useState(false);
@@ -153,6 +159,13 @@ export function BridgeDepositModal({ open, onOpenChange, recipientAddress }: Bri
     if (!next) {
       setChainMenuOpen(false);
       setTokenMenuOpen(false);
+      // If the user actually saw a deposit address (i.e. the modal finished
+      // loading and showed something actionable), kick off a pending-deposit
+      // tracker for the chain they had selected. Harmless if they didn't send
+      // — they can dismiss the indicator with the × button.
+      if (depositAddress && selectedChainName) {
+        onDepositInitiated?.(selectedChainName);
+      }
     }
     onOpenChange(next);
   };
