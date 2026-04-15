@@ -15,9 +15,8 @@ export const STREAM_CHANNELS: StreamChannel[] = [
   { channelId: "UCJg9wBPyKMNA5sRDnvzmkdg", name: "LiveNow FOX", color: "#003366" },
   { channelId: "UCBi2mrWuNuyYy4gbM6fU18Q", name: "ABC News", color: "#0040C1" },
   { channelId: "UC8p1vwvWtl6T73JiExfWs1g", name: "CBS News", color: "#1A1A1A" },
-  { channelId: "UCQfwfsi2Dcf8IMIWbJELOZQ", name: "Sky News", color: "#c80000" },
-  { channelId: "UCQGqX5Ndpm4snE0NTjyOJnA", name: "France 24", color: "#00a1e0" },
   { channelId: "UCknLrEdhRCp1aegoMqRaCZg", name: "DW News", color: "#0055a4" },
+  { channelId: "UC1yBKRuGpC1tSM73A0ZjYjQ", name: "The Young Turks", color: "#d4261c" },
 ];
 
 export const MARKET_CATEGORIES = [
