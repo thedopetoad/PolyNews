@@ -127,24 +127,17 @@
 .animate-fade-in-up { animation: fade-in-up 0.3s ease-out forwards; }
 .animate-draw-line { animation: draw-line 1s ease-out forwards; stroke-dasharray: 2000; }
 
-/* Modal shrink on close — eases in, then accelerates exponentially as it
-   collapses. Scoped to data-closed so it only plays on close. Used by the
-   bridge deposit modal. Overrides the base Dialog's default zoom-out. */
-@keyframes modal-shrink-exp {
-  0%   { opacity: 1; transform: translate(-50%, -50%) scale(1); }
-  100% { opacity: 0; transform: translate(-50%, -50%) scale(0); }
-}
-[data-slot="dialog-content"].modal-shrink-on-close[data-closed] {
-  animation: modal-shrink-exp 320ms cubic-bezier(0.5, 0, 0.95, 0.05) forwards !important;
-}
-
-/* Modal grow on open — snaps out rapidly then eases into final size. Used
-   by the "Did you send funds?" confirmation modal for a satisfying
-   appearance right after the deposit modal collapses. */
+/* Modal grow on open — snaps out rapidly then eases into final size with
+   a gentle 1.04 overshoot. Used by the "Did you send funds?" confirmation
+   modal. Intentionally animates only the individual `scale` CSS property
+   so Tailwind 4's individual `translate` for -translate-x-1/2 /
+   -translate-y-1/2 keeps the modal perfectly centered. Writing a full
+   `transform: translate(...) scale(...)` would compose on top of
+   Tailwind's translate and drift the modal off-center. */
 @keyframes modal-grow-eo {
-  0%   { opacity: 0; transform: translate(-50%, -50%) scale(0.4); }
-  60%  { opacity: 1; transform: translate(-50%, -50%) scale(1.04); }
-  100% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  0%   { opacity: 0; scale: 0.4; }
+  60%  { opacity: 1; scale: 1.04; }
+  100% { opacity: 1; scale: 1; }
 }
 [data-slot="dialog-content"].modal-grow-on-open[data-open] {
   animation: modal-grow-eo 380ms cubic-bezier(0.2, 0.9, 0.25, 1) forwards !important;
