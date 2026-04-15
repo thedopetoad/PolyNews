@@ -917,27 +917,40 @@ function SportsContent() {
       <div className="flex gap-6">
         {/* Sidebar — League List (Polymarket style) */}
         <div className="hidden lg:block w-52 flex-shrink-0">
-          <p className="text-[10px] text-[#484f58] uppercase tracking-wider font-medium mb-3 px-2">All Sports</p>
-          <div className="space-y-0.5">
-            {leagues.map((league) => (
-              <button
-                key={league.code}
-                onClick={() => setSelectedSport(league.code)}
-                className={cn(
-                  "w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-[13px] transition-all text-left group",
-                  selectedSport === league.code
-                    ? "bg-[#1c2128] text-white font-medium border border-[#30363d]"
-                    : "text-[#768390] hover:text-[#e6edf3] hover:bg-[#161b22]"
-                )}
-              >
-                {league.image ? (
-                  <img src={league.image} alt={league.name} className="w-5 h-5 rounded-sm object-contain flex-shrink-0" />
-                ) : (
-                  <span className="text-base w-5 text-center flex-shrink-0">{league.emoji}</span>
-                )}
-                <span className="truncate">{league.name}</span>
-              </button>
-            ))}
+          {/* Gradient-bordered card — draws attention to the full league lineup */}
+          <div className="relative rounded-xl p-[1px] bg-gradient-to-b from-[#58a6ff]/50 via-[#30363d]/60 to-[#30363d]/30 shadow-[0_0_32px_-10px_rgba(88,166,255,0.35)]">
+            {/* Thin top highlight line for extra polish */}
+            <div className="absolute inset-x-5 top-0 h-px bg-gradient-to-r from-transparent via-[#58a6ff]/80 to-transparent pointer-events-none" />
+            <div className="rounded-[11px] bg-gradient-to-b from-[#161b22] to-[#0d1117] p-3">
+              {/* Header with live count badge */}
+              <div className="flex items-center justify-between px-2 mb-3">
+                <p className="text-[10px] text-[#8b949e] uppercase tracking-[0.18em] font-semibold">All Sports</p>
+                <span className="px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-[#58a6ff]/12 text-[#58a6ff] border border-[#58a6ff]/25 tabular-nums leading-none">
+                  {leagues.length}
+                </span>
+              </div>
+              <div className="space-y-0.5">
+                {leagues.map((league) => (
+                  <button
+                    key={league.code}
+                    onClick={() => setSelectedSport(league.code)}
+                    className={cn(
+                      "w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-[13px] transition-all text-left group",
+                      selectedSport === league.code
+                        ? "bg-[#1c2128] text-white font-medium border border-[#30363d] shadow-[inset_0_0_0_1px_rgba(88,166,255,0.15)]"
+                        : "text-[#768390] hover:text-[#e6edf3] hover:bg-[#161b22]"
+                    )}
+                  >
+                    {league.image ? (
+                      <img src={league.image} alt={league.name} className="w-5 h-5 rounded-sm object-contain flex-shrink-0" />
+                    ) : (
+                      <span className="text-base w-5 text-center flex-shrink-0">{league.emoji}</span>
+                    )}
+                    <span className="truncate">{league.name}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
         </div>
 
