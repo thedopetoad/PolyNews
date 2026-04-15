@@ -36,7 +36,7 @@ const sections: DocSection[] = [
       <div className="space-y-3">
         <p>The home page combines a live video feed with real-time headline analysis to surface relevant prediction markets.</p>
         <h4 className="font-semibold text-[#e6edf3] mt-2">Live Stream</h4>
-        <p>Watch 6 live 24/7 news channels (Al Jazeera, FOX, ABC, CBS, DW News, The Young Turks) with a 4x multi-view mode.</p>
+        <p>Watch 7 live news channels (Al Jazeera, FOX, ABC, CBS, DW News, The Young Turks, plus Alex Jones on Rumble) with a 4x multi-view mode.</p>
         <h4 className="font-semibold text-[#e6edf3] mt-2">Breaking News Feed</h4>
         <p>Headlines from 6 sources (BBC, NYT, Al Jazeera, Guardian, Sky News) plus OSINT intelligence from Telegram channels, updated every 5 minutes. Filter by source or category (Iran, Ukraine, Crypto, Finance, Politics, Tech).</p>
         <h4 className="font-semibold text-[#e6edf3] mt-2">AI-Powered Related Markets</h4>

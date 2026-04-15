@@ -6,6 +6,9 @@ import { eq } from "drizzle-orm";
 const YOUTUBE_API = "https://www.googleapis.com/youtube/v3";
 const CACHE_TTL = 30 * 60 * 1000; // 30 minutes
 
+// Only YouTube channels — Rumble has its own route.
+const YT_CHANNELS = STREAM_CHANNELS.filter((c) => (c.platform ?? "youtube") === "youtube");
+
 interface LiveStream {
   videoId: string;
   title: string;
@@ -33,14 +36,14 @@ export async function GET() {
   const cacheMap = new Map(cached.map((c) => [c.channelId, c]));
 
   const now = Date.now();
-  const allFresh = STREAM_CHANNELS.every((ch) => {
+  const allFresh = YT_CHANNELS.every((ch) => {
     const entry = cacheMap.get(ch.channelId);
     return entry && now - new Date(entry.updatedAt).getTime() < CACHE_TTL;
   });
 
   // If all channels are fresh in DB, return cached data (no API call)
   if (allFresh) {
-    const results: ChannelResult[] = STREAM_CHANNELS.map((ch) => {
+    const results: ChannelResult[] = YT_CHANNELS.map((ch) => {
       const entry = cacheMap.get(ch.channelId);
       return {
         channelId: ch.channelId,
@@ -54,7 +57,7 @@ export async function GET() {
   // Step 2: Cache is stale — refresh from YouTube API
   if (!apiKey) {
     // No API key: return whatever we have in DB (even if stale)
-    const results: ChannelResult[] = STREAM_CHANNELS.map((ch) => {
+    const results: ChannelResult[] = YT_CHANNELS.map((ch) => {
       const entry = cacheMap.get(ch.channelId);
       return {
         channelId: ch.channelId,
@@ -67,7 +70,7 @@ export async function GET() {
 
   try {
     const results: ChannelResult[] = await Promise.all(
-      STREAM_CHANNELS.map(async (ch) => {
+      YT_CHANNELS.map(async (ch) => {
         // Skip channels that are still fresh in cache
         const entry = cacheMap.get(ch.channelId);
         if (entry && now - new Date(entry.updatedAt).getTime() < CACHE_TTL) {
@@ -130,7 +133,7 @@ export async function GET() {
     return NextResponse.json({ results, cached: false });
   } catch {
     // Return whatever's in DB on total failure
-    const results: ChannelResult[] = STREAM_CHANNELS.map((ch) => {
+    const results: ChannelResult[] = YT_CHANNELS.map((ch) => {
       const entry = cacheMap.get(ch.channelId);
       return {
         channelId: ch.channelId,

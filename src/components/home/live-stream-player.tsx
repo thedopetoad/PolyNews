@@ -26,18 +26,28 @@ export function LiveStreamPlayer() {
   const [multiSelections, setMultiSelections] = useState<number[]>([]);
 
   const fetchAllStreams = useCallback(async () => {
-    let results: ChannelStreams[];
-    try {
-      const res = await fetch("/api/youtube/live");
-      if (!res.ok) throw new Error();
-      const data = await res.json();
-      results = STREAM_CHANNELS.map((ch) => {
-        const match = (data.results || []).find((r: { channelId: string }) => r.channelId === ch.channelId);
-        return { channelId: ch.channelId, name: ch.name, streams: match?.streams || [], loading: false };
-      });
-    } catch {
-      results = STREAM_CHANNELS.map((c) => ({ channelId: c.channelId, name: c.name, streams: [], loading: false }));
-    }
+    type ApiResult = { channelId: string; streams: LiveStream[] };
+    const merged = new Map<string, LiveStream[]>();
+    await Promise.all(
+      ["/api/youtube/live", "/api/rumble/live"].map(async (url) => {
+        try {
+          const res = await fetch(url);
+          if (!res.ok) return;
+          const data = await res.json();
+          for (const r of (data.results || []) as ApiResult[]) {
+            merged.set(r.channelId, r.streams || []);
+          }
+        } catch {
+          // ignore; channels with no data stay empty below
+        }
+      })
+    );
+    const results: ChannelStreams[] = STREAM_CHANNELS.map((ch) => ({
+      channelId: ch.channelId,
+      name: ch.name,
+      streams: merged.get(ch.channelId) || [],
+      loading: false,
+    }));
     setChannels(results);
 
     setActiveIdx((prev) => {
@@ -70,7 +80,13 @@ export function LiveStreamPlayer() {
 
   const active = channels[activeIdx];
   const activeStream = active?.streams[activeStreamIdx];
+  const activeChannelConfig = STREAM_CHANNELS[activeIdx];
   const isLoading = channels.every((c) => c.loading);
+
+  const embedUrl = (videoId: string, platform: "youtube" | "rumble" | undefined) =>
+    platform === "rumble"
+      ? `https://rumble.com/embed/${videoId}/?autoplay=1`
+      : `https://www.youtube.com/embed/${videoId}?autoplay=1&mute=1&rel=0`;
 
   return (
     <div className="rounded-lg border border-[#21262d] bg-[#161b22] overflow-hidden">
@@ -187,7 +203,7 @@ export function LiveStreamPlayer() {
           ) : activeStream ? (
             <iframe
               key={activeStream.videoId}
-              src={`https://www.youtube.com/embed/${activeStream.videoId}?autoplay=1&mute=1&rel=0`}
+              src={embedUrl(activeStream.videoId, activeChannelConfig?.platform)}
               title={activeStream.title}
               className="absolute inset-0 w-full h-full"
               allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
@@ -215,7 +231,7 @@ export function LiveStreamPlayer() {
                   <>
                     <iframe
                       key={stream.videoId}
-                      src={`https://www.youtube.com/embed/${stream.videoId}?autoplay=1&mute=1&rel=0`}
+                      src={embedUrl(stream.videoId, chConfig?.platform)}
                       title={stream.title}
                       className="absolute inset-0 w-full h-full"
                       allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"

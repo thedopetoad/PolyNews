@@ -26,7 +26,10 @@ GitHub-triggered deploy with stale code. Always commit + push instead.
 ## Pages & Features
 
 ### News Page (/)
-- 6 YouTube live streams: Al Jazeera, LiveNow FOX, ABC News, CBS News, DW News, The Young Turks
+- 7 live streams: Al Jazeera, LiveNow FOX, ABC News, CBS News, DW News, The Young Turks (YouTube) + Alex Jones (Rumble)
+- YouTube channels resolved via YouTube Data API v3 (`/api/youtube/live`)
+- Rumble channels scraped from `rumble.com/c/{slug}/livestreams` + oEmbed (`/api/rumble/live`)
+- STREAM_CHANNELS entries carry a `platform?: "youtube" | "rumble"` field (default: youtube)
 - Auto-discovers live streams via YouTube Data API, cached 30min in DB
 - **4x multi-view** mode to watch 4 channels simultaneously
 - RSS news feed (BBC, NYT, NPR)
