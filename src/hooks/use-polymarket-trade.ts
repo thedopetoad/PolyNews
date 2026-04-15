@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useCallback, useRef } from "react";
-import { useAccount, useWalletClient } from "wagmi";
+import { useAccount, useWalletClient, useConfig } from "wagmi";
+import { getWalletClient as getWalletClientAction } from "wagmi/actions";
 import { ClobClient } from "@polymarket/clob-client";
 import { Side, OrderType } from "@polymarket/clob-client";
 import type { ApiKeyCreds } from "@polymarket/clob-client";
@@ -72,6 +73,7 @@ function saveCreds(address: string, creds: ApiKeyCreds) {
 export function usePolymarketTrade() {
   const { address, chainId } = useAccount();
   const { data: walletClient } = useWalletClient();
+  const wagmiConfig = useConfig();
   const [placing, setPlacing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const cachedCredsRef = useRef<ApiKeyCreds | null>(null);
@@ -105,11 +107,23 @@ export function usePolymarketTrade() {
     negRisk?: boolean;
     tickSize?: "0.1" | "0.01" | "0.001" | "0.0001";
   }): Promise<TradeResult> => {
-    if (!walletClient || !address) {
+    if (!address) {
       return { success: false, error: "Wallet not connected" };
     }
-    if (!isOnPolygon) {
-      return { success: false, error: "Switch to Polygon network" };
+
+    // The reactive walletClient from useWalletClient() can be stale after a
+    // chain switch or on initial load. Actively fetch a fresh one so the user
+    // doesn't see "Wallet not connected" when they clearly ARE connected.
+    let signer = walletClient;
+    if (!signer) {
+      try {
+        signer = await getWalletClientAction(wagmiConfig, { chainId: POLYGON_CHAIN_ID });
+      } catch {
+        return { success: false, error: "Could not reach your wallet. Make sure it's unlocked and on Polygon." };
+      }
+    }
+    if (!signer) {
+      return { success: false, error: "Wallet signer unavailable. Try switching to Polygon in your wallet." };
     }
 
     setPlacing(true);
@@ -119,7 +133,7 @@ export function usePolymarketTrade() {
       // Create base client for cred derivation. Builder config intentionally
       // OMITTED here — cred derivation endpoints don't accept builder headers
       // and would 400 if we sent them.
-      const baseClient = new ClobClient(CLOB_HOST, POLYGON_CHAIN_ID, walletClient);
+      const baseClient = new ClobClient(CLOB_HOST, POLYGON_CHAIN_ID, signer);
 
       // Get cached or derive API credentials (only signs if first time)
       let creds: ApiKeyCreds;
@@ -143,7 +157,7 @@ export function usePolymarketTrade() {
       const authedClient = new ClobClient(
         CLOB_HOST,
         POLYGON_CHAIN_ID,
-        walletClient,
+        signer,
         creds,
         undefined, undefined, undefined, undefined,
         getBuilderConfig(),
@@ -187,7 +201,7 @@ export function usePolymarketTrade() {
     } finally {
       setPlacing(false);
     }
-  }, [walletClient, address, isOnPolygon, getOrDeriveCreds]);
+  }, [walletClient, wagmiConfig, address, isOnPolygon, getOrDeriveCreds]);
 
   return {
     placeOrder,
