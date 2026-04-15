@@ -8,8 +8,12 @@ A prediction market platform at **polystream.vercel.app** combining live news, A
 ## Quick Start
 - `npm run dev` - local dev server
 - `npm run build` - production build
-- `npx vercel --yes --prod` - deploy to production
+- `git push` - deploys to production (Vercel auto-deploys on push to master)
 - `npx drizzle-kit push` - push schema changes to Neon DB
+
+**Never run `npx vercel --prod` directly** — it uploads whatever's in the
+current working directory, bypasses GitHub, and can overwrite the
+GitHub-triggered deploy with stale code. Always commit + push instead.
 
 ## Tech Stack
 - Next.js 16 (App Router), Tailwind CSS, shadcn/ui
@@ -22,7 +26,7 @@ A prediction market platform at **polystream.vercel.app** combining live news, A
 ## Pages & Features
 
 ### News Page (/)
-- 7 YouTube live streams: Al Jazeera, LiveNow FOX, ABC News, CBS News, Sky News, France 24, DW News
+- 6 YouTube live streams: Al Jazeera, LiveNow FOX, ABC News, CBS News, DW News, The Young Turks
 - Auto-discovers live streams via YouTube Data API, cached 30min in DB
 - **4x multi-view** mode to watch 4 channels simultaneously
 - RSS news feed (BBC, NYT, NPR)
@@ -75,9 +79,11 @@ Tables: users, positions, trades, airdrops, consensus_cache, youtube_stream_cach
 - Ollama installed locally with qwen3:8b model (for future MiroShark work)
 
 ## Vercel
-- Project: polystream (williamnuuh-7435s-projects)
-- `npx vercel --yes --prod` deploys immediately
+- Project: polystream (williamnuuh-7435s-projects) at polystream.vercel.app
+- Wired to GitHub repo `thedopetoad/PolyNews`, auto-deploys on push to master
+- Do NOT run `npx vercel --prod` directly — push to GitHub and let Vercel deploy
 
 ## Git
 - User: toad <thedopetoad@gmail.com>
-- All on master branch, local only (not on GitHub)
+- Remote: https://github.com/thedopetoad/PolyNews (master branch = production)
+- Always `git commit` + `git push` after code changes. The push IS the deploy.
