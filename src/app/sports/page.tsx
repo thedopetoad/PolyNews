@@ -827,9 +827,18 @@ function SportsContent() {
   // Selected sport events
   const liveEvents = events.filter((e) => e.espnLive === true);
 
+  // Upcoming = games that haven't started yet, plus a 20-minute grace window
+  // for games that JUST started but ESPN hasn't flagged as live yet (so they
+  // don't vanish from both tabs entirely during the ESPN indexing lag).
+  // Without this bound, any past game that wasn't ESPN-live would stay in
+  // Upcoming forever — which is why African/LATAM testers saw yesterday's
+  // games still listed on the next day.
+  const UPCOMING_GRACE_MS = 20 * 60 * 1000;
   const upcomingEvents = events.filter((e) => {
     const gs = new Date(e.gameStartTime).getTime();
-    return gs > now || (!e.espnLive && gs <= now);
+    if (gs > now) return true;
+    if (!e.espnLive && now - gs < UPCOMING_GRACE_MS) return true;
+    return false;
   });
 
   // Group upcoming by date
