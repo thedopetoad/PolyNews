@@ -3,6 +3,7 @@
 import { useState, useMemo, useEffect, useCallback, useRef, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
+import { motion } from "motion/react";
 import { cn } from "@/lib/utils";
 import { LoginButton } from "@/components/layout/login-modal";
 import { BetSlip } from "@/components/sports/bet-slip";
@@ -755,6 +756,10 @@ function SportsContent() {
   const [view, setView] = useState<"live" | "upcoming">("upcoming");
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [selectedBet, setSelectedBet] = useState<SelectedBet | null>(null);
+  // Spotlight mode: when true, the animated border wraps the whole "All Sports"
+  // card; when false, it hugs the selected league's button. Clicking the
+  // header toggles back to "all", clicking a sport toggles to that sport.
+  const [spotlightOnAll, setSpotlightOnAll] = useState(true);
 
   const { data: leaguesData } = useQuery({
     queryKey: ["sports-leagues"],
@@ -928,41 +933,78 @@ function SportsContent() {
       </div>
 
       <div className="flex gap-6">
-        {/* Sidebar — League List (Polymarket style) */}
+        {/* Sidebar — League List (Polymarket style).
+            A single animated "spotlight" (motion.div with layoutId) moves
+            between the card-level wrapper and whichever league button is
+            selected, giving a smooth shrink/grow effect. */}
         <div className="hidden lg:block w-52 flex-shrink-0">
-          {/* Gradient-bordered card — draws attention to the full league lineup */}
-          <div className="relative rounded-xl p-[1px] bg-gradient-to-b from-[#58a6ff]/50 via-[#30363d]/60 to-[#30363d]/30 shadow-[0_0_32px_-10px_rgba(88,166,255,0.35)]">
-            {/* Thin top highlight line for extra polish */}
-            <div className="absolute inset-x-5 top-0 h-px bg-gradient-to-r from-transparent via-[#58a6ff]/80 to-transparent pointer-events-none" />
-            <div className="rounded-[11px] bg-gradient-to-b from-[#161b22] to-[#0d1117] p-3">
-              {/* Header with live count badge */}
-              <div className="flex items-center justify-between px-2 mb-3">
-                <p className="text-[10px] text-[#8b949e] uppercase tracking-[0.18em] font-semibold">All Sports</p>
-                <span className="px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-[#58a6ff]/12 text-[#58a6ff] border border-[#58a6ff]/25 tabular-nums leading-none">
-                  {leagues.length}
-                </span>
-              </div>
-              <div className="space-y-0.5">
-                {leagues.map((league) => (
+          <div className="relative rounded-xl bg-gradient-to-b from-[#161b22] to-[#0d1117] p-3">
+            {/* Spotlight when no specific sport is selected — wraps the whole card */}
+            {spotlightOnAll && (
+              <motion.div
+                layoutId="sports-spotlight"
+                aria-hidden="true"
+                className="absolute inset-0 rounded-xl pointer-events-none border border-[#58a6ff]/55 shadow-[0_0_28px_-6px_rgba(88,166,255,0.45)]"
+                transition={{ type: "spring", stiffness: 380, damping: 34 }}
+              />
+            )}
+            {/* Thin top highlight line — only shows while spotlight is on the card */}
+            {spotlightOnAll && (
+              <div className="absolute inset-x-5 top-[1px] h-px bg-gradient-to-r from-transparent via-[#58a6ff]/80 to-transparent pointer-events-none" />
+            )}
+
+            {/* Header — clickable, resets the spotlight to the whole card */}
+            <button
+              type="button"
+              onClick={() => setSpotlightOnAll(true)}
+              className="relative w-full flex items-center justify-between px-2 mb-3 text-left group"
+            >
+              <p className={cn(
+                "text-[10px] uppercase tracking-[0.18em] font-semibold transition-colors",
+                spotlightOnAll ? "text-[#adbac7]" : "text-[#8b949e] group-hover:text-[#adbac7]"
+              )}>
+                All Sports
+              </p>
+              <span className="px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-[#58a6ff]/12 text-[#58a6ff] border border-[#58a6ff]/25 tabular-nums leading-none">
+                {leagues.length}
+              </span>
+            </button>
+
+            <div className="space-y-0.5">
+              {leagues.map((league) => {
+                const isSelected = !spotlightOnAll && selectedSport === league.code;
+                return (
                   <button
                     key={league.code}
-                    onClick={() => setSelectedSport(league.code)}
+                    onClick={() => {
+                      setSelectedSport(league.code);
+                      setSpotlightOnAll(false);
+                    }}
                     className={cn(
-                      "w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-[13px] transition-all text-left group",
-                      selectedSport === league.code
-                        ? "bg-[#1c2128] text-white font-medium border border-[#30363d] shadow-[inset_0_0_0_1px_rgba(88,166,255,0.15)]"
+                      "relative w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-[13px] transition-colors text-left group",
+                      isSelected
+                        ? "text-white font-medium bg-[#1c2128]"
                         : "text-[#768390] hover:text-[#e6edf3] hover:bg-[#161b22]"
                     )}
                   >
-                    {league.image ? (
-                      <img src={league.image} alt={league.name} className="w-5 h-5 rounded-sm object-contain flex-shrink-0" />
-                    ) : (
-                      <span className="text-base w-5 text-center flex-shrink-0">{league.emoji}</span>
+                    {/* Spotlight when this button is selected — hugs the button */}
+                    {isSelected && (
+                      <motion.div
+                        layoutId="sports-spotlight"
+                        aria-hidden="true"
+                        className="absolute inset-0 rounded-lg pointer-events-none border border-[#58a6ff]/55 shadow-[0_0_20px_-4px_rgba(88,166,255,0.5)]"
+                        transition={{ type: "spring", stiffness: 380, damping: 34 }}
+                      />
                     )}
-                    <span className="truncate">{league.name}</span>
+                    {league.image ? (
+                      <img src={league.image} alt={league.name} className="relative w-5 h-5 rounded-sm object-contain flex-shrink-0" />
+                    ) : (
+                      <span className="relative text-base w-5 text-center flex-shrink-0">{league.emoji}</span>
+                    )}
+                    <span className="relative truncate">{league.name}</span>
                   </button>
-                ))}
-              </div>
+                );
+              })}
             </div>
           </div>
         </div>
