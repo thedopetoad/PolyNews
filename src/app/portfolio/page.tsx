@@ -43,16 +43,16 @@ export default function PortfolioPage() {
   // Polymarket proxy wallet address (where deposited USDC.e actually lives)
   const proxyAddress = address ? deriveProxyAddress(address) : undefined;
 
-  // Pending bridge tracker — controls whether to poll balance aggressively.
-  const { pending, start: startPending, dismiss: dismissPending } = usePendingBridge();
+  // Pending bridge tracker — watches source-chain deposits + controls polling.
+  const { state: bridgeState, startWatching, startPending, dismiss: dismissPending } = usePendingBridge();
 
   // Read USDC.e balance from the proxy wallet (not the EOA).
   // We always read from Polygon regardless of which chain the connected wallet
   // is on — the balance is held on Polygon whether the user is currently
   // signed into Phantom/MetaMask on Solana, Ethereum, or anywhere else.
-  // When a bridge is pending we poll every 8s so the indicator auto-dismisses
+  // While a bridge is in flight we poll every 8s so the indicator auto-dismisses
   // as soon as funds land; otherwise we rely on react-query's default staleness.
-  const refetchInterval = pending ? 8_000 : false;
+  const refetchInterval = bridgeState ? 8_000 : false;
   const { data: proxyUsdcBalance } = useBalance({
     address: proxyAddress as `0x${string}` | undefined,
     token: USDC_ADDRESS,
@@ -70,16 +70,17 @@ export default function PortfolioPage() {
   const eoaBal = eoaUsdcBalance ? parseFloat(eoaUsdcBalance.formatted) : 0;
   const usdcBal = proxyBal + eoaBal;
 
-  // Auto-dismiss the pending indicator once the balance increases — that means
-  // a deposit actually landed. Skip for withdraws: their balance went DOWN,
-  // and cross-chain delivery isn't observable from the Polygon balance anyway.
+  // Auto-dismiss the indicator once the USDC.e balance increases — the deposit
+  // actually landed. Works for both "watching" and "pending" deposit states.
+  // Skip for withdraws: their balance went DOWN, and cross-chain delivery
+  // isn't observable from the Polygon balance anyway.
   const prevBalRef = useRef<number>(usdcBal);
   useEffect(() => {
-    if (pending?.type === "deposit" && usdcBal > prevBalRef.current + 0.001) {
+    if (bridgeState?.type === "deposit" && usdcBal > prevBalRef.current + 0.001) {
       dismissPending();
     }
     prevBalRef.current = usdcBal;
-  }, [usdcBal, pending, dismissPending]);
+  }, [usdcBal, bridgeState, dismissPending]);
 
   // Paper portfolio value
   const paperBalance = user?.balance || 0;
@@ -159,20 +160,16 @@ export default function PortfolioPage() {
               {t.portfolio.withdraw}
             </button>
           </div>
-          {pending && (
-            <PendingBridgeIndicator
-              type={pending.type}
-              chain={pending.chain}
-              etaSeconds={pending.etaSeconds}
-              startedAt={pending.startedAt}
-              onDismiss={dismissPending}
-            />
+          {bridgeState && (
+            <PendingBridgeIndicator state={bridgeState} onDismiss={dismissPending} />
           )}
           <BridgeDepositModal
             open={depositOpen}
             onOpenChange={setDepositOpen}
             recipientAddress={address}
-            onDepositInitiated={(chain) => startPending("deposit", chain)}
+            onDepositInitiated={(chain, chainId, depositAddress) =>
+              startWatching(chain, chainId, depositAddress)
+            }
           />
           <WithdrawModal
             open={withdrawOpen}

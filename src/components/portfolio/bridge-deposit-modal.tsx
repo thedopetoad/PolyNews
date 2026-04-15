@@ -66,10 +66,10 @@ interface BridgeDepositModalProps {
   recipientAddress: string | null;
   /**
    * Called when the user closes the modal after a deposit address was visible.
-   * The portfolio page uses this to kick off a pending-deposit indicator.
-   * `chainName` is the human name of the chain they had selected (e.g. "Ethereum").
+   * The portfolio page uses this to start watching that address for incoming
+   * transactions and then kick off a pending-deposit indicator on detection.
    */
-  onDepositInitiated?: (chainName: string) => void;
+  onDepositInitiated?: (chainName: string, chainId: string, depositAddress: string) => void;
 }
 
 export function BridgeDepositModal({ open, onOpenChange, recipientAddress, onDepositInitiated }: BridgeDepositModalProps) {
@@ -159,12 +159,11 @@ export function BridgeDepositModal({ open, onOpenChange, recipientAddress, onDep
     if (!next) {
       setChainMenuOpen(false);
       setTokenMenuOpen(false);
-      // If the user actually saw a deposit address (i.e. the modal finished
-      // loading and showed something actionable), kick off a pending-deposit
-      // tracker for the chain they had selected. Harmless if they didn't send
-      // — they can dismiss the indicator with the × button.
-      if (depositAddress && selectedChainName) {
-        onDepositInitiated?.(selectedChainName);
+      // If the user actually saw a deposit address, hand it up so the
+      // portfolio can watch that address for incoming txs. If nothing
+      // arrives within MAX_WATCH_MS, the watcher just quietly gives up.
+      if (depositAddress && selectedChainName && selectedChainId) {
+        onDepositInitiated?.(selectedChainName, selectedChainId, depositAddress);
       }
     }
     onOpenChange(next);
