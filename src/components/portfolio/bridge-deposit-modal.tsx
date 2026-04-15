@@ -170,7 +170,7 @@ export function BridgeDepositModal({ open, onOpenChange, recipientAddress, onDep
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className="border-[#21262d] bg-[#161b22] sm:max-w-md p-0 overflow-hidden">
+      <DialogContent className="border-[#21262d] bg-[#161b22] sm:max-w-md p-0 overflow-hidden modal-shrink-on-close">
         <DialogHeader className="px-5 pt-5">
           <DialogTitle className="text-white text-base">Transfer Crypto</DialogTitle>
           <p className="text-xs text-[#768390]">Funds settle to your Polymarket account as USDC.e on Polygon</p>

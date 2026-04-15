@@ -21,14 +21,15 @@ export function DidYouSendModal({ open, onOpenChange, onAnswer }: Props) {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="border-[#30363d] bg-gradient-to-b from-[#161b22] to-[#0d1117] sm:max-w-md p-0 overflow-hidden shadow-2xl shadow-black/60">
-        {/* Glow accent at the top */}
-        <div className="h-[2px] w-full bg-gradient-to-r from-transparent via-[#58a6ff]/60 to-transparent" />
+      <DialogContent className="border-[#30363d] bg-gradient-to-b from-[#161b22] to-[#0d1117] sm:max-w-md p-0 overflow-hidden shadow-2xl shadow-black/60 modal-grow-on-open">
+        {/* Glow accent — eases from center outward to both edges each time
+            the modal opens, instead of being instantly full-width. */}
+        <div className="h-[2px] w-full bg-gradient-to-r from-transparent via-[#58a6ff]/60 to-transparent animate-accent-line-expand" />
 
-        {/* Icon */}
+        {/* Icon + animated paper plane flying along a dashed arc behind it */}
         <div className="flex justify-center pt-7">
-          <div className="h-14 w-14 rounded-full bg-[#58a6ff]/10 ring-1 ring-[#58a6ff]/20 flex items-center justify-center">
-            <PaperPlaneIcon />
+          <div className="relative h-14 w-14 rounded-full bg-[#58a6ff]/10 ring-1 ring-[#58a6ff]/20 flex items-center justify-center overflow-hidden">
+            <AnimatedPaperPlane />
           </div>
         </div>
 
@@ -66,20 +67,56 @@ export function DidYouSendModal({ open, onOpenChange, onAnswer }: Props) {
   );
 }
 
-function PaperPlaneIcon() {
+/**
+ * Paper plane that flies along a dashed arc inside the 44-px circle.
+ * A quadratic Bezier from bottom-left to top-right is drawn as a dashed
+ * trail; the plane shape follows the same curve via SVG <animateMotion>
+ * with rotate="auto" so it points along the tangent.
+ *
+ * Using native SVG animation rather than CSS offset-path for better
+ * cross-browser consistency (Safari + mobile quirks).
+ */
+function AnimatedPaperPlane() {
+  const pathD = "M 4 32 Q 20 2 40 12";
   return (
     <svg
-      width="22"
-      height="22"
-      viewBox="0 0 24 24"
+      width="44"
+      height="44"
+      viewBox="0 0 44 44"
       fill="none"
-      stroke="#58a6ff"
-      strokeWidth="1.8"
-      strokeLinecap="round"
-      strokeLinejoin="round"
+      className="absolute inset-0"
+      aria-hidden="true"
     >
-      <line x1="22" y1="2" x2="11" y2="13" />
-      <polygon points="22 2 15 22 11 13 2 9 22 2" />
+      {/* Dashed trail — the curve the plane travels along. Subtle — just
+          hints at the motion without competing with the plane itself. */}
+      <path
+        d={pathD}
+        stroke="#58a6ff"
+        strokeOpacity="0.35"
+        strokeWidth="1"
+        fill="none"
+        strokeLinecap="round"
+        strokeDasharray="2 3"
+      />
+      {/* Plane: triangle with a little notch, drawn at origin so
+          animateMotion translates it along the path. rotate="auto"
+          keeps it pointing forward. */}
+      <g>
+        <path
+          d="M -4 -2 L 4 0 L -4 2 L -2 0 Z"
+          fill="#58a6ff"
+        >
+          <animateMotion
+            dur="2.8s"
+            repeatCount="indefinite"
+            path={pathD}
+            rotate="auto"
+            keyTimes="0;1"
+            keySplines="0.45 0.05 0.55 0.95"
+            calcMode="spline"
+          />
+        </path>
+      </g>
     </svg>
   );
 }
