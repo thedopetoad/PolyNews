@@ -43,12 +43,14 @@ export function BetSlip({ eventTitle, eventSlug, eventEndDate, marketId, marketQ
   const { placeOrder, placing, error: tradeError, canTrade, isOnPolygon } = usePolymarketTrade();
   const { switchChain } = useSwitchChain();
 
-  // Fetch real USDC balance on Polygon
+  // Always read USDC balance from Polygon regardless of which chain the
+  // wallet is currently connected to — funds live on Polygon whether the
+  // user's MetaMask/Phantom is on ETH mainnet, Solana, or anywhere else.
   const { data: usdcBalance } = useBalance({
     address: address as `0x${string}` | undefined,
     token: USDC_ADDRESS,
     chainId: polygon.id,
-    query: { enabled: !!address && isOnPolygon },
+    query: { enabled: !!address },
   });
   const usdcBal = usdcBalance ? parseFloat(usdcBalance.formatted) : 0;
   const { t } = useT();
@@ -94,19 +96,6 @@ export function BetSlip({ eventTitle, eventSlug, eventEndDate, marketId, marketQ
       <div className="space-y-3" onClick={(e) => e.stopPropagation()}>
         <p className="text-xs text-[#768390] text-center">{t.login.connectWalletToBet}</p>
         <div className="flex justify-center"><LoginButton /></div>
-      </div>
-    );
-  }
-
-  if (!isOnPolygon) {
-    return (
-      <div className="space-y-2" onClick={(e) => e.stopPropagation()}>
-        <button
-          onClick={() => switchChain({ chainId: polygon.id })}
-          className="w-full py-2.5 rounded-lg text-sm font-semibold bg-[#8247e5] text-white hover:bg-[#7038d4] transition-colors"
-        >
-          {t.betSlip.switchToPolygon}
-        </button>
       </div>
     );
   }
@@ -211,23 +200,32 @@ export function BetSlip({ eventTitle, eventSlug, eventEndDate, marketId, marketQ
         </p>
       )}
 
-      {/* Trade button */}
-      <button
-        onClick={handleTrade}
-        disabled={placing || amountNum <= 0 || !canTrade || insufficientBalance}
-        className={cn(
-          "w-full py-3 rounded-lg text-sm font-bold transition-all",
-          placing
-            ? "bg-[#21262d] text-[#484f58] cursor-wait"
-            : insufficientBalance
-              ? "bg-[#d29922]/20 text-[#d29922] cursor-not-allowed"
-              : amountNum > 0
-                ? "bg-[#58a6ff] text-white hover:bg-[#4d8fea] active:scale-[0.98]"
-                : "bg-[#21262d] text-[#484f58] cursor-not-allowed"
-        )}
-      >
-        {placing ? t.betSlip.confirmingInWallet : insufficientBalance ? t.betSlip.insufficientUsdc : t.betSlip.trade}
-      </button>
+      {/* Trade button — auto-switches to Polygon if needed */}
+      {!isOnPolygon ? (
+        <button
+          onClick={() => switchChain({ chainId: polygon.id })}
+          className="w-full py-3 rounded-lg text-sm font-bold bg-[#8247e5] text-white hover:bg-[#7038d4] transition-all active:scale-[0.98]"
+        >
+          Switch to Polygon to trade
+        </button>
+      ) : (
+        <button
+          onClick={handleTrade}
+          disabled={placing || amountNum <= 0 || !canTrade || insufficientBalance}
+          className={cn(
+            "w-full py-3 rounded-lg text-sm font-bold transition-all",
+            placing
+              ? "bg-[#21262d] text-[#484f58] cursor-wait"
+              : insufficientBalance
+                ? "bg-[#d29922]/20 text-[#d29922] cursor-not-allowed"
+                : amountNum > 0
+                  ? "bg-[#58a6ff] text-white hover:bg-[#4d8fea] active:scale-[0.98]"
+                  : "bg-[#21262d] text-[#484f58] cursor-not-allowed"
+          )}
+        >
+          {placing ? t.betSlip.confirmingInWallet : insufficientBalance ? t.betSlip.insufficientUsdc : t.betSlip.trade}
+        </button>
+      )}
 
       {/* Result / Error */}
       {result && (
