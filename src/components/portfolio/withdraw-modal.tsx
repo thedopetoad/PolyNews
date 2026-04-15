@@ -24,12 +24,15 @@ import { RELAYER_URL, USDC_E, deriveProxyAddress, encodeUsdcTransfer } from "@/l
 
 const BRIDGE_API = "https://bridge.polymarket.com";
 
-// Destination chains for cross-chain withdrawals
+// Destination chains for cross-chain withdrawals.
+// minUsd matches bridge.polymarket.com's minCheckoutUsd for each destination.
+// Polygon same-chain is a direct USDC.e transfer (no bridge), so the floor is
+// just "more than zero" — keep it at 0 so the UI doesn't block small transfers.
 const DEST_CHAINS = [
-  { id: "polygon", label: "Polygon (same chain)", chainId: null },
-  { id: "ethereum", label: "Ethereum", chainId: "1", tokenAddr: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48" },
-  { id: "base", label: "Base", chainId: "8453", tokenAddr: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" },
-  { id: "solana", label: "Solana", chainId: "1151111081099710", tokenAddr: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v" },
+  { id: "polygon", label: "Polygon (same chain)", chainId: null, minUsd: 0 },
+  { id: "ethereum", label: "Ethereum", chainId: "1", tokenAddr: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48", minUsd: 7 },
+  { id: "base", label: "Base", chainId: "8453", tokenAddr: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", minUsd: 2 },
+  { id: "solana", label: "Solana", chainId: "1151111081099710", tokenAddr: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", minUsd: 2 },
 ] as const;
 
 type Status = "idle" | "signing" | "submitting" | "polling" | "success" | "error";
@@ -87,6 +90,10 @@ export function WithdrawModal({ open, onOpenChange, usdcBalance, userAddress, on
     const amountNum = parseFloat(amount);
     if (!amountNum || amountNum <= 0) { setError("Enter a valid amount"); return; }
     if (amountNum > usdcBalance) { setError("Amount exceeds balance"); return; }
+    if (selectedDest.minUsd > 0 && amountNum < selectedDest.minUsd) {
+      setError(`Minimum withdraw to ${selectedDest.label.replace(" (same chain)", "")} is $${selectedDest.minUsd}. Below this, the bridge won't deliver your funds.`);
+      return;
+    }
 
     const amountRaw = parseUnits(amount, 6); // USDC.e has 6 decimals
 
@@ -242,6 +249,11 @@ export function WithdrawModal({ open, onOpenChange, usdcBalance, userAddress, on
 
   const isProcessing = status === "signing" || status === "submitting" || status === "polling";
 
+  // Pre-submit min-amount check — shown as a non-blocking amber hint while
+  // the user is still typing, and enforced at submission time by handleWithdraw.
+  const amountNum = parseFloat(amount) || 0;
+  const belowMin = amountNum > 0 && selectedDest.minUsd > 0 && amountNum < selectedDest.minUsd;
+
   return (
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent className="border-[#21262d] bg-[#161b22] sm:max-w-md p-0 overflow-hidden">
@@ -295,7 +307,14 @@ export function WithdrawModal({ open, onOpenChange, usdcBalance, userAddress, on
 
           {/* Amount */}
           <div>
-            <label className="text-[11px] font-semibold text-white mb-1.5 block">Amount (USDC.e)</label>
+            <div className="flex items-baseline justify-between mb-1.5">
+              <label className="text-[11px] font-semibold text-white">Amount (USDC.e)</label>
+              {selectedDest.minUsd > 0 && (
+                <span className="text-[11px] text-[#d29922] font-medium">
+                  Min ${selectedDest.minUsd} to {selectedDest.label.replace(" (same chain)", "")}
+                </span>
+              )}
+            </div>
             <div className="relative">
               <input
                 type="number"
@@ -305,7 +324,9 @@ export function WithdrawModal({ open, onOpenChange, usdcBalance, userAddress, on
                 step="0.01"
                 min="0"
                 disabled={isProcessing}
-                className="w-full bg-[#0d1117] border border-[#30363d] rounded-lg px-3 py-2.5 pr-16 text-sm text-white placeholder:text-[#484f58] focus:outline-none focus:border-[#58a6ff] disabled:opacity-50"
+                className={`w-full bg-[#0d1117] border rounded-lg px-3 py-2.5 pr-16 text-sm text-white placeholder:text-[#484f58] focus:outline-none disabled:opacity-50 transition-colors ${
+                  belowMin ? "border-[#d29922] focus:border-[#d29922]" : "border-[#30363d] focus:border-[#58a6ff]"
+                }`}
               />
               <button
                 onClick={() => setAmount(usdcBalance.toFixed(2))}
@@ -315,6 +336,14 @@ export function WithdrawModal({ open, onOpenChange, usdcBalance, userAddress, on
                 Max
               </button>
             </div>
+            {belowMin && (
+              <p className="mt-1.5 text-[11px] text-[#d29922] flex items-start gap-1.5 leading-snug">
+                <WarningIcon />
+                <span>
+                  Below ${selectedDest.minUsd} the bridge won&apos;t deliver to {selectedDest.label.replace(" (same chain)", "")}. Your funds would get stuck.
+                </span>
+              </p>
+            )}
           </div>
 
           {/* Error */}
@@ -346,13 +375,14 @@ export function WithdrawModal({ open, onOpenChange, usdcBalance, userAddress, on
           {status !== "success" && (
             <button
               onClick={handleWithdraw}
-              disabled={isProcessing || !canWithdraw}
+              disabled={isProcessing || !canWithdraw || belowMin}
               className="w-full py-3 rounded-lg text-sm font-semibold bg-[#58a6ff] text-white hover:bg-[#4d8fea] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {status === "signing" ? "Sign in wallet..." :
                status === "submitting" ? "Setting up bridge..." :
                status === "polling" ? "Confirming on-chain..." :
                !canWithdraw ? "Connect wallet to withdraw" :
+               belowMin ? `Minimum $${selectedDest.minUsd} to ${selectedDest.label.replace(" (same chain)", "")}` :
                "Withdraw"}
             </button>
           )}
@@ -367,5 +397,25 @@ export function WithdrawModal({ open, onOpenChange, usdcBalance, userAddress, on
         </div>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function WarningIcon() {
+  return (
+    <svg
+      width="13"
+      height="13"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="flex-shrink-0 mt-0.5"
+    >
+      <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+      <line x1="12" y1="9" x2="12" y2="13" />
+      <line x1="12" y1="17" x2="12.01" y2="17" />
+    </svg>
   );
 }
