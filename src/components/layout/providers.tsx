@@ -119,8 +119,25 @@ function MagicSessionRestore() {
       // 2. No redirect — check for existing Magic session
       const existing = await checkMagicSession();
       if (existing) {
-        setGoogleAddress(existing);
-        connectMagicToWagmi(existing);
+        setGoogleAddress(existing.address);
+        // POST /api/user on every session restore so stale rows (created
+        // before we were capturing email) can backfill their email field.
+        // Without this, those users stay at risk of duplicate-on-relogin if
+        // Magic ever returns a different address for the same Google user.
+        // Server-side this is idempotent: returns existing row + updates
+        // email only if currently null.
+        await fetch("/api/user", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            id: existing.address,
+            authMethod: "google",
+            walletAddress: existing.address,
+            email: existing.email,
+            referredBy: refCode,
+          }),
+        }).catch(() => {});
+        connectMagicToWagmi(existing.address);
       }
     }).catch((err) => {
       console.error("Magic session restore failed:", err);

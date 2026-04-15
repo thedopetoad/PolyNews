@@ -35,9 +35,12 @@ export function getMagic(): any {
 /**
  * Check if user has an active Magic session.
  * Magic sessions persist across page refreshes automatically.
- * Returns the Polygon wallet address if logged in, null otherwise.
+ * Returns the Polygon wallet address AND email if logged in, null otherwise.
+ * We need the email on every session restore so stale DB rows (created before
+ * we started capturing email) can be backfilled and future Magic-address
+ * changes can be linked via email-based migration.
  */
-export async function checkMagicSession(): Promise<string | null> {
+export async function checkMagicSession(): Promise<{ address: string; email: string | null } | null> {
   const magic = getMagic();
   if (!magic) return null;
 
@@ -46,7 +49,9 @@ export async function checkMagicSession(): Promise<string | null> {
     if (!isLoggedIn) return null;
 
     const info = await magic.user.getInfo();
-    return info.publicAddress?.toLowerCase() || null;
+    const address = info.publicAddress?.toLowerCase();
+    if (!address) return null;
+    return { address, email: info.email?.toLowerCase() || null };
   } catch (err) {
     console.error("Magic session check failed:", err);
     return null;
