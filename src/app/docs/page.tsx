@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { cn } from "@/lib/utils";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { SwarmDiagram } from "@/components/docs/swarm-diagram";
+import { ParticleBackground } from "@/components/ai/particle-background";
 import { AIRDROP_AMOUNTS } from "@/lib/constants";
 
 interface DocSection {
@@ -308,7 +309,9 @@ export default function DocsPage() {
   }, []);
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <>
+      <ParticleBackground shape="plus" opacity={0.3} />
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 relative z-10">
       <div className="mb-8">
         <h1 className="text-2xl font-bold text-white">Documentation</h1>
         <p className="mt-1 text-sm text-[#768390]">Everything you need to know about PolyStream.</p>
@@ -353,6 +356,7 @@ export default function DocsPage() {
           ))}
         </div>
       </div>
-    </div>
+      </div>
+    </>
   );
 }

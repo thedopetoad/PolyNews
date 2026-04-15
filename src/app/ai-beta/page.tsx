@@ -1,10 +1,13 @@
 "use client";
 
 import Link from "next/link";
+import { ParticleBackground } from "@/components/ai/particle-background";
 
 export default function SuperSwarmPage() {
   return (
-    <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
+    <>
+      <ParticleBackground shape="hexagon" opacity={0.3} />
+      <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-16 relative z-10">
       <div className="text-center space-y-6">
         <div className="flex items-center justify-center gap-2">
           <span className="text-[10px] font-bold text-black bg-[#d29922] px-2 py-0.5 rounded">COMING SOON</span>
@@ -47,6 +50,7 @@ export default function SuperSwarmPage() {
           View current AI Consensus predictions
         </Link>
       </div>
-    </div>
+      </div>
+    </>
   );
 }

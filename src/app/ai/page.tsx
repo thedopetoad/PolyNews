@@ -94,9 +94,9 @@ export default function AIConsensusPage() {
         </div>
       </div>
 
-      {/* Plexus dots as page background */}
+      {/* Plexus stars as page background */}
       <div className="absolute inset-0 pointer-events-none z-0 opacity-30 overflow-hidden">
-        <SwarmVisualization className="!h-full" />
+        <SwarmVisualization className="!h-full" shape="star" />
       </div>
 
       {/* Results */}

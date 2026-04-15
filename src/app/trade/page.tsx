@@ -18,6 +18,7 @@ import { cn } from "@/lib/utils";
 import { AIRDROP_AMOUNTS, POLYMARKET_BASE_URL } from "@/lib/constants";
 import { LoginButton } from "@/components/layout/login-modal";
 import { getTopConsensusMarkets } from "@/lib/market-filters";
+import { ParticleBackground } from "@/components/ai/particle-background";
 import { useLivePrices, usePositionLivePrices } from "@/hooks/use-live-prices";
 import {
   Dialog,
@@ -1287,7 +1288,9 @@ export default function TradePage() {
   }, [events]);
 
   return (
-    <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <>
+    <ParticleBackground shape="square" opacity={0.3} />
+    <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8 relative z-10">
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold text-white">Paper Trade</h1>
@@ -1349,5 +1352,6 @@ export default function TradePage() {
         )}
       </div>
     </div>
+    </>
   );
 }

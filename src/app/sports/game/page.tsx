@@ -6,6 +6,7 @@ import { useQuery } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 import { POLYMARKET_BASE_URL } from "@/lib/constants";
 import { BetSlip } from "@/components/sports/bet-slip";
+import { ParticleBackground } from "@/components/ai/particle-background";
 import Link from "next/link";
 import { Suspense } from "react";
 
@@ -358,10 +359,13 @@ function GameContent() {
 /* ─── Page Wrapper (Suspense for useSearchParams) ─── */
 export default function GamePage() {
   return (
-    <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-      <Suspense fallback={<p className="text-sm text-[#484f58] text-center py-16">Loading...</p>}>
-        <GameContent />
-      </Suspense>
-    </div>
+    <>
+      <ParticleBackground shape="triangle" opacity={0.3} />
+      <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8 relative z-10">
+        <Suspense fallback={<p className="text-sm text-[#484f58] text-center py-16">Loading...</p>}>
+          <GameContent />
+        </Suspense>
+      </div>
+    </>
   );
 }

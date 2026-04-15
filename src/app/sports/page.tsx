@@ -6,6 +6,7 @@ import { useQuery } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 import { LoginButton } from "@/components/layout/login-modal";
 import { BetSlip } from "@/components/sports/bet-slip";
+import { ParticleBackground } from "@/components/ai/particle-background";
 import Link from "next/link";
 
 /* ─── Color palette for multi-outcome charts ─── */
@@ -871,7 +872,9 @@ function SportsContent() {
   const visibleEvents = view === "live" ? liveEvents : upcomingEvents;
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <>
+    <ParticleBackground shape="triangle" opacity={0.3} />
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 relative z-10">
       <div className={cn("flex gap-6", selectedBet && "lg:flex-row")}>
       {/* Main content */}
       <div className="flex-1 min-w-0">
@@ -1052,5 +1055,6 @@ function SportsContent() {
       )}
       </div>{/* end flex container */}
     </div>
+    </>
   );
 }
