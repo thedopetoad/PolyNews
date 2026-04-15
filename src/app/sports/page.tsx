@@ -585,10 +585,27 @@ function GameCard({ event, index, sport, expanded, onToggle, onSelectBet }: { ev
     totalUnder = { label: `U ${val}`, price: total.prices[1] ?? 0.5 };
   }
 
+  const selectThisBet = useCallback(() => {
+    if (!moneyline || !onSelectBet) return;
+    onSelectBet({
+      eventTitle: event.title,
+      eventSlug: event.slug,
+      eventEndDate: event.endDate,
+      marketId: moneyline.id,
+      marketQuestion: event.title,
+      outcomes: moneyline.outcomes.map((n, i) => ({
+        name: n || (i === 0 ? teamA : teamB),
+        price: moneyline.prices[i] ?? 0,
+        tokenId: moneyline.clobTokenIds[i] || "",
+      })),
+      negRisk: event.negRisk,
+    });
+  }, [moneyline, onSelectBet, event, teamA, teamB]);
+
   const handleCardClick = (e: React.MouseEvent) => {
-    // Don't toggle if clicking a link or button (radio controls)
-    if ((e.target as HTMLElement).closest("a, button, audio")) return;
+    if ((e.target as HTMLElement).closest("a, audio")) return;
     onToggle();
+    selectThisBet();
   };
 
   return (
@@ -705,29 +722,6 @@ function GameCard({ event, index, sport, expanded, onToggle, onSelectBet }: { ev
               <p className="text-[#e6edf3] font-medium">{time}</p>
             </div>
           </div>
-          {moneyline && onSelectBet && (
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                onSelectBet({
-                  eventTitle: event.title,
-                  eventSlug: event.slug,
-                  eventEndDate: event.endDate,
-                  marketId: moneyline.id,
-                  marketQuestion: event.title,
-                  outcomes: [
-                    { name: teamA || moneyline.outcomes[0] || "Team A", price: moneyline.prices[0] ?? 0.5, tokenId: moneyline.clobTokenIds[0] || "" },
-                    { name: teamB || moneyline.outcomes[1] || "Team B", price: moneyline.prices[1] ?? 0.5, tokenId: moneyline.clobTokenIds[1] || "" },
-                  ],
-                  negRisk: event.negRisk,
-                });
-              }}
-              className="w-full py-2.5 rounded-lg text-sm font-semibold bg-[#58a6ff] text-white hover:bg-[#4d8fea] transition-colors"
-            >
-              Bet on this game
-            </button>
-          )}
-
           <Link
             href={`/sports/game?eventId=${event.id}&sport=${sport}`}
             className="inline-flex items-center gap-1.5 text-xs text-[#58a6ff] hover:underline"
@@ -1239,7 +1233,7 @@ function SportsContent() {
               <div className="text-3xl">🎯</div>
               <p className="text-sm font-medium text-[#e6edf3]">Bet Slip</p>
               <p className="text-xs text-[#484f58] leading-relaxed max-w-[200px] mx-auto">
-                Click on a game and tap <span className="text-[#58a6ff] font-medium">Bet on this game</span> to place a trade.
+                Click on any game to see its market here.
               </p>
             </div>
           )}
