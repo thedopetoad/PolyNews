@@ -9,6 +9,7 @@ import { BridgeDepositModal } from "@/components/portfolio/bridge-deposit-modal"
 import { useT } from "@/lib/i18n";
 import { useSwitchChain, useBalance } from "wagmi";
 import { polygon } from "wagmi/chains";
+import { deriveProxyAddress } from "@/lib/relay";
 
 // USDC.e on Polygon — required for Polymarket CLOB (their CLOB uses USDC.e as
 // collateral, orders against native USDC get rejected).
@@ -43,16 +44,24 @@ export function BetSlip({ eventTitle, eventSlug, eventEndDate, marketId, marketQ
   const { placeOrder, placing, error: tradeError, canTrade, isOnPolygon } = usePolymarketTrade();
   const { switchChain } = useSwitchChain();
 
-  // Always read USDC balance from Polygon regardless of which chain the
-  // wallet is currently connected to — funds live on Polygon whether the
-  // user's MetaMask/Phantom is on ETH mainnet, Solana, or anywhere else.
-  const { data: usdcBalance } = useBalance({
+  // Funds live in the Polymarket proxy wallet (derived from the EOA), not
+  // in the EOA itself. Read from both and sum — matches the portfolio page.
+  const proxyAddress = address ? deriveProxyAddress(address) : undefined;
+  const { data: proxyUsdcBalance } = useBalance({
+    address: proxyAddress as `0x${string}` | undefined,
+    token: USDC_ADDRESS,
+    chainId: polygon.id,
+    query: { enabled: !!proxyAddress },
+  });
+  const { data: eoaUsdcBalance } = useBalance({
     address: address as `0x${string}` | undefined,
     token: USDC_ADDRESS,
     chainId: polygon.id,
     query: { enabled: !!address },
   });
-  const usdcBal = usdcBalance ? parseFloat(usdcBalance.formatted) : 0;
+  const proxyBal = proxyUsdcBalance ? parseFloat(proxyUsdcBalance.formatted) : 0;
+  const eoaBal = eoaUsdcBalance ? parseFloat(eoaUsdcBalance.formatted) : 0;
+  const usdcBal = proxyBal + eoaBal;
   const { t } = useT();
 
   const [side, setSide] = useState<"BUY" | "SELL">("BUY");
