@@ -44,7 +44,7 @@ export default function PortfolioPage() {
   const proxyAddress = address ? deriveProxyAddress(address) : undefined;
 
   // Pending bridge tracker — watches source-chain deposits + controls polling.
-  const { state: bridgeState, startWatching, startPending, dismiss: dismissPending } = usePendingBridge();
+  const { state: bridgeState, startWatching, startPending, complete: completeBridge, dismiss: dismissPending } = usePendingBridge();
 
   // Read USDC.e balance from the proxy wallet (not the EOA).
   // We always read from Polygon regardless of which chain the connected wallet
@@ -70,17 +70,22 @@ export default function PortfolioPage() {
   const eoaBal = eoaUsdcBalance ? parseFloat(eoaUsdcBalance.formatted) : 0;
   const usdcBal = proxyBal + eoaBal;
 
-  // Auto-dismiss the indicator once the USDC.e balance increases — the deposit
-  // actually landed. Works for both "watching" and "pending" deposit states.
-  // Skip for withdraws: their balance went DOWN, and cross-chain delivery
-  // isn't observable from the Polygon balance anyway.
+  // Transition to the "completed" celebration state once the USDC.e balance
+  // increases — the deposit actually landed. Works for both "watching" and
+  // "pending" deposit states. Skip for withdraws: their Polygon balance went
+  // DOWN, and destination arrival is handled by the hook's own watcher.
   const prevBalRef = useRef<number>(usdcBal);
   useEffect(() => {
-    if (bridgeState?.type === "deposit" && usdcBal > prevBalRef.current + 0.001) {
-      dismissPending();
+    if (
+      bridgeState &&
+      (bridgeState.kind === "watching" || bridgeState.kind === "pending") &&
+      bridgeState.type === "deposit" &&
+      usdcBal > prevBalRef.current + 0.001
+    ) {
+      completeBridge("deposit", bridgeState.chain);
     }
     prevBalRef.current = usdcBal;
-  }, [usdcBal, bridgeState, dismissPending]);
+  }, [usdcBal, bridgeState, completeBridge]);
 
   // Paper portfolio value
   const paperBalance = user?.balance || 0;

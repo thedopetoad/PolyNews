@@ -46,7 +46,14 @@ export interface PendingBridge {
   baselineUsdc?: string; // USDC balance at watchAddress when withdraw started (bigint as string)
 }
 
-export type BridgeState = WatchingBridge | PendingBridge;
+/** Shown briefly after arrival detected — green check + "Delivered!" before dismiss. */
+export interface CompletedBridge {
+  kind: "completed";
+  type: PendingBridgeKind;
+  chain: string;
+}
+
+export type BridgeState = WatchingBridge | PendingBridge | CompletedBridge;
 
 const STORAGE_KEY = "polystream.pendingBridge";
 
@@ -78,7 +85,11 @@ function readStored(): BridgeState | null {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as BridgeState;
-    if (!parsed.kind || !parsed.startedAt) return null;
+    if (!parsed.kind || !parsed.type) return null;
+    // Only watching/pending have startedAt — completed doesn't persist
+    // meaningfully across reload (it's a 2s flash) so treat it as stale.
+    if (parsed.kind === "completed") return null;
+    if (!parsed.startedAt) return null;
     return parsed;
   } catch {
     return null;
@@ -161,24 +172,49 @@ export function usePendingBridge() {
         update(base);
         return;
       }
-      // Snapshot recipient's current USDC balance before committing the
-      // pending state — compare against this on each probe. If the snapshot
-      // fetch fails we still start the indicator (just without auto-dismiss).
+      // Always commit the pending state with watch fields so the probe loop
+      // can start polling immediately. baselineUsdc is backfilled on the
+      // first successful probe if the initial snapshot fails (rate limits).
+      update({
+        ...base,
+        watchChainId: watch.chainId,
+        watchAddress: watch.address,
+      });
       getUsdcBalance(watch.chainId, watch.address)
         .then((bal) => {
-          update({
-            ...base,
-            watchChainId: watch.chainId,
-            watchAddress: watch.address,
-            baselineUsdc: bal === null ? undefined : bal.toString(),
-          });
+          if (bal === null) return;
+          // Only patch baseline onto the current state if it's still the
+          // pending state we just created (user hasn't dismissed, etc.).
+          const curr = stateRef.current;
+          if (
+            curr?.kind === "pending" &&
+            curr.watchChainId === watch.chainId &&
+            curr.watchAddress === watch.address &&
+            curr.baselineUsdc === undefined
+          ) {
+            update({ ...curr, baselineUsdc: bal.toString() });
+          }
         })
-        .catch(() => update(base));
+        .catch(() => {
+          /* probe loop will retry */
+        });
     },
     [update],
   );
 
   const dismiss = useCallback(() => update(null), [update]);
+
+  /**
+   * Celebrate a successful arrival — show a "Delivered!" card for 2s before
+   * dismissing. Works for both deposit (balance-on-Polygon rose) and
+   * withdraw (balance-at-destination rose) paths.
+   */
+  const complete = useCallback(
+    (type: PendingBridgeKind, chain: string) => {
+      update({ kind: "completed", type, chain });
+    },
+    [update],
+  );
 
   /**
    * Background probe while in "watching" state. Promotes to "pending" when
@@ -246,27 +282,52 @@ export function usePendingBridge() {
 
   /**
    * Destination-chain watcher for pending withdraws — polls the recipient's
-   * USDC balance and auto-dismisses when it rises above the snapshot taken
-   * when the withdraw started. This is how we know cross-chain delivery
-   * landed, since the Polygon balance went DOWN and tells us nothing.
+   * USDC balance and transitions to "completed" when it rises above the
+   * snapshot taken when the withdraw started. This is how we know
+   * cross-chain delivery landed, since the Polygon balance went DOWN and
+   * tells us nothing.
+   *
+   * Robustness: if the initial baseline fetch failed, the first successful
+   * probe sets the baseline retroactively. Works unless the arrival happened
+   * during that window — rare since withdraws take 1-2min and we poll every
+   * 15s. After the ETA window we stop trying to backfill baseline and rely
+   * on the overall 3x-ETA timer to dismiss.
    */
   useEffect(() => {
     if (state?.kind !== "pending") return;
     if (!state.watchChainId || !state.watchAddress) return;
 
     let cancelled = false;
-    const baseline = state.baselineUsdc !== undefined ? BigInt(state.baselineUsdc) : undefined;
 
     const probe = async () => {
       if (cancelled) return;
+      const current = stateRef.current;
+      if (current?.kind !== "pending") return;
+      if (!current.watchChainId || !current.watchAddress) return;
+
       try {
-        const bal = await getUsdcBalance(state.watchChainId!, state.watchAddress!);
+        const bal = await getUsdcBalance(current.watchChainId, current.watchAddress);
         if (cancelled || bal === null) return;
-        // If we never got a baseline, any non-zero balance still isn't a
-        // reliable "arrived" signal for withdraws (recipient probably had
-        // funds already). Skip in that case and rely on the ETA timer.
-        if (baseline === undefined) return;
-        if (bal > baseline) update(null);
+        // Re-check after async — might have been dismissed.
+        const latest = stateRef.current;
+        if (latest?.kind !== "pending") return;
+
+        // Backfill baseline if the initial snapshot fetch failed, but only
+        // within the first ETA window — after that, assume arrival might
+        // have already happened and don't trust a fresh "baseline".
+        if (latest.baselineUsdc === undefined) {
+          const withinBackfillWindow =
+            Date.now() - latest.startedAt < latest.etaSeconds * 1000;
+          if (withinBackfillWindow) {
+            update({ ...latest, baselineUsdc: bal.toString() });
+          }
+          return;
+        }
+
+        const baseline = BigInt(latest.baselineUsdc);
+        if (bal > baseline) {
+          update({ kind: "completed", type: latest.type, chain: latest.chain });
+        }
       } catch {
         /* ignore, keep polling */
       }
@@ -280,5 +341,16 @@ export function usePendingBridge() {
     };
   }, [state, update]);
 
-  return { state, startWatching, startPending, dismiss };
+  /**
+   * "Completed" state auto-dismisses after 2s so the user sees the
+   * satisfying "Delivered!" moment and then the card goes back to its
+   * normal look.
+   */
+  useEffect(() => {
+    if (state?.kind !== "completed") return;
+    const t = setTimeout(() => update(null), 2000);
+    return () => clearTimeout(t);
+  }, [state, update]);
+
+  return { state, startWatching, startPending, complete, dismiss };
 }

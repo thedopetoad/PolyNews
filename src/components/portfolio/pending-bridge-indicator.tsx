@@ -23,6 +23,30 @@ export function PendingBridgeIndicator({ state, onDismiss }: Props) {
     return () => clearInterval(t);
   }, []);
 
+  // ── Completed state: green check + "Delivered!" — 2s celebration ─────────
+  if (state.kind === "completed") {
+    const label =
+      state.type === "deposit"
+        ? `Deposit received from ${state.chain}`
+        : `Delivered to ${state.chain}`;
+    return (
+      <div className="mt-3 pt-3 border-t border-[#21262d] animate-in fade-in duration-300">
+        <div className="flex items-center justify-between mb-1.5">
+          <span className="text-[10px] text-[#3fb950] font-medium flex items-center gap-1.5">
+            <CheckIcon />
+            {label}
+          </span>
+        </div>
+        <div className="h-1 bg-[#21262d] rounded-full overflow-hidden relative">
+          <div
+            className="h-full w-full bg-gradient-to-r from-[#3fb950] to-[#56d364]"
+            style={{ boxShadow: "0 0 12px rgba(63, 185, 80, 0.6)" }}
+          />
+        </div>
+      </div>
+    );
+  }
+
   // ── Watching state: no tx detected yet, indeterminate pulse ──────────────
   if (state.kind === "watching") {
     return (
@@ -128,5 +152,42 @@ export function PendingBridgeIndicator({ state, onDismiss }: Props) {
         }
       `}</style>
     </div>
+  );
+}
+
+function CheckIcon() {
+  return (
+    <span
+      className="inline-flex h-3.5 w-3.5 items-center justify-center rounded-full bg-[#3fb950]/20"
+      style={{ animation: "popIn 400ms cubic-bezier(0.34, 1.56, 0.64, 1)" }}
+    >
+      <svg
+        width="9"
+        height="9"
+        viewBox="0 0 12 12"
+        fill="none"
+        stroke="#3fb950"
+        strokeWidth="2.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <polyline points="2 6 5 9 10 3" />
+      </svg>
+      <style jsx>{`
+        @keyframes popIn {
+          0% {
+            transform: scale(0);
+            opacity: 0;
+          }
+          60% {
+            transform: scale(1.15);
+          }
+          100% {
+            transform: scale(1);
+            opacity: 1;
+          }
+        }
+      `}</style>
+    </span>
   );
 }
