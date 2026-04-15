@@ -216,6 +216,7 @@ interface SportEvent {
   markets: Market[];
   negRisk: boolean;
   espnLive?: boolean;
+  isLive?: boolean;
   closed?: boolean;
   archived?: boolean;
 }
@@ -526,7 +527,7 @@ function GameCard({ event, index, sport, expanded, onToggle, onSelectBet }: { ev
   const { moneyline, spread, total, totalMarkets } = extractKeyMarkets(event);
   const vol = formatVol(event.volume || event.markets.reduce((s, m) => s + m.volume, 0));
   const time = formatTime(event.gameStartTime);
-  const isLive = event.espnLive === true;
+  const isLive = event.isLive === true || event.espnLive === true;
 
   // Build multi-outcome chart data
   const chartOutcomes: ChartOutcome[] = useMemo(() => {
@@ -822,7 +823,7 @@ function SportsContent() {
   const allLiveEvents = useMemo(() => {
     if (!allLiveData) return [];
     return (allLiveData as (SportEvent & { _sport: string; _league: League })[]).filter(
-      (e) => e.espnLive === true && !e.closed && !e.archived,
+      (e) => (e.isLive === true || e.espnLive === true) && !e.closed && !e.archived,
     );
   }, [allLiveData]);
 
@@ -856,7 +857,7 @@ function SportsContent() {
 
   // Selected sport events. Drop anything Polymarket flipped to
   // closed/archived so we never show a market that's no longer betable.
-  const liveEvents = events.filter((e) => e.espnLive === true && !e.closed && !e.archived);
+  const liveEvents = events.filter((e) => (e.isLive === true || e.espnLive === true) && !e.closed && !e.archived);
 
   // Upcoming = games that haven't started yet, plus a 20-minute grace window
   // for games that JUST started but ESPN hasn't flagged as live yet (so they
@@ -869,7 +870,7 @@ function SportsContent() {
     if (e.closed || e.archived) return false;
     const gs = new Date(e.gameStartTime).getTime();
     if (gs > now) return true;
-    if (!e.espnLive && now - gs < UPCOMING_GRACE_MS) return true;
+    if (!e.isLive && !e.espnLive && now - gs < UPCOMING_GRACE_MS) return true;
     return false;
   });
 
@@ -939,7 +940,8 @@ function SportsContent() {
             selected, giving a smooth shrink/grow effect. */}
         <div className="hidden lg:block w-52 flex-shrink-0">
           <div className="relative rounded-xl bg-gradient-to-b from-[#161b22] to-[#0d1117] p-3">
-            {/* Spotlight when no specific sport is selected — wraps the whole card */}
+            {/* Single spotlight element — animates between the card (all-sports
+                mode) and the selected league button. No separate static border. */}
             {spotlightOnAll && (
               <motion.div
                 layoutId="sports-spotlight"
@@ -947,10 +949,6 @@ function SportsContent() {
                 className="absolute inset-0 rounded-xl pointer-events-none border border-[#58a6ff]/55 shadow-[0_0_28px_-6px_rgba(88,166,255,0.45)]"
                 transition={{ type: "spring", stiffness: 380, damping: 34 }}
               />
-            )}
-            {/* Thin top highlight line — only shows while spotlight is on the card */}
-            {spotlightOnAll && (
-              <div className="absolute inset-x-5 top-[1px] h-px bg-gradient-to-r from-transparent via-[#58a6ff]/80 to-transparent pointer-events-none" />
             )}
 
             {/* Header — clickable, resets the spotlight to the whole card */}

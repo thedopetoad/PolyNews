@@ -722,6 +722,7 @@ interface SportsEvent {
   markets: SportsMarket[];
   negRisk: boolean;
   espnLive?: boolean;
+  isLive?: boolean;
 }
 
 interface SportsLeague {
@@ -751,7 +752,7 @@ function sportsToTradeable(event: SportsEvent, market: SportsMarket, leagueEmoji
     groupItemTitle: market.groupItemTitle, enableOrderBook: true,
     // Sports-specific metadata
     _sportLabel: `${leagueEmoji} ${leagueName}`,
-    _isLive: event.espnLive === true,
+    _isLive: event.isLive === true || event.espnLive === true,
     _gameTime: event.gameStartTime,
   };
 }
@@ -826,7 +827,7 @@ function TradableMarketsTab({ allMarkets, events, onBought }: {
     for (const { event, league } of allSportsData) {
       const gs = new Date(event.gameStartTime).getTime();
       // Only include live games or games starting within 24 hours
-      const isLive = event.espnLive === true;
+      const isLive = event.isLive === true || event.espnLive === true;
       const isUpcoming = gs > now && gs - now < twentyFourHours;
       if (!isLive && !isUpcoming) continue;
 
