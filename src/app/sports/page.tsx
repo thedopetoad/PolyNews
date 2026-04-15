@@ -970,52 +970,48 @@ function SportsContent() {
   const visibleEvents = view === "live" ? liveEvents : upcomingEvents;
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-      {/* Header — full width above the 3-column layout */}
-      <div className="flex items-center justify-between gap-4 mb-4">
-        <div className="min-w-0">
-          <h1 className="text-2xl font-bold text-white">Sports</h1>
-          <p className="text-sm text-[#768390] mt-0.5">
-            Real markets. Real odds. Powered by <a href="https://polymarket.com/sports" target="_blank" rel="noopener noreferrer" className="text-[#58a6ff] hover:underline">Polymarket</a>
-          </p>
-        </div>
-        <div className="flex-shrink-0">
-          <LoginButton />
-        </div>
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+      {/* Mobile-only header (desktop header is implicit in the column titles) */}
+      <div className="lg:hidden flex items-center justify-between gap-4 mb-4">
+        <h1 className="text-xl font-bold text-white">Sports</h1>
+        <LoginButton />
       </div>
 
-      {/* Live / Upcoming tabs — full width */}
-      <div className="flex gap-2 mb-4">
-        <button
-          onClick={() => setView("live")}
-          className={cn(
-            "px-4 py-2 rounded-lg text-sm font-medium transition-colors",
-            view === "live"
-              ? "bg-[#f85149]/15 text-[#f85149] border border-[#f85149]/30"
-              : "bg-[#161b22] text-[#768390] border border-[#21262d] hover:text-[#adbac7]"
-          )}
-        >
-          Live {totalLiveCount > 0 && <span className="ml-1.5 text-[10px] bg-[#f85149] text-white px-1.5 py-0.5 rounded-full">{totalLiveCount}</span>}
-        </button>
-        <button
-          onClick={() => setView("upcoming")}
-          className={cn(
-            "px-4 py-2 rounded-lg text-sm font-medium transition-colors",
-            view === "upcoming"
-              ? "bg-[#58a6ff]/15 text-[#58a6ff] border border-[#58a6ff]/30"
-              : "bg-[#161b22] text-[#768390] border border-[#21262d] hover:text-[#adbac7]"
-          )}
-        >
-          Upcoming
-        </button>
-      </div>
-
-      {/* 3-column layout: sidebar | games | bet slip — all start at the same level */}
-      <div className="flex gap-6">
-        {/* Sidebar — hierarchical category list. Static gradient border
-            highlights the card; no moving spotlight. */}
+      {/* 3-column layout matching polymarket.com/sports */}
+      <div className="flex gap-5">
+        {/* Left sidebar — Live/Upcoming toggle + category list */}
         <div className="hidden lg:block w-52 flex-shrink-0">
-          <div className="relative rounded-xl border border-[#30363d] bg-gradient-to-b from-[#161b22] to-[#0d1117] p-3 shadow-[0_0_24px_-10px_rgba(88,166,255,0.3)]">
+          {/* Live / Upcoming toggle — inside the sidebar like Polymarket */}
+          <div className="space-y-1 mb-4">
+            <button
+              onClick={() => setView("live")}
+              className={cn(
+                "w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-[13px] font-medium transition-colors text-left",
+                view === "live"
+                  ? "bg-[#1c2128] text-white border border-[#30363d]"
+                  : "text-[#768390] hover:text-[#e6edf3] hover:bg-[#161b22]"
+              )}
+            >
+              <span className="text-[#f85149] text-sm">●</span>
+              Live
+              {totalLiveCount > 0 && <span className="ml-auto text-[10px] bg-[#f85149] text-white px-1.5 py-0.5 rounded-full">{totalLiveCount}</span>}
+            </button>
+            <button
+              onClick={() => setView("upcoming")}
+              className={cn(
+                "w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-[13px] font-medium transition-colors text-left",
+                view === "upcoming"
+                  ? "bg-[#1c2128] text-white border border-[#30363d]"
+                  : "text-[#768390] hover:text-[#e6edf3] hover:bg-[#161b22]"
+              )}
+            >
+              <span className="text-sm">📅</span>
+              Upcoming
+            </button>
+          </div>
+
+          {/* Category list */}
+          <div className="rounded-xl border border-[#30363d] bg-gradient-to-b from-[#161b22] to-[#0d1117] p-3">
             {/* Header */}
             <div className="flex items-center justify-between px-2 mb-3">
               <p className="text-[10px] text-[#8b949e] uppercase tracking-[0.18em] font-semibold">
@@ -1128,31 +1124,20 @@ function SportsContent() {
             ))}
           </div>
 
-          {/* Header — "Live Now" banner in live view, league header in upcoming view.
-              The live view spans all sports, so a single-league header there is misleading. */}
-          {view === "live" ? (
-            <div className="flex items-center gap-3 mb-4">
-              <span className="flex items-center gap-1.5 text-sm font-semibold text-[#f85149]">
-                <span className="w-1.5 h-1.5 rounded-full bg-[#f85149] animate-pulse" />
-                LIVE NOW
-              </span>
-              <h2 className="text-lg font-semibold text-white">Across all sports</h2>
-              {totalLiveCount > 0 && (
-                <span className="ml-auto text-[11px] text-[#768390] tabular-nums">
+          {/* Column title — matches Polymarket's "Sports Live" / league-name style */}
+          <div className="flex items-center justify-between mb-5">
+            <h2 className="text-2xl font-bold text-white">
+              {view === "live" ? "Sports Live" : selectedLeague?.name || selectedSport.toUpperCase()}
+            </h2>
+            <div className="flex items-center gap-2">
+              {view === "live" && totalLiveCount > 0 && (
+                <span className="text-[11px] text-[#768390] tabular-nums">
                   {totalLiveCount} {totalLiveCount === 1 ? "game" : "games"}
                 </span>
               )}
+              <LoginButton />
             </div>
-          ) : (
-            <div className="flex items-center gap-3 mb-4">
-              {selectedLeague?.image ? (
-                <img src={selectedLeague.image} alt={selectedLeague.name} className="w-7 h-7 rounded object-contain" />
-              ) : (
-                <span className="text-2xl">{selectedLeague?.emoji}</span>
-              )}
-              <h2 className="text-lg font-semibold text-white">{selectedLeague?.name || selectedSport.toUpperCase()}</h2>
-            </div>
-          )}
+          </div>
 
           {/* Note — selected league has no live games, but others do. Only in live view. */}
           {view === "live" && !allLiveLoading && liveByLeague.length > 0 && !selectedHasLive && selectedLeague && (
