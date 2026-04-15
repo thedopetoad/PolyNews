@@ -110,8 +110,7 @@ export function SwarmVisualization({
 
   const initParticles = useCallback(
     (width: number, height: number) => {
-      // ~50% more particles than before (was capped at 60).
-      const count = Math.min(90, Math.floor((width * height) / 7000));
+      const count = Math.min(60, Math.floor((width * height) / 10000));
       // Non-dot shapes need to be larger to be recognizable.
       const baseRadius = shape === "dot" ? 0.5 : 2;
       const variance = shape === "dot" ? 1.5 : 2.5;

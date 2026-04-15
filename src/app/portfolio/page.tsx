@@ -13,7 +13,6 @@ import { BridgeDepositModal } from "@/components/portfolio/bridge-deposit-modal"
 import { WithdrawModal } from "@/components/portfolio/withdraw-modal";
 import { PendingBridgeIndicator } from "@/components/portfolio/pending-bridge-indicator";
 import { DidYouSendModal } from "@/components/portfolio/did-you-send-modal";
-import { ParticleBackground } from "@/components/ai/particle-background";
 import { deriveProxyAddress } from "@/lib/relay";
 import { usePendingBridge } from "@/hooks/use-pending-bridge";
 
@@ -129,21 +128,16 @@ export default function PortfolioPage() {
 
   if (!isConnected) {
     return (
-      <>
-        <ParticleBackground shape="diamond" opacity={0.3} />
-        <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-24 text-center relative z-10">
-          <h1 className="text-2xl font-bold text-white mb-2">{t.portfolio.title}</h1>
-          <p className="text-[#768390] mb-6">{t.portfolio.connectToView}</p>
-          <LoginButton />
-        </div>
-      </>
+      <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-24 text-center">
+        <h1 className="text-2xl font-bold text-white mb-2">{t.portfolio.title}</h1>
+        <p className="text-[#768390] mb-6">{t.portfolio.connectToView}</p>
+        <LoginButton />
+      </div>
     );
   }
 
   return (
-    <>
-    <ParticleBackground shape="diamond" opacity={0.3} />
-    <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8 relative z-10">
+    <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold text-white">{t.portfolio.title}</h1>
@@ -415,7 +409,6 @@ export default function PortfolioPage() {
         </div>
       )}
     </div>
-    </>
   );
 }
 
