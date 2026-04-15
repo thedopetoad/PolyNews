@@ -143,20 +143,15 @@
   animation: modal-grow-eo 380ms cubic-bezier(0.2, 0.9, 0.25, 1) forwards !important;
 }
 
-/* Top accent line — slowly eases from centre out to the edges of the
-   modal the first time the modal mounts. */
-@keyframes accent-line-expand {
-  0%   { transform: scaleX(0); opacity: 0; }
-  20%  { opacity: 1; }
-  100% { transform: scaleX(1); opacity: 1; }
+/* Top accent line — gently pulses opacity so the blue glow at the top
+   of the modal feels alive without being distracting. */
+@keyframes accent-line-pulse {
+  0%, 100% { opacity: 0.5; }
+  50%      { opacity: 1; }
 }
-.animate-accent-line-expand {
-  animation: accent-line-expand 700ms cubic-bezier(0.22, 0.61, 0.36, 1) forwards;
-  transform-origin: center;
+.animate-accent-line-pulse {
+  animation: accent-line-pulse 2.2s ease-in-out infinite;
 }
-
-/* Paper-plane flight uses SVG's native <animateMotion> for cross-browser
-   consistency — see did-you-send-modal.tsx. No CSS needed. */
 
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
