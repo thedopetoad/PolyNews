@@ -296,7 +296,7 @@ function abbrev(name: string): string {
 }
 
 /* ─── Team Row ─── */
-function TeamRow({ name, mlPrice, spreadLabel, spreadPrice, totalLabel, totalPrice, highlight, gameLink }: {
+function TeamRow({ name, mlPrice, spreadLabel, spreadPrice, totalLabel, totalPrice, highlight, onClickBet }: {
   name: string;
   mlPrice: number;
   spreadLabel?: string;
@@ -304,7 +304,7 @@ function TeamRow({ name, mlPrice, spreadLabel, spreadPrice, totalLabel, totalPri
   totalLabel?: string;
   totalPrice?: number;
   highlight: boolean;
-  gameLink: string;
+  onClickBet?: () => void;
 }) {
   const tag = abbrev(name);
   const pct = Math.round(mlPrice * 100);
@@ -322,18 +322,19 @@ function TeamRow({ name, mlPrice, spreadLabel, spreadPrice, totalLabel, totalPri
         <span className="text-[13px] text-[#e6edf3] truncate">{name}</span>
       </div>
 
-      {/* Moneyline */}
-      <Link
-        href={gameLink}
+      {/* Moneyline — click populates the bet slip */}
+      <button
+        type="button"
+        onClick={(e) => { e.stopPropagation(); onClickBet?.(); }}
         className={cn(
-          "w-24 text-center py-1.5 rounded-md text-xs font-semibold tabular-nums transition-all",
+          "w-24 text-center py-1.5 rounded-md text-xs font-semibold tabular-nums transition-all cursor-pointer",
           highlight
             ? "bg-[#238636]/20 text-[#3fb950] hover:bg-[#238636]/30 hover:shadow-[0_0_10px_rgba(63,185,80,0.25)]"
             : "bg-[#21262d] text-[#e6edf3] hover:bg-[#30363d]"
         )}
       >
         {tag} {pct}¢
-      </Link>
+      </button>
 
       {/* Spread */}
       <div className="w-24 text-center hidden md:block">
@@ -633,7 +634,19 @@ function GameCard({ event, index, sport, expanded, onToggle, onSelectBet }: { ev
         totalLabel={totalOver?.label}
         totalPrice={totalOver?.price}
         highlight={aIsFavorite}
-        gameLink={`/sports/game?eventId=${event.id}&sport=${sport}`}
+        onClickBet={moneyline && onSelectBet ? () => onSelectBet({
+          eventTitle: event.title,
+          eventSlug: event.slug,
+          eventEndDate: event.endDate,
+          marketId: moneyline.id,
+          marketQuestion: event.title,
+          outcomes: moneyline.outcomes.map((n, i) => ({
+            name: n || (i === 0 ? teamA : teamB),
+            price: moneyline.prices[i] ?? 0,
+            tokenId: moneyline.clobTokenIds[i] || "",
+          })),
+          negRisk: event.negRisk,
+        }) : undefined}
       />
 
       {/* Team B */}
@@ -645,7 +658,19 @@ function GameCard({ event, index, sport, expanded, onToggle, onSelectBet }: { ev
         totalLabel={totalUnder?.label}
         totalPrice={totalUnder?.price}
         highlight={!aIsFavorite}
-        gameLink={`/sports/game?eventId=${event.id}&sport=${sport}`}
+        onClickBet={moneyline && onSelectBet ? () => onSelectBet({
+          eventTitle: event.title,
+          eventSlug: event.slug,
+          eventEndDate: event.endDate,
+          marketId: moneyline.id,
+          marketQuestion: event.title,
+          outcomes: moneyline.outcomes.map((n, i) => ({
+            name: n || (i === 0 ? teamA : teamB),
+            price: moneyline.prices[i] ?? 0,
+            tokenId: moneyline.clobTokenIds[i] || "",
+          })),
+          negRisk: event.negRisk,
+        }) : undefined}
       />
 
       {/* Expanded Section — radio + chart + stats */}
@@ -883,6 +908,32 @@ function SportsContent() {
   }, [liveByLeague, selectedSport]);
 
   const selectedHasLive = liveByLeague.some((g) => g.sport === selectedSport);
+
+  // Auto-select the top live game's moneyline for the bet slip when nothing
+  // is selected yet. Picks the first event from the first group so the user
+  // always sees a market on the right without having to click anything.
+  useEffect(() => {
+    if (selectedBet) return; // user already picked something
+    if (liveByLeagueSorted.length === 0) return;
+    const firstEvent = liveByLeagueSorted[0]?.events[0];
+    if (!firstEvent) return;
+    const { moneyline } = extractKeyMarkets(firstEvent);
+    if (!moneyline) return;
+    const [teamA, teamB] = parseTeams(firstEvent.title);
+    setSelectedBet({
+      eventTitle: firstEvent.title,
+      eventSlug: firstEvent.slug,
+      eventEndDate: firstEvent.endDate,
+      marketId: moneyline.id,
+      marketQuestion: firstEvent.title,
+      outcomes: moneyline.outcomes.map((name, i) => ({
+        name: name || (i === 0 ? teamA : teamB),
+        price: moneyline.prices[i] || 0,
+        tokenId: moneyline.clobTokenIds[i] || "",
+      })),
+      negRisk: firstEvent.negRisk,
+    });
+  }, [liveByLeagueSorted, selectedBet]);
 
   // Selected sport events. Drop anything Polymarket flipped to
   // closed/archived so we never show a market that's no longer betable.
