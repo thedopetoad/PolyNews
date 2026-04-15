@@ -943,6 +943,16 @@ function SportsContent() {
   const selectedLeague = leagues.find((l) => l.code === selectedSport);
   const visibleEvents = view === "live" ? liveEvents : upcomingEvents;
 
+  // Clear stale bet slip when switching between Live / Upcoming so the
+  // auto-select below picks the right game for the new view.
+  const prevViewRef = useRef(view);
+  useEffect(() => {
+    if (prevViewRef.current !== view) {
+      setSelectedBet(null);
+      prevViewRef.current = view;
+    }
+  }, [view]);
+
   // Auto-select the top visible game for the bet slip when nothing is
   // selected yet. Works for both Live and Upcoming views so the bet slip
   // is never empty when there's a game on screen.
