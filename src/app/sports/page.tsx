@@ -3,7 +3,6 @@
 import { useState, useMemo, useEffect, useCallback, useRef, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
-import { motion } from "motion/react";
 import { cn } from "@/lib/utils";
 import { LoginButton } from "@/components/layout/login-modal";
 import { BetSlip } from "@/components/sports/bet-slip";
@@ -764,10 +763,6 @@ function SportsContent() {
   const [view, setView] = useState<"live" | "upcoming">("upcoming");
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [selectedBet, setSelectedBet] = useState<SelectedBet | null>(null);
-  // Spotlight mode: when true, the animated border wraps the whole "All Sports"
-  // card; when false, it hugs the selected league's button. Clicking the
-  // header toggles back to "all", clicking a sport toggles to that sport.
-  const [spotlightOnAll, setSpotlightOnAll] = useState(true);
   // Which sidebar categories are expanded. Starts empty; the category
   // containing the currently-selected league is auto-expanded by effect
   // below so users always see their selection in context.
@@ -805,14 +800,14 @@ function SportsContent() {
   // Auto-expand the category containing the currently-selected league so
   // the selection is always visible, without clobbering user-toggled state.
   useEffect(() => {
-    if (spotlightOnAll || categories.length === 0) return;
+    if (categories.length === 0) return;
     const parent = categories.find((c) =>
       c.leagues.some((l) => l.code === selectedSport)
     );
     if (parent && !expandedCats.has(parent.code)) {
       setExpandedCats((prev) => new Set(prev).add(parent.code));
     }
-  }, [selectedSport, spotlightOnAll, categories, expandedCats]);
+  }, [selectedSport, categories, expandedCats]);
 
   // ALL live games — one call to Polymarket's `live=true` filter, same
   // source that powers polymarket.com's Sports Live page. Each event
@@ -968,39 +963,19 @@ function SportsContent() {
       </div>
 
       <div className="flex gap-6">
-        {/* Sidebar — League List (Polymarket style).
-            A single animated "spotlight" (motion.div with layoutId) moves
-            between the card-level wrapper and whichever league button is
-            selected, giving a smooth shrink/grow effect. */}
+        {/* Sidebar — hierarchical category list. Static gradient border
+            highlights the card; no moving spotlight. */}
         <div className="hidden lg:block w-52 flex-shrink-0">
-          <div className="relative rounded-xl bg-gradient-to-b from-[#161b22] to-[#0d1117] p-3">
-            {/* Single spotlight element — animates between the card (all-sports
-                mode) and the selected league button. No separate static border. */}
-            {spotlightOnAll && (
-              <motion.div
-                layoutId="sports-spotlight"
-                aria-hidden="true"
-                className="absolute inset-0 rounded-xl pointer-events-none border border-[#58a6ff]/55 shadow-[0_0_28px_-6px_rgba(88,166,255,0.45)]"
-                transition={{ type: "spring", stiffness: 380, damping: 34 }}
-              />
-            )}
-
-            {/* Header — clickable, resets the spotlight to the whole card */}
-            <button
-              type="button"
-              onClick={() => setSpotlightOnAll(true)}
-              className="relative w-full flex items-center justify-between px-2 mb-3 text-left group"
-            >
-              <p className={cn(
-                "text-[10px] uppercase tracking-[0.18em] font-semibold transition-colors",
-                spotlightOnAll ? "text-[#adbac7]" : "text-[#8b949e] group-hover:text-[#adbac7]"
-              )}>
+          <div className="relative rounded-xl border border-[#30363d] bg-gradient-to-b from-[#161b22] to-[#0d1117] p-3 shadow-[0_0_24px_-10px_rgba(88,166,255,0.3)]">
+            {/* Header */}
+            <div className="flex items-center justify-between px-2 mb-3">
+              <p className="text-[10px] text-[#8b949e] uppercase tracking-[0.18em] font-semibold">
                 All Sports
               </p>
               <span className="px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-[#58a6ff]/12 text-[#58a6ff] border border-[#58a6ff]/25 tabular-nums leading-none">
                 {leagues.length}
               </span>
-            </button>
+            </div>
 
             <div className="space-y-0.5">
               {categories.map((cat) => {
@@ -1044,40 +1019,29 @@ function SportsContent() {
                     {isExpanded && (
                       <div className="mt-0.5 mb-1 ml-2 pl-2 border-l border-[#21262d] space-y-0.5">
                         {cat.leagues.map((league) => {
-                          const isSelected = !spotlightOnAll && selectedSport === league.code;
+                          const isSelected = selectedSport === league.code;
                           return (
                             <button
                               key={league.code}
-                              onClick={() => {
-                                setSelectedSport(league.code);
-                                setSpotlightOnAll(false);
-                              }}
+                              onClick={() => setSelectedSport(league.code)}
                               className={cn(
-                                "relative w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md text-[12px] transition-colors text-left",
+                                "w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md text-[12px] transition-colors text-left",
                                 isSelected
-                                  ? "text-white font-medium bg-[#1c2128]"
+                                  ? "text-white font-medium bg-[#1c2128] border border-[#30363d]"
                                   : "text-[#768390] hover:text-[#e6edf3] hover:bg-[#161b22]"
                               )}
                             >
-                              {isSelected && (
-                                <motion.div
-                                  layoutId="sports-spotlight"
-                                  aria-hidden="true"
-                                  className="absolute inset-0 rounded-md pointer-events-none border border-[#58a6ff]/55 shadow-[0_0_18px_-4px_rgba(88,166,255,0.5)]"
-                                  transition={{ type: "spring", stiffness: 380, damping: 34 }}
-                                />
-                              )}
                               {league.image ? (
                                 <img
                                   src={league.image}
                                   alt={league.name}
-                                  className="relative w-4 h-4 rounded-sm object-contain flex-shrink-0"
+                                  className="w-4 h-4 rounded-sm object-contain flex-shrink-0"
                                   onError={(e) => ((e.currentTarget as HTMLImageElement).style.display = "none")}
                                 />
                               ) : (
-                                <span className="relative text-sm w-4 text-center flex-shrink-0">{league.emoji}</span>
+                                <span className="text-sm w-4 text-center flex-shrink-0">{league.emoji}</span>
                               )}
-                              <span className="relative truncate">{league.name}</span>
+                              <span className="truncate">{league.name}</span>
                             </button>
                           );
                         })}
@@ -1144,7 +1108,7 @@ function SportsContent() {
           {/* Note — selected league has no live games, but others do. Only in live view. */}
           {view === "live" && !allLiveLoading && liveByLeague.length > 0 && !selectedHasLive && selectedLeague && (
             <div className="mb-4 rounded-lg border border-[#21262d] bg-[#161b22] px-3 py-2 text-[12px] text-[#768390]">
-              No live <span className="text-[#adbac7] font-medium">{selectedLeague.name}</span> games right now — showing everything else that&apos;s live.
+              No live <span className="text-[#adbac7] font-medium">{selectedLeague.name}</span>{" "}games right now — showing everything else that&apos;s live.
             </div>
           )}
 
