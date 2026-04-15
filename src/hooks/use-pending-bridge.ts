@@ -114,32 +114,14 @@ export function usePendingBridge() {
   const dismiss = useCallback(() => update(null), [update]);
 
   /**
-   * Pending-state timer:
-   *   - Withdraw: auto-transitions to "completed" when the ETA elapses.
-   *     This is the faux signal — we can't see the destination chain, so
-   *     we assume the bridge delivered by the time our countdown ran out.
-   *   - Deposit: dismisses at 3× ETA as a safety net. Primary completion
-   *     is via the portfolio page detecting a USDC.e balance bump and
-   *     calling complete() directly.
+   * Pending-state safety-net timer — dismisses at 3× ETA if nothing else
+   * resolved the indicator first. Primary completion for both deposits and
+   * withdraws is the portfolio page detecting a USDC.e balance change and
+   * calling complete() directly.
    */
   useEffect(() => {
     if (state?.kind !== "pending") return;
     const elapsed = Date.now() - state.startedAt;
-
-    if (state.type === "withdraw") {
-      const target = state.etaSeconds * 1000;
-      if (elapsed >= target) {
-        update({ kind: "completed", type: state.type, chain: state.chain });
-        return;
-      }
-      const t = setTimeout(
-        () => update({ kind: "completed", type: state.type, chain: state.chain }),
-        target - elapsed,
-      );
-      return () => clearTimeout(t);
-    }
-
-    // Deposit safety net
     const maxAge = state.etaSeconds * 1000 * 3;
     if (elapsed >= maxAge) {
       update(null);

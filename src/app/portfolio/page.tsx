@@ -12,6 +12,7 @@ import Link from "next/link";
 import { BridgeDepositModal } from "@/components/portfolio/bridge-deposit-modal";
 import { WithdrawModal } from "@/components/portfolio/withdraw-modal";
 import { PendingBridgeIndicator } from "@/components/portfolio/pending-bridge-indicator";
+import { DidYouSendModal } from "@/components/portfolio/did-you-send-modal";
 import { deriveProxyAddress } from "@/lib/relay";
 import { usePendingBridge } from "@/hooks/use-pending-bridge";
 
@@ -71,17 +72,19 @@ export default function PortfolioPage() {
   const eoaBal = eoaUsdcBalance ? parseFloat(eoaUsdcBalance.formatted) : 0;
   const usdcBal = proxyBal + eoaBal;
 
-  // Transition to the "completed" celebration when the USDC.e balance rises
-  // — the deposit landed. Withdraws auto-complete on ETA inside the hook
-  // (the faux signal) since their Polygon balance went DOWN on relay sign.
+  // Transition to the "completed" celebration when the USDC.e balance moves
+  // in the expected direction:
+  //   - Deposit: balance goes UP (funds arrived)
+  //   - Withdraw: balance goes DOWN (relay tx settled, funds left)
   const prevBalRef = useRef<number>(usdcBal);
   useEffect(() => {
-    if (
-      bridgeState?.kind === "pending" &&
-      bridgeState.type === "deposit" &&
-      usdcBal > prevBalRef.current + 0.001
-    ) {
-      completeBridge("deposit", bridgeState.chain);
+    const delta = usdcBal - prevBalRef.current;
+    if (bridgeState?.kind === "pending") {
+      if (bridgeState.type === "deposit" && delta > 0.001) {
+        completeBridge("deposit", bridgeState.chain);
+      } else if (bridgeState.type === "withdraw" && delta < -0.001) {
+        completeBridge("withdraw", bridgeState.chain);
+      }
     }
     prevBalRef.current = usdcBal;
   }, [usdcBal, bridgeState, completeBridge]);
@@ -97,6 +100,10 @@ export default function PortfolioPage() {
   // Deposit + Withdraw modals
   const [depositOpen, setDepositOpen] = useState(false);
   const [withdrawOpen, setWithdrawOpen] = useState(false);
+  // After the deposit modal closes, we don't know if the user actually sent.
+  // Ask them, so a bogus "awaiting deposit" doesn't appear if they were
+  // only peeking at the address.
+  const [confirmDeposit, setConfirmDeposit] = useState<{ chain: string } | null>(null);
 
   // Referral count
   const [referralCount, setReferralCount] = useState<number>(0);
@@ -171,14 +178,26 @@ export default function PortfolioPage() {
             open={depositOpen}
             onOpenChange={setDepositOpen}
             recipientAddress={address}
-            onDepositInitiated={(chain) => startPending("deposit", chain)}
+            onDepositInitiated={(chain) => setConfirmDeposit({ chain })}
+          />
+          <DidYouSendModal
+            open={confirmDeposit !== null}
+            onOpenChange={(o) => { if (!o) setConfirmDeposit(null); }}
+            chainName={confirmDeposit?.chain ?? ""}
+            onAnswer={(yes) => {
+              if (yes && confirmDeposit) {
+                startPending("deposit", confirmDeposit.chain);
+              }
+              setConfirmDeposit(null);
+            }}
           />
           <WithdrawModal
             open={withdrawOpen}
             onOpenChange={setWithdrawOpen}
             usdcBalance={usdcBal}
             userAddress={address}
-            onWithdrawInitiated={(chain) => startPending("withdraw", chain)}
+            onWithdrawStarted={(chain) => startPending("withdraw", chain)}
+            onWithdrawFailed={dismissPending}
           />
         </div>
 

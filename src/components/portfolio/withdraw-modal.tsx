@@ -40,13 +40,19 @@ interface WithdrawModalProps {
   usdcBalance: number;
   userAddress: string | null;
   /**
-   * Called when the relay transaction confirms. The portfolio page uses
-   * this to start a pending-withdraw indicator for the destination chain.
+   * Fires the moment the user clicks "Withdraw" (before signing). The
+   * portfolio page starts the pending-withdraw indicator immediately so the
+   * bar is visible throughout the signing + relay flow.
    */
-  onWithdrawInitiated?: (chainName: string) => void;
+  onWithdrawStarted?: (chainName: string) => void;
+  /**
+   * Fires if the withdraw fails during signing/submission so the portfolio
+   * can dismiss the indicator it started in onWithdrawStarted.
+   */
+  onWithdrawFailed?: () => void;
 }
 
-export function WithdrawModal({ open, onOpenChange, usdcBalance, userAddress, onWithdrawInitiated }: WithdrawModalProps) {
+export function WithdrawModal({ open, onOpenChange, usdcBalance, userAddress, onWithdrawStarted, onWithdrawFailed }: WithdrawModalProps) {
   // Explicitly scope the wallet client to Polygon so wagmi doesn't return
   // undefined when the connected wallet is currently on a different chain
   // (e.g. Phantom in Solana mode still exposes window.ethereum for signing).
@@ -83,6 +89,19 @@ export function WithdrawModal({ open, onOpenChange, usdcBalance, userAddress, on
     if (amountNum > usdcBalance) { setError("Amount exceeds balance"); return; }
 
     const amountRaw = parseUnits(amount, 6); // USDC.e has 6 decimals
+
+    // Start the pending indicator BEFORE signing so the bar is visible
+    // throughout the whole flow. It'll auto-complete when the user's
+    // Polystream USDC.e balance drops (i.e. the relay tx settles). Map
+    // internal id → human name for the label.
+    const CHAIN_NAMES: Record<string, string> = {
+      polygon: "Polygon",
+      ethereum: "Ethereum",
+      base: "Base",
+      solana: "Solana",
+    };
+    const chainName = CHAIN_NAMES[destChain] ?? selectedDest.label;
+    onWithdrawStarted?.(chainName);
 
     try {
       setStatus("signing");
@@ -201,26 +220,13 @@ export function WithdrawModal({ open, onOpenChange, usdcBalance, userAddress, on
 
       setTxHash(hash);
       setStatus("success");
-
-      // Kick off the pending-withdraw indicator for the destination chain.
-      // Skip same-chain Polygon — the relay tx already delivered USDC.e
-      // directly to the recipient, so there's nothing further to wait on.
-      const CHAIN_NAMES: Record<string, string> = {
-        polygon: "Polygon",
-        ethereum: "Ethereum",
-        base: "Base",
-        solana: "Solana",
-      };
-      if (isCrossChain) {
-        const chainName = CHAIN_NAMES[destChain] ?? selectedDest.label;
-        onWithdrawInitiated?.(chainName);
-      }
     } catch (err) {
       console.error("Withdraw failed:", err);
       setError((err as Error).message || "Withdrawal failed");
       setStatus("error");
+      onWithdrawFailed?.();
     }
-  }, [userAddress, walletClient, wagmiConnected, isMagicUser, recipient, amount, usdcBalance, isCrossChain, selectedDest, destChain, onWithdrawInitiated]);
+  }, [userAddress, walletClient, wagmiConnected, isMagicUser, recipient, amount, usdcBalance, isCrossChain, selectedDest, destChain, onWithdrawStarted, onWithdrawFailed]);
 
   const handleClose = (next: boolean) => {
     if (!next && status !== "signing" && status !== "submitting" && status !== "polling") {
