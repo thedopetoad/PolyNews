@@ -215,6 +215,8 @@ interface SportEvent {
   markets: Market[];
   negRisk: boolean;
   espnLive?: boolean;
+  closed?: boolean;
+  archived?: boolean;
 }
 
 function formatVol(n: number): string {
@@ -771,8 +773,12 @@ function SportsContent() {
       if (!res.ok) throw new Error("Failed");
       return res.json();
     },
-    staleTime: 2 * 60 * 1000,
-    refetchInterval: 2 * 60 * 1000,
+    // 30s interval matches the 15s server-side cache with headroom. Focus
+    // refetch overrides the global off-by-default setting — we want this
+    // page to re-sync when a user returns to the tab, especially mobile.
+    staleTime: 20 * 1000,
+    refetchInterval: 30 * 1000,
+    refetchOnWindowFocus: true,
   });
 
   const leagues: League[] = leaguesData?.leagues || [];
@@ -796,17 +802,23 @@ function SportsContent() {
       return results.flat();
     },
     enabled: view === "live" && leagues.length > 0,
-    staleTime: 2 * 60 * 1000,
-    refetchInterval: 2 * 60 * 1000,
+    staleTime: 20 * 1000,
+    refetchInterval: 30 * 1000,
+    refetchOnWindowFocus: true,
   });
 
   // Separate live and upcoming
   const now = Date.now();
 
-  // All live events across all sports (for live tab) — uses ESPN status
+  // All live events across all sports (for live tab) — uses ESPN status.
+  // Also defensively drop anything Polymarket has flipped to closed/archived
+  // even if it's still flagged live on ESPN, so a user never lands on a bet
+  // slip for a market that's no longer accepting orders.
   const allLiveEvents = useMemo(() => {
     if (!allLiveData) return [];
-    return (allLiveData as (SportEvent & { _sport: string; _league: League })[]).filter((e) => e.espnLive === true);
+    return (allLiveData as (SportEvent & { _sport: string; _league: League })[]).filter(
+      (e) => e.espnLive === true && !e.closed && !e.archived,
+    );
   }, [allLiveData]);
 
   // Live count for badge (from all sports)
@@ -824,8 +836,9 @@ function SportsContent() {
     return groups;
   }, [allLiveEvents]);
 
-  // Selected sport events
-  const liveEvents = events.filter((e) => e.espnLive === true);
+  // Selected sport events. Drop anything Polymarket flipped to
+  // closed/archived so we never show a market that's no longer betable.
+  const liveEvents = events.filter((e) => e.espnLive === true && !e.closed && !e.archived);
 
   // Upcoming = games that haven't started yet, plus a 20-minute grace window
   // for games that JUST started but ESPN hasn't flagged as live yet (so they
@@ -835,6 +848,7 @@ function SportsContent() {
   // games still listed on the next day.
   const UPCOMING_GRACE_MS = 20 * 60 * 1000;
   const upcomingEvents = events.filter((e) => {
+    if (e.closed || e.archived) return false;
     const gs = new Date(e.gameStartTime).getTime();
     if (gs > now) return true;
     if (!e.espnLive && now - gs < UPCOMING_GRACE_MS) return true;

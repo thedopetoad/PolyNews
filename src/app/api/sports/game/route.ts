@@ -113,9 +113,11 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    // Fetch event from Gamma
+    // Fetch event from Gamma. 15s cache matches the list route — user
+    // drilled in from a fresh list and expects the detail view to be at
+    // least as up-to-date, especially for real-money bet slips.
     const res = await fetch(`${GAMMA_API}/events/${eventId}`, {
-      next: { revalidate: 60 },
+      next: { revalidate: 15 },
     });
 
     if (!res.ok) {

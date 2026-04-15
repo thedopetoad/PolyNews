@@ -84,6 +84,10 @@ interface ParsedEvent {
   markets: ParsedMarket[];
   negRisk: boolean;
   espnLive?: boolean;
+  // Pass through Polymarket's own state flags so the client can drop any
+  // event that flipped after our 15s ISR cache was warmed.
+  closed?: boolean;
+  archived?: boolean;
 }
 
 async function getClobPrice(tokenId: string): Promise<number | null> {
@@ -106,10 +110,12 @@ export async function GET(request: NextRequest) {
   try {
     const seriesId = SERIES_MAP[sport];
 
-    // Fetch events for this league
+    // Fetch events for this league. 15s cache keeps upstream load sane
+    // (~4 req/min/sport regardless of traffic) while staying fresh enough
+    // for real-money bet slips to reflect market state changes promptly.
     const res = await fetch(
       `${GAMMA_API}/events?active=true&closed=false&limit=20&series_id=${seriesId}&order=startDate&ascending=true`,
-      { next: { revalidate: 120 } } // 2 min cache
+      { next: { revalidate: 15 } }
     );
 
     if (!res.ok) {
@@ -173,6 +179,8 @@ export async function GET(request: NextRequest) {
         liquidity: event.liquidity || 0,
         markets,
         negRisk: event.negRisk || false,
+        closed: event.closed === true,
+        archived: event.archived === true,
       });
     }
 
