@@ -156,9 +156,10 @@ function MagicSessionRestore() {
     restore();
   }, [restore]);
 
-  // Re-run on tab visibility change (mobile: back from background).
-  // Also on window focus, which catches some iOS scenarios where
-  // visibilitychange doesn't fire but focus does.
+  // Re-run on tab visibility change (mobile: back from background), window
+  // focus (iOS Safari sometimes only fires focus), and pageshow with
+  // persisted=true (iOS Safari back-forward cache — page is served from
+  // cache without re-running useEffects, so our mount handler wouldn't fire).
   useEffect(() => {
     const onVisible = () => {
       if (document.visibilityState === "visible") {
@@ -168,11 +169,20 @@ function MagicSessionRestore() {
     const onFocus = () => {
       restore();
     };
+    const onPageShow = (e: PageTransitionEvent) => {
+      // persisted=true → restored from bfcache; mount effects don't re-run,
+      // so we have to trigger restore manually here.
+      if (e.persisted) {
+        restore();
+      }
+    };
     document.addEventListener("visibilitychange", onVisible);
     window.addEventListener("focus", onFocus);
+    window.addEventListener("pageshow", onPageShow);
     return () => {
       document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener("focus", onFocus);
+      window.removeEventListener("pageshow", onPageShow);
     };
   }, [restore]);
 
