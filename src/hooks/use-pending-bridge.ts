@@ -18,7 +18,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { checkChainActivity, isWatchableChain } from "@/lib/bridge-watch";
+import { checkChainActivity, getUsdcBalance, isWatchableChain } from "@/lib/bridge-watch";
 
 export type PendingBridgeKind = "deposit" | "withdraw";
 
@@ -37,6 +37,13 @@ export interface PendingBridge {
   chain: string;
   etaSeconds: number;
   startedAt: number; // epoch ms — block timestamp if detected, else now()
+  // ── Optional destination-chain watcher (used for withdraws). We can't
+  // observe the cross-chain delivery from Polygon's USDC.e balance — it went
+  // DOWN. Instead, poll the USDC balance at the recipient's address on the
+  // destination chain and auto-dismiss when it rises above baseline.
+  watchChainId?: string; // chainId of destination
+  watchAddress?: string; // recipient address on destination
+  baselineUsdc?: string; // USDC balance at watchAddress when withdraw started (bigint as string)
 }
 
 export type BridgeState = WatchingBridge | PendingBridge;
@@ -134,17 +141,39 @@ export function usePendingBridge() {
 
   /**
    * Start a pending indicator directly — used for withdraws (we know the
-   * exact signing time from the relay callback).
+   * exact signing time from the relay callback). Optionally pass destination
+   * chain + recipient address so we can poll for arrival and auto-dismiss.
    */
   const startPending = useCallback(
-    (type: PendingBridgeKind, chain: string) => {
-      update({
+    (
+      type: PendingBridgeKind,
+      chain: string,
+      watch?: { chainId: string; address: string },
+    ) => {
+      const base: PendingBridge = {
         kind: "pending",
         type,
         chain,
         etaSeconds: etaForChain(chain),
         startedAt: Date.now(),
-      });
+      };
+      if (!watch || !isWatchableChain(watch.chainId)) {
+        update(base);
+        return;
+      }
+      // Snapshot recipient's current USDC balance before committing the
+      // pending state — compare against this on each probe. If the snapshot
+      // fetch fails we still start the indicator (just without auto-dismiss).
+      getUsdcBalance(watch.chainId, watch.address)
+        .then((bal) => {
+          update({
+            ...base,
+            watchChainId: watch.chainId,
+            watchAddress: watch.address,
+            baselineUsdc: bal === null ? undefined : bal.toString(),
+          });
+        })
+        .catch(() => update(base));
     },
     [update],
   );
@@ -213,6 +242,42 @@ export function usePendingBridge() {
     }
     const t = setTimeout(() => update(null), maxAge - elapsed);
     return () => clearTimeout(t);
+  }, [state, update]);
+
+  /**
+   * Destination-chain watcher for pending withdraws — polls the recipient's
+   * USDC balance and auto-dismisses when it rises above the snapshot taken
+   * when the withdraw started. This is how we know cross-chain delivery
+   * landed, since the Polygon balance went DOWN and tells us nothing.
+   */
+  useEffect(() => {
+    if (state?.kind !== "pending") return;
+    if (!state.watchChainId || !state.watchAddress) return;
+
+    let cancelled = false;
+    const baseline = state.baselineUsdc !== undefined ? BigInt(state.baselineUsdc) : undefined;
+
+    const probe = async () => {
+      if (cancelled) return;
+      try {
+        const bal = await getUsdcBalance(state.watchChainId!, state.watchAddress!);
+        if (cancelled || bal === null) return;
+        // If we never got a baseline, any non-zero balance still isn't a
+        // reliable "arrived" signal for withdraws (recipient probably had
+        // funds already). Skip in that case and rely on the ETA timer.
+        if (baseline === undefined) return;
+        if (bal > baseline) update(null);
+      } catch {
+        /* ignore, keep polling */
+      }
+    };
+
+    probe();
+    const timer = setInterval(probe, POLL_INTERVAL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
   }, [state, update]);
 
   return { state, startWatching, startPending, dismiss };

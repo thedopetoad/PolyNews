@@ -169,3 +169,67 @@ export async function checkChainActivity(
   if (chainId in EVM_CHAINS) return checkEvm(chainId, address);
   return { detected: false };
 }
+
+// Solana USDC mint — same on all SPL wallets
+const SOLANA_USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
+
+/**
+ * Fetch the current USDC balance (in smallest units) at an address on a
+ * supported chain. Used to detect when a withdraw arrives at the recipient's
+ * wallet — we snapshot their baseline when withdraw starts and poll until
+ * the balance increases.
+ *
+ * Returns null on unsupported chains or RPC failure.
+ */
+export async function getUsdcBalance(
+  chainId: string,
+  address: string,
+): Promise<bigint | null> {
+  // ── Solana: sum USDC balance across the wallet's SPL token accounts ────
+  if (chainId === SOLANA_CHAIN_ID) {
+    try {
+      const res = await fetch(SOLANA_RPC, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "getTokenAccountsByOwner",
+          params: [
+            address,
+            { mint: SOLANA_USDC_MINT },
+            { encoding: "jsonParsed" },
+          ],
+        }),
+      });
+      const data = await res.json();
+      const accounts = data?.result?.value as Array<{
+        account: { data: { parsed: { info: { tokenAmount: { amount: string } } } } };
+      }> | undefined;
+      if (!accounts) return BigInt(0);
+      let total = BigInt(0);
+      for (const a of accounts) {
+        total += BigInt(a.account.data.parsed.info.tokenAmount.amount);
+      }
+      return total;
+    } catch {
+      return null;
+    }
+  }
+
+  // ── EVM chains: read USDC ERC-20 balanceOf ──────────────────────────────
+  const cfg = EVM_CHAINS[chainId];
+  if (!cfg) return null;
+  try {
+    const client = createPublicClient({ chain: cfg.chain, transport: http(cfg.rpc) });
+    const bal = await client.readContract({
+      address: cfg.usdc,
+      abi: erc20Abi,
+      functionName: "balanceOf",
+      args: [address as `0x${string}`],
+    });
+    return bal;
+  } catch {
+    return null;
+  }
+}

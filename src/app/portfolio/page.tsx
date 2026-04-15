@@ -176,7 +176,9 @@ export default function PortfolioPage() {
             onOpenChange={setWithdrawOpen}
             usdcBalance={usdcBal}
             userAddress={address}
-            onWithdrawInitiated={(chain) => startPending("withdraw", chain)}
+            onWithdrawInitiated={({ chainName, chainId, recipient }) =>
+              startPending("withdraw", chainName, { chainId, address: recipient })
+            }
           />
         </div>
 

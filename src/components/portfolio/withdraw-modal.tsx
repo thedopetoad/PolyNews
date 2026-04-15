@@ -43,8 +43,14 @@ interface WithdrawModalProps {
    * Called when the relay transaction confirms. The portfolio page uses this
    * to start a pending-withdraw tracker — mostly useful for cross-chain
    * withdraws where the bridge still needs to deliver to the destination.
+   * Passes chainId + recipient so the portfolio can poll the destination
+   * address for USDC arrival and auto-dismiss the indicator.
    */
-  onWithdrawInitiated?: (chainName: string) => void;
+  onWithdrawInitiated?: (args: {
+    chainName: string;
+    chainId: string;
+    recipient: string;
+  }) => void;
 }
 
 export function WithdrawModal({ open, onOpenChange, usdcBalance, userAddress, onWithdrawInitiated }: WithdrawModalProps) {
@@ -204,15 +210,22 @@ export function WithdrawModal({ open, onOpenChange, usdcBalance, userAddress, on
       setStatus("success");
 
       // Kick off the pending-withdraw indicator for the destination chain.
-      // Map our internal ids to the human names that usePendingBridge knows.
+      // Skip same-chain Polygon — the relay tx already delivered USDC.e
+      // directly to the recipient, so there's nothing further to wait on.
       const CHAIN_NAMES: Record<string, string> = {
         polygon: "Polygon",
         ethereum: "Ethereum",
         base: "Base",
         solana: "Solana",
       };
-      const chainName = CHAIN_NAMES[destChain] ?? selectedDest.label;
-      onWithdrawInitiated?.(chainName);
+      if (selectedDest.chainId && isCrossChain) {
+        const chainName = CHAIN_NAMES[destChain] ?? selectedDest.label;
+        onWithdrawInitiated?.({
+          chainName,
+          chainId: selectedDest.chainId,
+          recipient,
+        });
+      }
     } catch (err) {
       console.error("Withdraw failed:", err);
       setError((err as Error).message || "Withdrawal failed");
