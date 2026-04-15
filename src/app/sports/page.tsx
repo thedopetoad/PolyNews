@@ -909,32 +909,6 @@ function SportsContent() {
 
   const selectedHasLive = liveByLeague.some((g) => g.sport === selectedSport);
 
-  // Auto-select the top live game's moneyline for the bet slip when nothing
-  // is selected yet. Picks the first event from the first group so the user
-  // always sees a market on the right without having to click anything.
-  useEffect(() => {
-    if (selectedBet) return; // user already picked something
-    if (liveByLeagueSorted.length === 0) return;
-    const firstEvent = liveByLeagueSorted[0]?.events[0];
-    if (!firstEvent) return;
-    const { moneyline } = extractKeyMarkets(firstEvent);
-    if (!moneyline) return;
-    const [teamA, teamB] = parseTeams(firstEvent.title);
-    setSelectedBet({
-      eventTitle: firstEvent.title,
-      eventSlug: firstEvent.slug,
-      eventEndDate: firstEvent.endDate,
-      marketId: moneyline.id,
-      marketQuestion: firstEvent.title,
-      outcomes: moneyline.outcomes.map((name, i) => ({
-        name: name || (i === 0 ? teamA : teamB),
-        price: moneyline.prices[i] || 0,
-        tokenId: moneyline.clobTokenIds[i] || "",
-      })),
-      negRisk: firstEvent.negRisk,
-    });
-  }, [liveByLeagueSorted, selectedBet]);
-
   // Selected sport events. Drop anything Polymarket flipped to
   // closed/archived so we never show a market that's no longer betable.
   const liveEvents = events.filter((e) => (e.isLive === true || e.espnLive === true) && !e.closed && !e.archived);
@@ -968,6 +942,36 @@ function SportsContent() {
 
   const selectedLeague = leagues.find((l) => l.code === selectedSport);
   const visibleEvents = view === "live" ? liveEvents : upcomingEvents;
+
+  // Auto-select the top visible game for the bet slip when nothing is
+  // selected yet. Works for both Live and Upcoming views so the bet slip
+  // is never empty when there's a game on screen.
+  useEffect(() => {
+    if (selectedBet) return;
+    let firstEvent: SportEvent | undefined;
+    if (view === "live") {
+      firstEvent = liveByLeagueSorted[0]?.events[0];
+    } else {
+      firstEvent = upcomingEvents[0];
+    }
+    if (!firstEvent) return;
+    const { moneyline } = extractKeyMarkets(firstEvent);
+    if (!moneyline) return;
+    const [teamA, teamB] = parseTeams(firstEvent.title);
+    setSelectedBet({
+      eventTitle: firstEvent.title,
+      eventSlug: firstEvent.slug,
+      eventEndDate: firstEvent.endDate,
+      marketId: moneyline.id,
+      marketQuestion: firstEvent.title,
+      outcomes: moneyline.outcomes.map((name, i) => ({
+        name: name || (i === 0 ? teamA : teamB),
+        price: moneyline.prices[i] || 0,
+        tokenId: moneyline.clobTokenIds[i] || "",
+      })),
+      negRisk: firstEvent.negRisk,
+    });
+  }, [liveByLeagueSorted, upcomingEvents, view, selectedBet]);
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
