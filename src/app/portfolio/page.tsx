@@ -43,8 +43,9 @@ export default function PortfolioPage() {
   // Polymarket proxy wallet address (where deposited USDC.e actually lives)
   const proxyAddress = address ? deriveProxyAddress(address) : undefined;
 
-  // Pending bridge tracker — watches source-chain deposits + controls polling.
-  const { state: bridgeState, startWatching, startPending, complete: completeBridge, dismiss: dismissPending } = usePendingBridge();
+  // Pending bridge tracker — faux system driven by the Polygon balance
+  // changes we can see locally. No source/destination chain polling.
+  const { state: bridgeState, startPending, complete: completeBridge, dismiss: dismissPending } = usePendingBridge();
 
   // Read USDC.e balance from the proxy wallet (not the EOA).
   // We always read from Polygon regardless of which chain the connected wallet
@@ -70,15 +71,13 @@ export default function PortfolioPage() {
   const eoaBal = eoaUsdcBalance ? parseFloat(eoaUsdcBalance.formatted) : 0;
   const usdcBal = proxyBal + eoaBal;
 
-  // Transition to the "completed" celebration state once the USDC.e balance
-  // increases — the deposit actually landed. Works for both "watching" and
-  // "pending" deposit states. Skip for withdraws: their Polygon balance went
-  // DOWN, and destination arrival is handled by the hook's own watcher.
+  // Transition to the "completed" celebration when the USDC.e balance rises
+  // — the deposit landed. Withdraws auto-complete on ETA inside the hook
+  // (the faux signal) since their Polygon balance went DOWN on relay sign.
   const prevBalRef = useRef<number>(usdcBal);
   useEffect(() => {
     if (
-      bridgeState &&
-      (bridgeState.kind === "watching" || bridgeState.kind === "pending") &&
+      bridgeState?.kind === "pending" &&
       bridgeState.type === "deposit" &&
       usdcBal > prevBalRef.current + 0.001
     ) {
@@ -172,18 +171,14 @@ export default function PortfolioPage() {
             open={depositOpen}
             onOpenChange={setDepositOpen}
             recipientAddress={address}
-            onDepositInitiated={(chain, chainId, depositAddress) =>
-              startWatching(chain, chainId, depositAddress)
-            }
+            onDepositInitiated={(chain) => startPending("deposit", chain)}
           />
           <WithdrawModal
             open={withdrawOpen}
             onOpenChange={setWithdrawOpen}
             usdcBalance={usdcBal}
             userAddress={address}
-            onWithdrawInitiated={({ chainName, chainId, recipient }) =>
-              startPending("withdraw", chainName, { chainId, address: recipient })
-            }
+            onWithdrawInitiated={(chain) => startPending("withdraw", chain)}
           />
         </div>
 

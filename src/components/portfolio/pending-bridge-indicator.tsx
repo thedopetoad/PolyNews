@@ -47,47 +47,7 @@ export function PendingBridgeIndicator({ state, onDismiss }: Props) {
     );
   }
 
-  // ── Watching state: no tx detected yet, indeterminate pulse ──────────────
-  if (state.kind === "watching") {
-    return (
-      <div className="mt-3 pt-3 border-t border-[#21262d]">
-        <div className="flex items-center justify-between mb-1.5">
-          <span className="text-[10px] text-[#768390] flex items-center gap-1.5">
-            <span className="relative flex h-1.5 w-1.5">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#768390] opacity-75" />
-              <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-[#768390]" />
-            </span>
-            Watching {state.chain} for your deposit…
-          </span>
-          <button
-            onClick={onDismiss}
-            aria-label="Dismiss"
-            className="text-[#484f58] hover:text-[#768390] leading-none text-sm"
-          >
-            ×
-          </button>
-        </div>
-        <div className="h-1 bg-[#21262d] rounded-full overflow-hidden relative">
-          <div
-            className="absolute inset-y-0 w-1/3 bg-gradient-to-r from-transparent via-[#58a6ff]/50 to-transparent"
-            style={{ animation: "sweep 1.8s linear infinite" }}
-          />
-        </div>
-        <style jsx>{`
-          @keyframes sweep {
-            0% {
-              transform: translateX(-100%);
-            }
-            100% {
-              transform: translateX(400%);
-            }
-          }
-        `}</style>
-      </div>
-    );
-  }
-
-  // ── Pending state: tx detected (or withdraw signed), run the countdown ───
+  // ── Pending state: run the countdown ────────────────────────────────────
   const elapsed = (now - state.startedAt) / 1000;
   const percent = Math.min(100, (elapsed / state.etaSeconds) * 100);
   const remaining = Math.max(0, state.etaSeconds - elapsed);
@@ -95,7 +55,7 @@ export function PendingBridgeIndicator({ state, onDismiss }: Props) {
 
   const label =
     state.type === "deposit"
-      ? `${state.chain} deposit confirmed · delivering…`
+      ? `Awaiting ${state.chain} deposit`
       : `Bridging to ${state.chain}`;
 
   return (

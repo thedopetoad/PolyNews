@@ -40,17 +40,10 @@ interface WithdrawModalProps {
   usdcBalance: number;
   userAddress: string | null;
   /**
-   * Called when the relay transaction confirms. The portfolio page uses this
-   * to start a pending-withdraw tracker — mostly useful for cross-chain
-   * withdraws where the bridge still needs to deliver to the destination.
-   * Passes chainId + recipient so the portfolio can poll the destination
-   * address for USDC arrival and auto-dismiss the indicator.
+   * Called when the relay transaction confirms. The portfolio page uses
+   * this to start a pending-withdraw indicator for the destination chain.
    */
-  onWithdrawInitiated?: (args: {
-    chainName: string;
-    chainId: string;
-    recipient: string;
-  }) => void;
+  onWithdrawInitiated?: (chainName: string) => void;
 }
 
 export function WithdrawModal({ open, onOpenChange, usdcBalance, userAddress, onWithdrawInitiated }: WithdrawModalProps) {
@@ -218,13 +211,9 @@ export function WithdrawModal({ open, onOpenChange, usdcBalance, userAddress, on
         base: "Base",
         solana: "Solana",
       };
-      if (selectedDest.chainId && isCrossChain) {
+      if (isCrossChain) {
         const chainName = CHAIN_NAMES[destChain] ?? selectedDest.label;
-        onWithdrawInitiated?.({
-          chainName,
-          chainId: selectedDest.chainId,
-          recipient,
-        });
+        onWithdrawInitiated?.(chainName);
       }
     } catch (err) {
       console.error("Withdraw failed:", err);

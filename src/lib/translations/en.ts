@@ -56,7 +56,7 @@ export const en = {
   portfolio: {
     title: "Portfolio",
     connectToView: "Connect your wallet to view your portfolio",
-    availableToTrade: "Available to Trade",
+    availableToTrade: "Available to Trade/Withdraw",
     paperPortfolio: "Paper Portfolio",
     profitLoss: "Profit / Loss",
     pastDay: "Past Day",

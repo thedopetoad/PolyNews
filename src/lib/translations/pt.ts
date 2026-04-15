@@ -58,7 +58,7 @@ export const pt: TranslationKeys = {
   portfolio: {
     title: "Portf\u00f3lio",
     connectToView: "Conecte sua carteira para ver seu portf\u00f3lio",
-    availableToTrade: "Dispon\u00edvel para Negociar",
+    availableToTrade: "Dispon\u00edvel para Negociar/Sacar",
     paperPortfolio: "Portf\u00f3lio Simulado",
     profitLoss: "Lucro / Preju\u00edzo",
     pastDay: "\u00daltimo Dia",
