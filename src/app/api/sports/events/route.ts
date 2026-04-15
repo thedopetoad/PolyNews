@@ -84,24 +84,21 @@ interface ParsedEvent {
   markets: ParsedMarket[];
   negRisk: boolean;
   espnLive?: boolean;
-  /** True when the event is currently happening per ESPN OR, failing that,
-   *  per Polymarket's own timing (started, not closed, within a reasonable
-   *  sport-specific window). Use this for the UI "live" filter. */
+  /** True when Polymarket's own `live` flag is set on the event OR ESPN has
+   *  the game in progress. Polymarket's flag is the authoritative source —
+   *  it's the same signal their own Sports Live page uses. ESPN is kept
+   *  as a fallback for the occasional niche match Polymarket hasn't synced. */
   isLive?: boolean;
+  /** Live game state passthroughs from the Polymarket Gamma API. */
+  score?: string;
+  period?: string;
+  elapsed?: string;
+  ended?: boolean;
   // Pass through Polymarket's own state flags so the client can drop any
   // event that flipped after our 15s ISR cache was warmed.
   closed?: boolean;
   archived?: boolean;
 }
-
-// How long after tip-off a sport can still plausibly be live. Soccer ~2h,
-// NFL/NBA/NHL/MLB ~3h, UFC cards ~4h, cricket (IPL) up to 8h.
-const LIVE_WINDOW_HOURS: Record<string, number> = {
-  mlb: 4, nba: 3, nfl: 4, nhl: 3.5,
-  ncaab: 3, mls: 2.5, epl: 2.5, lal: 2.5, bun: 2.5, ucl: 2.5,
-  ufc: 5, ipl: 8,
-};
-const DEFAULT_LIVE_WINDOW_HOURS = 3;
 
 async function getClobPrice(tokenId: string): Promise<number | null> {
   try {
@@ -194,6 +191,13 @@ export async function GET(request: NextRequest) {
         negRisk: event.negRisk || false,
         closed: event.closed === true,
         archived: event.archived === true,
+        // Polymarket-provided live state. `live` is their authoritative
+        // in-progress flag (same signal their own Sports Live page uses).
+        isLive: event.live === true,
+        ended: event.ended === true,
+        score: typeof event.score === "string" ? event.score : undefined,
+        period: typeof event.period === "string" ? event.period : undefined,
+        elapsed: typeof event.elapsed === "string" ? event.elapsed : undefined,
       });
     }
 
@@ -244,48 +248,34 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // Check ESPN for actually live games — require BOTH teams to match the SAME ESPN game
+    // ESPN fallback — covers the rare event Polymarket's `live` flag hasn't
+    // flipped yet. Only upgrades isLive to true, never downgrades.
     const liveGames = await getESPNLiveGames(sport);
     if (liveGames.length > 0) {
       for (const event of events) {
-        // Split "Team A vs. Team B" into two team names
         const parts = event.title.split(/\s+vs\.?\s+/i);
         if (parts.length < 2) continue;
         const teamA = parts[0].trim().toLowerCase();
         const teamB = parts[1].trim().toLowerCase();
 
-        // Check if both teams match the SAME ESPN live game
         event.espnLive = liveGames.some((game) => {
           const matchA = game.teams.some((t) => t.includes(teamA) || teamA.includes(t));
           const matchB = game.teams.some((t) => t.includes(teamB) || teamB.includes(t));
           return matchA && matchB;
         });
+
+        if (event.espnLive === true && !event.isLive) {
+          event.isLive = true;
+        }
       }
     }
 
-    // Compute unified isLive = ESPN live OR Polymarket-only heuristic.
-    // ESPN has gaps (mid-week UCL, niche soccer, UFC undercards, etc.). If
-    // Polymarket says the event is running, hasn't closed, and we're inside
-    // a reasonable window after tip-off, surface it as live so our site
-    // matches what users see on polymarket.com.
-    const windowMs =
-      (LIVE_WINDOW_HOURS[sport] ?? DEFAULT_LIVE_WINDOW_HOURS) * 60 * 60 * 1000;
-    const nowMs = Date.now();
+    // Belt-and-suspenders: never surface a closed/archived/ended event as
+    // live even if the live flag was set from cache that's now stale.
     for (const event of events) {
-      if (event.espnLive === true) {
-        event.isLive = true;
-        continue;
+      if (event.closed || event.archived || event.ended) {
+        event.isLive = false;
       }
-      if (event.closed || event.archived) continue;
-      const gs = new Date(event.gameStartTime).getTime();
-      if (isNaN(gs) || gs > nowMs) continue; // not started
-      // Prefer the market's endDate when present; otherwise fall back to a
-      // sport-specific post-tipoff window.
-      const end = event.endDate
-        ? new Date(event.endDate).getTime()
-        : gs + windowMs;
-      if (isNaN(end) || end < nowMs) continue; // already over
-      event.isLive = true;
     }
 
     return NextResponse.json({ events, sport });
