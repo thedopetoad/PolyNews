@@ -9,6 +9,8 @@ const SERIES_MAP: Record<string, string> = {
   mlb: "3", nba: "10345", nfl: "10187", nhl: "10346",
   epl: "10188", lal: "10193", bun: "10194", ucl: "10204",
   ufc: "10500", ipl: "44", mls: "10189", ncaab: "39",
+  atp: "10365", wta: "10366",
+  cs: "10310", lol: "10311", dota: "10309", val: "10369",
 };
 
 // Map sport codes to ESPN paths

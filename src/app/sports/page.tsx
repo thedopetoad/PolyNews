@@ -790,22 +790,32 @@ function SportsContent() {
   const leagues: League[] = leaguesData?.leagues || [];
   const events: SportEvent[] = eventsData?.events || [];
 
-  // Fetch ALL leagues for live tab
+  // ALL live games — one call to Polymarket's `live=true` filter, same
+  // source that powers polymarket.com's Sports Live page. Each event
+  // carries its series metadata so we can map to a sidebar league; events
+  // whose series we don't have a league entry for get a synthetic league
+  // from the series title so they still render.
   const { data: allLiveData, isLoading: allLiveLoading } = useQuery({
-    queryKey: ["sports-all-live", leagues.map((l) => l.code).join(",")],
+    queryKey: ["sports-all-live-v2", leagues.length],
     queryFn: async () => {
-      if (leagues.length === 0) return [];
-      const results = await Promise.all(
-        leagues.map(async (l) => {
-          try {
-            const res = await fetch(`/api/sports/events?sport=${l.code}`);
-            if (!res.ok) return [];
-            const data = await res.json();
-            return ((data.events || []) as SportEvent[]).map((e) => ({ ...e, _sport: l.code, _league: l }));
-          } catch { return []; }
-        })
-      );
-      return results.flat();
+      const res = await fetch(`/api/sports/live-all`);
+      if (!res.ok) return [];
+      const data = await res.json();
+      const raw = (data.events || []) as (SportEvent & {
+        series?: { id: string; slug: string; title: string };
+      })[];
+      return raw.map((e) => {
+        const seriesId = e.series?.id;
+        const match = leagues.find((l) => l.seriesId === seriesId);
+        const league: League = match || {
+          code: e.series?.slug || `series-${seriesId || "unknown"}`,
+          name: e.series?.title || "Other",
+          emoji: "🎯",
+          seriesId: seriesId || "",
+          image: "",
+        };
+        return { ...e, _sport: league.code, _league: league };
+      });
     },
     enabled: view === "live" && leagues.length > 0,
     staleTime: 20 * 1000,
