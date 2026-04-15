@@ -71,6 +71,21 @@ export function BetSlip({ eventTitle, eventSlug, eventEndDate, marketId, marketQ
 
   const handleTrade = async () => {
     if (!selected || amountNum <= 0) return;
+
+    // Auto-switch to Polygon if needed — no separate button required.
+    if (!isOnPolygon) {
+      try {
+        await switchChain({ chainId: polygon.id });
+        // After switching, wagmi state needs a moment to update. The user
+        // clicks Trade again once the chain has settled.
+        setResult({ success: false, msg: "Switched to Polygon — tap Trade again." });
+        return;
+      } catch {
+        setResult({ success: false, msg: "Please switch to Polygon in your wallet." });
+        return;
+      }
+    }
+
     if (insufficientBalance) {
       setResult({ success: false, msg: `Insufficient USDC balance. You have $${usdcBal.toFixed(2)}. Deposit USDC.e on Polygon to trade.` });
       return;
@@ -200,32 +215,31 @@ export function BetSlip({ eventTitle, eventSlug, eventEndDate, marketId, marketQ
         </p>
       )}
 
-      {/* Trade button — auto-switches to Polygon if needed */}
-      {!isOnPolygon ? (
-        <button
-          onClick={() => switchChain({ chainId: polygon.id })}
-          className="w-full py-3 rounded-lg text-sm font-bold bg-[#8247e5] text-white hover:bg-[#7038d4] transition-all active:scale-[0.98]"
-        >
-          Switch to Polygon to trade
-        </button>
-      ) : (
-        <button
-          onClick={handleTrade}
-          disabled={placing || amountNum <= 0 || !canTrade || insufficientBalance}
-          className={cn(
-            "w-full py-3 rounded-lg text-sm font-bold transition-all",
-            placing
-              ? "bg-[#21262d] text-[#484f58] cursor-wait"
+      {/* Single trade button — handles chain switching automatically */}
+      <button
+        onClick={handleTrade}
+        disabled={placing || amountNum <= 0}
+        className={cn(
+          "w-full py-3 rounded-lg text-sm font-bold transition-all",
+          placing
+            ? "bg-[#21262d] text-[#484f58] cursor-wait"
+            : amountNum <= 0
+              ? "bg-[#21262d] text-[#484f58]"
               : insufficientBalance
-                ? "bg-[#d29922]/20 text-[#d29922] cursor-not-allowed"
-                : amountNum > 0
-                  ? "bg-[#58a6ff] text-white hover:bg-[#4d8fea] active:scale-[0.98]"
-                  : "bg-[#21262d] text-[#484f58] cursor-not-allowed"
-          )}
-        >
-          {placing ? t.betSlip.confirmingInWallet : insufficientBalance ? t.betSlip.insufficientUsdc : t.betSlip.trade}
-        </button>
-      )}
+                ? "bg-[#d29922]/20 text-[#d29922] hover:bg-[#d29922]/30 active:scale-[0.98]"
+                : "bg-[#238636] text-white hover:bg-[#2ea043] active:scale-[0.98]"
+        )}
+      >
+        {placing
+          ? t.betSlip.confirmingInWallet
+          : amountNum <= 0
+            ? "Enter an amount"
+            : insufficientBalance
+              ? t.betSlip.insufficientUsdc
+              : side === "BUY"
+                ? `Buy $${amountNum.toFixed(2)} ${selected?.name || ""}`
+                : `Sell $${amountNum.toFixed(2)} ${selected?.name || ""}`}
+      </button>
 
       {/* Result / Error */}
       {result && (
