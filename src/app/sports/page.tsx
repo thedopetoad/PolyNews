@@ -836,6 +836,19 @@ function SportsContent() {
     return groups;
   }, [allLiveEvents]);
 
+  // Pin the currently-selected league to the top of the live list so clicking
+  // a sport in the sidebar immediately surfaces its live games, without hiding
+  // everything else that's also live right now.
+  const liveByLeagueSorted = useMemo(() => {
+    const selectedIdx = liveByLeague.findIndex((g) => g.sport === selectedSport);
+    if (selectedIdx <= 0) return liveByLeague;
+    const copy = [...liveByLeague];
+    const [pinned] = copy.splice(selectedIdx, 1);
+    return [pinned, ...copy];
+  }, [liveByLeague, selectedSport]);
+
+  const selectedHasLive = liveByLeague.some((g) => g.sport === selectedSport);
+
   // Selected sport events. Drop anything Polymarket flipped to
   // closed/archived so we never show a market that's no longer betable.
   const liveEvents = events.filter((e) => e.espnLive === true && !e.closed && !e.archived);
@@ -979,15 +992,38 @@ function SportsContent() {
             ))}
           </div>
 
-          {/* League Header */}
-          <div className="flex items-center gap-3 mb-4">
-            {selectedLeague?.image ? (
-              <img src={selectedLeague.image} alt={selectedLeague.name} className="w-7 h-7 rounded object-contain" />
-            ) : (
-              <span className="text-2xl">{selectedLeague?.emoji}</span>
-            )}
-            <h2 className="text-lg font-semibold text-white">{selectedLeague?.name || selectedSport.toUpperCase()}</h2>
-          </div>
+          {/* Header — "Live Now" banner in live view, league header in upcoming view.
+              The live view spans all sports, so a single-league header there is misleading. */}
+          {view === "live" ? (
+            <div className="flex items-center gap-3 mb-4">
+              <span className="flex items-center gap-1.5 text-sm font-semibold text-[#f85149]">
+                <span className="w-1.5 h-1.5 rounded-full bg-[#f85149] animate-pulse" />
+                LIVE NOW
+              </span>
+              <h2 className="text-lg font-semibold text-white">Across all sports</h2>
+              {totalLiveCount > 0 && (
+                <span className="ml-auto text-[11px] text-[#768390] tabular-nums">
+                  {totalLiveCount} {totalLiveCount === 1 ? "game" : "games"}
+                </span>
+              )}
+            </div>
+          ) : (
+            <div className="flex items-center gap-3 mb-4">
+              {selectedLeague?.image ? (
+                <img src={selectedLeague.image} alt={selectedLeague.name} className="w-7 h-7 rounded object-contain" />
+              ) : (
+                <span className="text-2xl">{selectedLeague?.emoji}</span>
+              )}
+              <h2 className="text-lg font-semibold text-white">{selectedLeague?.name || selectedSport.toUpperCase()}</h2>
+            </div>
+          )}
+
+          {/* Note — selected league has no live games, but others do. Only in live view. */}
+          {view === "live" && !allLiveLoading && liveByLeague.length > 0 && !selectedHasLive && selectedLeague && (
+            <div className="mb-4 rounded-lg border border-[#21262d] bg-[#161b22] px-3 py-2 text-[12px] text-[#768390]">
+              No live <span className="text-[#adbac7] font-medium">{selectedLeague.name}</span> games right now — showing everything else that&apos;s live.
+            </div>
+          )}
 
           {/* Games */}
           {view === "live" ? (
@@ -995,9 +1031,9 @@ function SportsContent() {
               <div className="space-y-3">
                 {Array.from({ length: 4 }).map((_, i) => <GameSkeleton key={i} />)}
               </div>
-            ) : liveByLeague.length > 0 ? (
+            ) : liveByLeagueSorted.length > 0 ? (
               <div className="space-y-6">
-                {liveByLeague.map((group) => (
+                {liveByLeagueSorted.map((group) => (
                   <div key={group.sport}>
                     <div className="flex items-center gap-2 mb-3">
                       {group.league.image ? (
@@ -1007,6 +1043,9 @@ function SportsContent() {
                       )}
                       <p className="text-sm font-semibold text-[#e6edf3]">{group.league.name}</p>
                       <span className="text-[10px] text-[#484f58] bg-[#21262d] px-1.5 py-0.5 rounded">{group.events.length}</span>
+                      {group.sport === selectedSport && (
+                        <span className="text-[9px] text-[#58a6ff] bg-[#58a6ff]/10 border border-[#58a6ff]/25 px-1.5 py-0.5 rounded uppercase tracking-wider font-semibold">Selected</span>
+                      )}
                     </div>
                     <div className="space-y-3">
                       {group.events.map((e, i) => <GameCard key={e.id} event={e} index={i} sport={group.sport} expanded={expandedId === e.id} onToggle={() => setExpandedId(expandedId === e.id ? null : e.id)} onSelectBet={setSelectedBet} />)}
