@@ -1,7 +1,7 @@
 "use client";
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { checkMagicSession, handleOAuthRedirect, getMagic, type OAuthResult } from "@/lib/magic";
 import { useAuthStore } from "@/stores/use-auth-store";
@@ -74,32 +74,39 @@ function MagicSessionRestore() {
   const { setGoogleAddress } = useAuthStore();
   const { connect, connectors } = useConnect();
   const { isConnected } = useAccount();
-  const [attempted, setAttempted] = useState(false);
 
-  useEffect(() => {
-    if (isConnected || attempted) return;
+  // We re-run restore on mount AND on every tab-visibility change. Mobile
+  // browsers (esp. iOS Safari + Chrome Mobile on low-memory devices) will
+  // kill or suspend backgrounded tabs; when the user returns, wagmi's
+  // in-memory connection state is gone even though Magic's session on its
+  // own iframe may still be alive. This handler re-syncs the two.
+  const inFlightRef = useRef(false);
+
+  const restore = useCallback(async () => {
+    // Guard: only one restore at a time, and skip if wagmi already connected.
+    if (inFlightRef.current) return;
+    if (isConnected) return;
 
     const magicConn = connectors.find((c) => c.id === "magic");
     if (!magicConn) return;
 
-    setAttempted(true);
+    inFlightRef.current = true;
+    try {
+      const refCode = new URLSearchParams(window.location.search).get("ref") || undefined;
 
-    const refCode = new URLSearchParams(window.location.search).get("ref") || undefined;
+      // Helper: after Magic auth succeeds, prepare the connector and connect via wagmi
+      const connectMagicToWagmi = (address: string) => {
+        const magic = getMagic();
+        if (magic) {
+          prepareMagicConnector(address, magic.rpcProvider);
+          connect({ connector: magicConn });
+        }
+      };
 
-    // Helper: after Magic auth succeeds, prepare the connector and connect via wagmi
-    const connectMagicToWagmi = (address: string) => {
-      const magic = getMagic();
-      if (magic) {
-        prepareMagicConnector(address, magic.rpcProvider);
-        connect({ connector: magicConn });
-      }
-    };
-
-    // 1. Handle OAuth redirect (user just came back from Google)
-    handleOAuthRedirect().then(async (result: OAuthResult | null) => {
+      // 1. Handle OAuth redirect (user just came back from Google)
+      const result: OAuthResult | null = await handleOAuthRedirect();
       if (result?.address) {
         setGoogleAddress(result.address);
-        // Create/update user in DB
         await fetch("/api/user", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -111,7 +118,6 @@ function MagicSessionRestore() {
             referredBy: refCode,
           }),
         }).catch(() => {});
-
         connectMagicToWagmi(result.address);
         return;
       }
@@ -121,11 +127,7 @@ function MagicSessionRestore() {
       if (existing) {
         setGoogleAddress(existing.address);
         // POST /api/user on every session restore so stale rows (created
-        // before we were capturing email) can backfill their email field.
-        // Without this, those users stay at risk of duplicate-on-relogin if
-        // Magic ever returns a different address for the same Google user.
-        // Server-side this is idempotent: returns existing row + updates
-        // email only if currently null.
+        // before we were capturing email) backfill their email field.
         await fetch("/api/user", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -139,10 +141,40 @@ function MagicSessionRestore() {
         }).catch(() => {});
         connectMagicToWagmi(existing.address);
       }
-    }).catch((err) => {
+    } catch (err) {
       console.error("Magic session restore failed:", err);
-    });
-  }, [isConnected, connectors, connect, attempted]); // eslint-disable-line react-hooks/exhaustive-deps
+    } finally {
+      inFlightRef.current = false;
+    }
+  }, [isConnected, connectors, connect, setGoogleAddress]);
+
+  // Run once on mount
+  const mountedRef = useRef(false);
+  useEffect(() => {
+    if (mountedRef.current) return;
+    mountedRef.current = true;
+    restore();
+  }, [restore]);
+
+  // Re-run on tab visibility change (mobile: back from background).
+  // Also on window focus, which catches some iOS scenarios where
+  // visibilitychange doesn't fire but focus does.
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === "visible") {
+        restore();
+      }
+    };
+    const onFocus = () => {
+      restore();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", onFocus);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", onFocus);
+    };
+  }, [restore]);
 
   return null;
 }
