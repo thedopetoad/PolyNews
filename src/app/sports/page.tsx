@@ -971,10 +971,7 @@ function SportsContent() {
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-      <div className="flex gap-6">
-      {/* Main content */}
-      <div className="flex-1 min-w-0">
-      {/* Header */}
+      {/* Header — full width above the 3-column layout */}
       <div className="flex items-center justify-between gap-4 mb-4">
         <div className="min-w-0">
           <h1 className="text-2xl font-bold text-white">Sports</h1>
@@ -987,7 +984,7 @@ function SportsContent() {
         </div>
       </div>
 
-      {/* Live / Upcoming tabs */}
+      {/* Live / Upcoming tabs — full width */}
       <div className="flex gap-2 mb-4">
         <button
           onClick={() => setView("live")}
@@ -1013,6 +1010,7 @@ function SportsContent() {
         </button>
       </div>
 
+      {/* 3-column layout: sidebar | games | bet slip — all start at the same level */}
       <div className="flex gap-6">
         {/* Sidebar — hierarchical category list. Static gradient border
             highlights the card; no moving spotlight. */}
@@ -1223,8 +1221,6 @@ function SportsContent() {
             Odds update every 2 minutes from Polymarket CLOB
           </p>
         </div>
-      </div>
-      </div>{/* end flex-1 main content */}
 
       {/* Sidebar Bet Slip — always visible on desktop, updates when a game is clicked */}
       <div className="hidden lg:block w-80 flex-shrink-0">
@@ -1250,7 +1246,7 @@ function SportsContent() {
           )}
         </div>
       </div>
-      </div>{/* end flex container */}
+      </div>{/* end 3-column flex */}
     </div>
   );
 }
