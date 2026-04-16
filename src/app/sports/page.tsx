@@ -6,7 +6,12 @@ import { useQuery } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 import { LoginButton } from "@/components/layout/login-modal";
 import { BetSlip } from "@/components/sports/bet-slip";
+import { OddsFormatMenu } from "@/components/sports/odds-format-menu";
+import { formatOdds } from "@/lib/odds-format";
+import { useOddsFormat } from "@/stores/use-odds-format";
+import { useTeamLogos, matchTeamLogo } from "@/hooks/use-team-logos";
 import Link from "next/link";
+import Image from "next/image";
 
 /* ─── Color palette for multi-outcome charts ─── */
 const CHART_COLORS = ["#4d8fea", "#8b949e", "#58a6ff", "#da3633", "#3fb950"];
@@ -225,6 +230,12 @@ interface SportEvent {
   isLive?: boolean;
   closed?: boolean;
   archived?: boolean;
+  /** Live game state from Polymarket's live=true feed (e.g. "3-1"). */
+  score?: string;
+  /** E.g. "Bot 5th", "2Q", "HT". */
+  period?: string;
+  /** Game clock for sports that track it. */
+  elapsed?: string;
 }
 
 function formatVol(n: number): string {
@@ -296,7 +307,7 @@ function abbrev(name: string): string {
 }
 
 /* ─── Team Row ─── */
-function TeamRow({ name, mlPrice, spreadLabel, spreadPrice, totalLabel, totalPrice, highlight, onClickBet }: {
+function TeamRow({ name, mlPrice, spreadLabel, spreadPrice, totalLabel, totalPrice, highlight, onClickBet, logo, score }: {
   name: string;
   mlPrice: number;
   spreadLabel?: string;
@@ -305,20 +316,36 @@ function TeamRow({ name, mlPrice, spreadLabel, spreadPrice, totalLabel, totalPri
   totalPrice?: number;
   highlight: boolean;
   onClickBet?: () => void;
+  logo?: string;
+  score?: string;
 }) {
+  const { format, showSpreadsTotals } = useOddsFormat();
   const tag = abbrev(name);
-  const pct = Math.round(mlPrice * 100);
 
   return (
     <div className="flex items-center gap-3 px-4 py-2">
-      {/* Team */}
+      {/* Team — logo if ESPN has one, else the 3-letter tag */}
       <div className="flex items-center gap-2 flex-1 min-w-0">
-        <span className={cn(
-          "inline-flex items-center justify-center w-10 h-6 rounded text-[10px] font-bold tracking-wide",
-          highlight ? "bg-[#238636]/25 text-[#3fb950]" : "bg-[#21262d] text-[#768390]"
-        )}>
-          {tag}
-        </span>
+        {logo ? (
+          <Image
+            src={logo}
+            alt={name}
+            width={24}
+            height={24}
+            className="w-6 h-6 object-contain flex-shrink-0"
+            unoptimized
+          />
+        ) : (
+          <span className={cn(
+            "inline-flex items-center justify-center w-10 h-6 rounded text-[10px] font-bold tracking-wide",
+            highlight ? "bg-[#238636]/25 text-[#3fb950]" : "bg-[#21262d] text-[#768390]"
+          )}>
+            {tag}
+          </span>
+        )}
+        {score !== undefined && score !== "" && (
+          <span className="text-[13px] font-bold text-white tabular-nums min-w-[14px] text-center">{score}</span>
+        )}
         <span className="text-[13px] text-[#e6edf3] truncate">{name}</span>
       </div>
 
@@ -333,30 +360,34 @@ function TeamRow({ name, mlPrice, spreadLabel, spreadPrice, totalLabel, totalPri
             : "bg-[#21262d] text-[#e6edf3] hover:bg-[#30363d]"
         )}
       >
-        {tag} {pct}¢
+        {tag} {formatOdds(mlPrice, format)}
       </button>
 
       {/* Spread */}
-      <div className="w-24 text-center hidden md:block">
-        {spreadLabel && spreadPrice !== undefined ? (
-          <span className="text-xs text-[#adbac7] tabular-nums">
-            {spreadLabel} <span className="text-[#e6edf3] font-medium">{Math.round(spreadPrice * 100)}¢</span>
-          </span>
-        ) : (
-          <span className="text-xs text-[#484f58]">—</span>
-        )}
-      </div>
+      {showSpreadsTotals && (
+        <div className="w-24 text-center hidden md:block">
+          {spreadLabel && spreadPrice !== undefined ? (
+            <span className="text-xs text-[#adbac7] tabular-nums">
+              {spreadLabel} <span className="text-[#e6edf3] font-medium">{formatOdds(spreadPrice, format)}</span>
+            </span>
+          ) : (
+            <span className="text-xs text-[#484f58]">—</span>
+          )}
+        </div>
+      )}
 
       {/* Total */}
-      <div className="w-24 text-center hidden md:block">
-        {totalLabel && totalPrice !== undefined ? (
-          <span className="text-xs text-[#adbac7] tabular-nums">
-            {totalLabel} <span className="text-[#e6edf3] font-medium">{Math.round(totalPrice * 100)}¢</span>
-          </span>
-        ) : (
-          <span className="text-xs text-[#484f58]">—</span>
-        )}
-      </div>
+      {showSpreadsTotals && (
+        <div className="w-24 text-center hidden md:block">
+          {totalLabel && totalPrice !== undefined ? (
+            <span className="text-xs text-[#adbac7] tabular-nums">
+              {totalLabel} <span className="text-[#e6edf3] font-medium">{formatOdds(totalPrice, format)}</span>
+            </span>
+          ) : (
+            <span className="text-xs text-[#484f58]">—</span>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -528,6 +559,20 @@ function LiveRadioPlayer({ teamA, teamB }: { teamA: string; teamB: string }) {
   );
 }
 
+/* Column headers — subscribed to the odds-format store so they hide when
+   spreads/totals are turned off. Rendered inside each card. */
+function GameCardHeaders() {
+  const { showSpreadsTotals } = useOddsFormat();
+  return (
+    <div className="flex items-center gap-3 px-4 py-1 text-[9px] text-[#484f58] uppercase tracking-widest">
+      <div className="flex-1" />
+      <div className="w-24 text-center">Moneyline</div>
+      {showSpreadsTotals && <div className="w-24 text-center hidden md:block">Spread</div>}
+      {showSpreadsTotals && <div className="w-24 text-center hidden md:block">Total</div>}
+    </div>
+  );
+}
+
 /* ─── Game Card (Polymarket-style) ─── */
 function GameCard({ event, index, sport, expanded, onToggle, onSelectBet }: { event: SportEvent; index: number; sport: string; expanded: boolean; onToggle: () => void; onSelectBet?: (bet: SelectedBet) => void }) {
   const [teamA, teamB] = parseTeams(event.title);
@@ -535,6 +580,20 @@ function GameCard({ event, index, sport, expanded, onToggle, onSelectBet }: { ev
   const vol = formatVol(event.volume || event.markets.reduce((s, m) => s + m.volume, 0));
   const time = formatTime(event.gameStartTime);
   const isLive = event.isLive === true || event.espnLive === true;
+
+  // ESPN team dictionary (cached across cards on the same sport via react-query)
+  const { data: logoData } = useTeamLogos(sport);
+  const teamADict = matchTeamLogo(teamA, logoData?.teams);
+  const teamBDict = matchTeamLogo(teamB, logoData?.teams);
+  const logoA = teamADict?.logo;
+  const logoB = teamBDict?.logo;
+
+  // Live score (from Polymarket's live feed — "2-1", "Bot 5th", etc.)
+  // Polymarket returns score as a single string like "3-1"; we split on "-"
+  // or space/colon to get per-team scores for inline display.
+  const scoreParts = event.score ? event.score.split(/[\s:-]+/) : [];
+  const scoreA = scoreParts[0] || undefined;
+  const scoreB = scoreParts[1] || undefined;
 
   // Build multi-outcome chart data
   const chartOutcomes: ChartOutcome[] = useMemo(() => {
@@ -623,7 +682,14 @@ function GameCard({ event, index, sport, expanded, onToggle, onSelectBet }: { ev
         <div className="flex items-center gap-2">
           <svg className={cn("w-3 h-3 text-[#484f58] transition-transform flex-shrink-0", expanded && "rotate-90")} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
           {isLive && <span className="text-[10px] font-bold text-[#f85149] bg-[#f85149]/10 px-1.5 py-0.5 rounded animate-glow-red">LIVE</span>}
-          <span className="text-[11px] text-[#484f58]">{time}</span>
+          {/* Live game state from Polymarket: "Bot 5th • 3-1" */}
+          {isLive && event.period && (
+            <span className="text-[11px] font-semibold text-[#e6edf3]">{event.period}</span>
+          )}
+          {isLive && event.elapsed && (
+            <span className="text-[10px] text-[#768390] tabular-nums">{event.elapsed}</span>
+          )}
+          {!isLive && <span className="text-[11px] text-[#484f58]">{time}</span>}
           {vol && <span className="text-[11px] text-[#484f58]">{vol} Vol.</span>}
         </div>
         <Link
@@ -635,16 +701,13 @@ function GameCard({ event, index, sport, expanded, onToggle, onSelectBet }: { ev
       </div>
 
       {/* Column Headers */}
-      <div className="flex items-center gap-3 px-4 py-1 text-[9px] text-[#484f58] uppercase tracking-widest">
-        <div className="flex-1" />
-        <div className="w-24 text-center">Moneyline</div>
-        <div className="w-24 text-center hidden md:block">Spread</div>
-        <div className="w-24 text-center hidden md:block">Total</div>
-      </div>
+      <GameCardHeaders />
 
       {/* Team A */}
       <TeamRow
         name={teamA}
+        logo={logoA}
+        score={isLive ? scoreA : undefined}
         mlPrice={mlPriceA}
         spreadLabel={spreadA?.label}
         spreadPrice={spreadA?.price}
@@ -670,6 +733,8 @@ function GameCard({ event, index, sport, expanded, onToggle, onSelectBet }: { ev
       {/* Team B */}
       <TeamRow
         name={teamB}
+        logo={logoB}
+        score={isLive ? scoreB : undefined}
         mlPrice={mlPriceB}
         spreadLabel={spreadB?.label}
         spreadPrice={spreadB?.price}
@@ -987,7 +1052,15 @@ function SportsContent() {
       {/* Mobile-only header (desktop header is implicit in the column titles) */}
       <div className="lg:hidden flex items-center justify-between gap-4 mb-4">
         <h1 className="text-xl font-bold text-white">Sports</h1>
-        <LoginButton />
+        <div className="flex items-center gap-2">
+          <OddsFormatMenu />
+          <LoginButton />
+        </div>
+      </div>
+
+      {/* Desktop — odds format menu anchored top-right of the content column */}
+      <div className="hidden lg:flex items-center justify-end mb-3">
+        <OddsFormatMenu />
       </div>
 
       {/* 3-column layout matching polymarket.com/sports */}
@@ -1245,6 +1318,54 @@ function SportsContent() {
         </div>
       </div>
       </div>{/* end 3-column flex */}
+
+      {/* Mobile Bet Slip — bottom sheet, slides up when user clicks a market.
+          On desktop (lg+) the sticky sidebar handles this, so we hide here. */}
+      <MobileBetSlipSheet selectedBet={selectedBet} onClose={() => setSelectedBet(null)} />
+    </div>
+  );
+}
+
+/**
+ * Mobile-only bottom sheet that hosts the BetSlip. Appears (with a scrim
+ * behind) whenever the user taps a market row on the list page — mirrors
+ * Polymarket's mobile flow where the sidebar isn't available.
+ *
+ * Keyboard-closeable via Esc; scrim-tap also closes. Scroll is contained
+ * inside the sheet so the body behind stays frozen.
+ */
+function MobileBetSlipSheet({ selectedBet, onClose }: { selectedBet: SelectedBet | null; onClose: () => void }) {
+  useEffect(() => {
+    if (!selectedBet) return;
+    const h = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", h);
+    // Freeze body scroll while the sheet is open
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      window.removeEventListener("keydown", h);
+      document.body.style.overflow = prev;
+    };
+  }, [selectedBet, onClose]);
+
+  if (!selectedBet) return null;
+  return (
+    <div className="lg:hidden fixed inset-0 z-40">
+      <div
+        className="absolute inset-0 bg-black/60 backdrop-blur-sm animate-fade-in"
+        onClick={onClose}
+      />
+      <div className="absolute inset-x-0 bottom-0 max-h-[85vh] rounded-t-2xl border-t border-x border-[#30363d] bg-[#161b22] overflow-hidden animate-slide-up">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-[#21262d]">
+          <p className="text-sm font-semibold text-white truncate pr-3">{selectedBet.eventTitle}</p>
+          <button onClick={onClose} className="text-[#484f58] hover:text-white transition-colors flex-shrink-0" aria-label="Close">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+          </button>
+        </div>
+        <div className="px-4 py-4 overflow-y-auto max-h-[calc(85vh-48px)]">
+          <BetSlip {...selectedBet} />
+        </div>
+      </div>
     </div>
   );
 }

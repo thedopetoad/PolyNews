@@ -6,6 +6,9 @@ import { useQuery } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 import { POLYMARKET_BASE_URL } from "@/lib/constants";
 import { BetSlip } from "@/components/sports/bet-slip";
+import { OddsFormatMenu } from "@/components/sports/odds-format-menu";
+import { formatOdds } from "@/lib/odds-format";
+import { useOddsFormat } from "@/stores/use-odds-format";
 import Link from "next/link";
 import { Suspense } from "react";
 
@@ -54,7 +57,7 @@ function formatVol(n: number): string {
 
 /* ─── Odds Button ─── */
 function OddsBtn({ label, price, highlight, selected, onClick }: { label: string; price: number; highlight?: boolean; selected?: boolean; onClick?: () => void }) {
-  const pct = Math.round(price * 100);
+  const { format } = useOddsFormat();
   return (
     <button
       onClick={onClick}
@@ -68,7 +71,7 @@ function OddsBtn({ label, price, highlight, selected, onClick }: { label: string
       )}
     >
       <span className="text-sm text-[#e6edf3] font-medium">{label}</span>
-      <span className={cn("text-lg font-bold tabular-nums", selected ? "text-[#3fb950]" : highlight ? "text-[#3fb950]" : "text-[#e6edf3]")}>{pct}¢</span>
+      <span className={cn("text-lg font-bold tabular-nums", selected ? "text-[#3fb950]" : highlight ? "text-[#3fb950]" : "text-[#e6edf3]")}>{formatOdds(price, format)}</span>
     </button>
   );
 }
@@ -296,9 +299,10 @@ function GameContent() {
       </div>
 
       {/* Title */}
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex items-center justify-between mb-4 gap-3">
         <h1 className="text-xl font-bold text-white">{data.title}</h1>
         <div className="flex items-center gap-3 text-[11px] text-[#484f58]">
+          <OddsFormatMenu />
           <span>{totalMarketCount} markets</span>
           {totalVolume > 0 && <span>{formatVol(totalVolume)} Vol.</span>}
           <a

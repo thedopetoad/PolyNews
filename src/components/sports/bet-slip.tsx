@@ -9,6 +9,10 @@ import { LoginButton } from "@/components/layout/login-modal";
 import { BridgeDepositModal } from "@/components/portfolio/bridge-deposit-modal";
 import { EnableTradingModal } from "@/components/sports/enable-trading-modal";
 import { TradeProgress } from "@/components/sports/trade-progress";
+import { OrderBook } from "@/components/sports/order-book";
+import { BetConfirmModal } from "@/components/sports/bet-confirm-modal";
+import { formatOdds } from "@/lib/odds-format";
+import { useOddsFormat } from "@/stores/use-odds-format";
 import { useT } from "@/lib/i18n";
 import { useSwitchChain, useBalance } from "wagmi";
 import { polygon } from "wagmi/chains";
@@ -50,11 +54,12 @@ function abbrev(name: string): string {
 
 const QUICK_AMOUNTS = [1, 5, 10, 100];
 
-export function BetSlip({ eventTitle, eventSlug, eventEndDate, marketId, marketQuestion, outcomes, initialOutcomeIdx = 0, negRisk }: BetSlipProps) {
-  const { address, isConnected } = useUser();
-  const { placeOrder, placing, error: tradeError, canTrade, isOnPolygon } = usePolymarketTrade();
+export function BetSlip({ eventTitle: _eventTitle, eventSlug: _eventSlug, eventEndDate: _eventEndDate, marketId, marketQuestion: _marketQuestion, outcomes, initialOutcomeIdx = 0, negRisk }: BetSlipProps) {
+  const { address } = useUser();
+  const { placeOrder, placing, error: tradeError, isOnPolygon } = usePolymarketTrade();
   const { status: setupStatus, isReady: tradingEnabled, refresh: refreshSetup } = usePolymarketSetup();
   const { switchChain } = useSwitchChain();
+  const { format } = useOddsFormat();
 
   // Funds live in the Polymarket proxy wallet (derived from the EOA), not
   // in the EOA itself. Read from both and sum — matches the portfolio page.
@@ -82,6 +87,8 @@ export function BetSlip({ eventTitle, eventSlug, eventEndDate, marketId, marketQ
   const [result, setResult] = useState<{ success: boolean; msg: string; txHashes?: string[]; side?: "BUY" | "SELL" } | null>(null);
   const [depositOpen, setDepositOpen] = useState(false);
   const [enableOpen, setEnableOpen] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [showBook, setShowBook] = useState(false);
 
   // Sync selection with parent — card click on a different outcome should
   // flip the slip. Also resets on marketId change (a different row / market
@@ -147,34 +154,18 @@ export function BetSlip({ eventTitle, eventSlug, eventEndDate, marketId, marketQ
 
   const selected = liveOutcomes[selectedOutcome];
   const amountNum = parseFloat(amount) || 0;
-  const shares = selected && amountNum > 0 ? amountNum / selected.price : 0;
-  const payout = shares;
+  // Effective fill price: use slippage-walked avg if we have it (more honest
+  // than mid), otherwise mid. This powers both the share count and the
+  // "to win" profit so the numbers the user sees are what they'll actually get.
+  const effectivePrice = slippage?.filled ? slippage.avgFillPrice : selectedPrice;
+  const shares = selected && amountNum > 0 ? amountNum / effectivePrice : 0;
+  const toWin = side === "BUY" ? shares - amountNum : 0; // profit if YES resolves
   const insufficientBalance = amountNum > 0 && amountNum > usdcBal;
 
-  const handleTrade = async () => {
+  const placeTrade = async () => {
     if (!selected || amountNum <= 0) return;
-
-    // Auto-switch to Polygon if needed — no separate button required.
-    if (!isOnPolygon) {
-      try {
-        await switchChain({ chainId: polygon.id });
-        // After switching, wagmi state needs a moment to update. The user
-        // clicks Trade again once the chain has settled.
-        setResult({ success: false, msg: "Switched to Polygon — tap Trade again." });
-        return;
-      } catch {
-        setResult({ success: false, msg: "Please switch to Polygon in your wallet." });
-        return;
-      }
-    }
-
-    if (insufficientBalance) {
-      setResult({ success: false, msg: `Insufficient USDC balance. You have $${usdcBal.toFixed(2)}. Deposit USDC.e on Polygon to trade.` });
-      return;
-    }
     setResult(null);
     // For BUY, amount is USDC to spend. For SELL, amount is shares to sell.
-    // Bet slip input is always in USDC so convert for SELL: shares = USDC / price.
     const orderAmount = side === "SELL" ? amountNum / selected.price : amountNum;
     const res = await placeOrder({
       tokenId: selected.tokenId,
@@ -191,9 +182,32 @@ export function BetSlip({ eventTitle, eventSlug, eventEndDate, marketId, marketQ
         side,
       });
       setAmount("");
+      setConfirmOpen(false);
     } else {
       setResult({ success: false, msg: res.error || "Order failed" });
+      setConfirmOpen(false);
     }
+  };
+
+  const handleTradeClick = async () => {
+    if (!selected || amountNum <= 0) return;
+    // Auto-switch to Polygon if needed — no separate button required.
+    if (!isOnPolygon) {
+      try {
+        await switchChain({ chainId: polygon.id });
+        setResult({ success: false, msg: "Switched to Polygon — tap Trade again." });
+        return;
+      } catch {
+        setResult({ success: false, msg: "Please switch to Polygon in your wallet." });
+        return;
+      }
+    }
+    if (insufficientBalance) {
+      setResult({ success: false, msg: `Insufficient USDC balance. You have $${usdcBal.toFixed(2)}.` });
+      return;
+    }
+    // Open confirm modal — actual placeOrder fires from its Confirm button.
+    setConfirmOpen(true);
   };
 
   if (!address) {
@@ -204,6 +218,13 @@ export function BetSlip({ eventTitle, eventSlug, eventEndDate, marketId, marketQ
       </div>
     );
   }
+
+  const slippageWarnMsg =
+    slippage && slippage.filled && slippage.warn
+      ? `Expected fill ~${formatOdds(slippage.avgFillPrice, format)} (${slippage.slippagePct.toFixed(1)}% from best). Thin liquidity on this market.`
+      : slippage && !slippage.filled && amountNum > 0
+        ? "Not enough liquidity on the order book to fill this size."
+        : null;
 
   return (
     <div className="space-y-3" onClick={(e) => e.stopPropagation()}>
@@ -245,7 +266,7 @@ export function BetSlip({ eventTitle, eventSlug, eventEndDate, marketId, marketQ
                 : "bg-[#0d1117] border-[#21262d] text-[#e6edf3] hover:border-[#30363d]"
             )}
           >
-            {abbrev(o.name)} {Math.round(o.price * 100)}¢
+            {abbrev(o.name)} {formatOdds(o.price, format)}
           </button>
         ))}
       </div>
@@ -260,6 +281,13 @@ export function BetSlip({ eventTitle, eventSlug, eventEndDate, marketId, marketQ
             placeholder="0"
             value={amount}
             onChange={(e) => { setAmount(e.target.value); setResult(null); }}
+            onKeyDown={(e) => {
+              // Enter submits — runs the same gate as clicking the trade button.
+              if (e.key === "Enter" && amountNum > 0 && !placing) {
+                if (!tradingEnabled && setupStatus !== "checking") setEnableOpen(true);
+                else handleTradeClick();
+              }
+            }}
             className="w-full bg-[#0d1117] border border-[#30363d] rounded-lg pl-7 pr-3 py-2.5 text-lg text-white placeholder-[#30363d] focus:border-[#58a6ff] outline-none tabular-nums font-semibold"
             min="0.1"
             step="0.01"
@@ -286,13 +314,43 @@ export function BetSlip({ eventTitle, eventSlug, eventEndDate, marketId, marketQ
         </button>
       </div>
 
-      {/* Balance + payout */}
-      <div className="flex justify-between text-xs text-[#768390] px-1">
-        <span>{t.betSlip.balanceLabel}: <span className="text-[#e6edf3] font-medium">${usdcBal.toFixed(2)} USDC</span></span>
+      {/* Balance + Shares + To win (Polymarket-style break-out) */}
+      <div className="space-y-1 px-1">
+        <div className="flex justify-between text-xs text-[#768390]">
+          <span>Balance</span>
+          <span className="text-[#e6edf3] font-medium tabular-nums">${usdcBal.toFixed(2)} USDC</span>
+        </div>
         {amountNum > 0 && selected && (
-          <span>{t.betSlip.payout}: <span className="text-[#3fb950] font-medium">${payout.toFixed(2)}</span></span>
+          <>
+            <div className="flex justify-between text-xs text-[#768390]">
+              <span>Shares</span>
+              <span className="text-[#e6edf3] font-medium tabular-nums">{shares.toFixed(2)}</span>
+            </div>
+            {side === "BUY" && (
+              <div className="flex justify-between text-xs text-[#768390]">
+                <span>To win</span>
+                <span className="text-[#3fb950] font-semibold tabular-nums">
+                  ${toWin.toFixed(2)}
+                  {amountNum > 0 && <span className="text-[10px] text-[#3fb950]/60 ml-1 font-normal">(+{((toWin / amountNum) * 100).toFixed(0)}%)</span>}
+                </span>
+              </div>
+            )}
+          </>
         )}
       </div>
+
+      {/* Toggle: Show order book depth */}
+      {selectedTokenId && (
+        <button
+          onClick={() => setShowBook((v) => !v)}
+          className="w-full text-left text-[10px] text-[#58a6ff] hover:text-[#79c0ff] transition-colors flex items-center gap-1 px-1"
+        >
+          {showBook ? "▾ Hide order book" : "▸ Show order book"}
+        </button>
+      )}
+      {showBook && selectedTokenId && (
+        <OrderBook tokenId={selectedTokenId} side={side} />
+      )}
 
       {/* Slippage warning */}
       {slippage && amountNum > 0 && !slippage.filled && (
@@ -302,8 +360,7 @@ export function BetSlip({ eventTitle, eventSlug, eventEndDate, marketId, marketQ
       )}
       {slippage && slippage.filled && slippage.warn && (
         <p className="text-[10px] text-[#d29922] bg-[#d29922]/10 px-2 py-1.5 rounded">
-          ⚠️ High slippage: expected fill ~{Math.round(slippage.avgFillPrice * 100)}¢
-          ({slippage.slippagePct.toFixed(1)}% away from best price). Thin liquidity on this market.
+          ⚠️ High slippage: expected fill ~{formatOdds(slippage.avgFillPrice, format)} ({slippage.slippagePct.toFixed(1)}% from best price). Thin liquidity on this market.
         </p>
       )}
 
@@ -318,15 +375,15 @@ export function BetSlip({ eventTitle, eventSlug, eventEndDate, marketId, marketQ
         </p>
       )}
 
-      {/* Trade button — opens Enable Trading modal instead of trading
-          if the user hasn't completed the one-time setup yet. */}
+      {/* Trade button — opens Enable Trading modal if needed, else the
+          confirm modal, which in turn fires placeOrder. */}
       <button
         onClick={() => {
           if (!tradingEnabled && setupStatus !== "checking") {
             setEnableOpen(true);
             return;
           }
-          handleTrade();
+          handleTradeClick();
         }}
         disabled={placing || amountNum <= 0}
         className={cn(
@@ -358,6 +415,18 @@ export function BetSlip({ eventTitle, eventSlug, eventEndDate, marketId, marketQ
         open={enableOpen}
         onOpenChange={setEnableOpen}
         onSuccess={refreshSetup}
+      />
+      <BetConfirmModal
+        open={confirmOpen}
+        onCancel={() => !placing && setConfirmOpen(false)}
+        onConfirm={placeTrade}
+        side={side}
+        outcomeName={selected?.name || ""}
+        shares={shares}
+        costUsd={amountNum}
+        avgPrice={effectivePrice}
+        slippageWarn={slippageWarnMsg}
+        placing={placing}
       />
 
       {/* Result / Error */}
