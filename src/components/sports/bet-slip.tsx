@@ -9,7 +9,6 @@ import { LoginButton } from "@/components/layout/login-modal";
 import { BridgeDepositModal } from "@/components/portfolio/bridge-deposit-modal";
 import { EnableTradingModal } from "@/components/sports/enable-trading-modal";
 import { TradeProgress } from "@/components/sports/trade-progress";
-import { OrderBook } from "@/components/sports/order-book";
 import { BetConfirmModal } from "@/components/sports/bet-confirm-modal";
 import { formatOdds } from "@/lib/odds-format";
 import { useOddsFormat } from "@/stores/use-odds-format";
@@ -88,7 +87,6 @@ export function BetSlip({ eventTitle: _eventTitle, eventSlug: _eventSlug, eventE
   const [depositOpen, setDepositOpen] = useState(false);
   const [enableOpen, setEnableOpen] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
-  const [showBook, setShowBook] = useState(false);
 
   // Sync selection with parent — card click on a different outcome should
   // flip the slip. Also resets on marketId change (a different row / market
@@ -338,19 +336,6 @@ export function BetSlip({ eventTitle: _eventTitle, eventSlug: _eventSlug, eventE
           </>
         )}
       </div>
-
-      {/* Toggle: Show order book depth */}
-      {selectedTokenId && (
-        <button
-          onClick={() => setShowBook((v) => !v)}
-          className="w-full text-left text-[10px] text-[#58a6ff] hover:text-[#79c0ff] transition-colors flex items-center gap-1 px-1"
-        >
-          {showBook ? "▾ Hide order book" : "▸ Show order book"}
-        </button>
-      )}
-      {showBook && selectedTokenId && (
-        <OrderBook tokenId={selectedTokenId} side={side} />
-      )}
 
       {/* Slippage warning */}
       {slippage && amountNum > 0 && !slippage.filled && (

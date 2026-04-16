@@ -6,6 +6,7 @@ import { useQuery } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 import { LoginButton } from "@/components/layout/login-modal";
 import { BetSlip } from "@/components/sports/bet-slip";
+import { OrderBook } from "@/components/sports/order-book";
 import { OddsFormatMenu } from "@/components/sports/odds-format-menu";
 import { formatOdds } from "@/lib/odds-format";
 import { useOddsFormat } from "@/stores/use-odds-format";
@@ -559,6 +560,43 @@ function LiveRadioPlayer({ teamA, teamB }: { teamA: string; teamB: string }) {
   );
 }
 
+/* Tabs that swap the CLOB order book and the multi-outcome price history
+   chart inside an expanded GameCard — matches Polymarket's in-card
+   Order Book / Graph switcher. Defaults to Order Book since that's the
+   live view most users want when they've just expanded a card. */
+function CardBookChartTabs({ tokenId, chartOutcomes }: { tokenId: string; chartOutcomes: ChartOutcome[] }) {
+  const [tab, setTab] = useState<"book" | "chart">("book");
+  return (
+    <div>
+      <div className="flex items-center gap-4 mb-2 border-b border-[#21262d]">
+        <button
+          onClick={() => setTab("book")}
+          className={cn(
+            "pb-1.5 text-xs font-semibold transition-colors border-b-2 -mb-[1px]",
+            tab === "book" ? "text-white border-[#58a6ff]" : "text-[#768390] border-transparent hover:text-[#e6edf3]"
+          )}
+        >
+          Order Book
+        </button>
+        <button
+          onClick={() => setTab("chart")}
+          className={cn(
+            "pb-1.5 text-xs font-semibold transition-colors border-b-2 -mb-[1px]",
+            tab === "chart" ? "text-white border-[#58a6ff]" : "text-[#768390] border-transparent hover:text-[#e6edf3]"
+          )}
+        >
+          Price History
+        </button>
+      </div>
+      {tab === "book" ? (
+        <OrderBook tokenId={tokenId} side="BUY" />
+      ) : (
+        <SportsMultiChart outcomes={chartOutcomes} />
+      )}
+    </div>
+  );
+}
+
 /* Column headers — subscribed to the odds-format store so they hide when
    spreads/totals are turned off. Rendered inside each card. */
 function GameCardHeaders() {
@@ -768,11 +806,14 @@ function GameCard({ event, index, sport, expanded, onToggle, onSelectBet }: { ev
             </div>
           )}
 
-          {chartOutcomes.length > 0 && (
-            <div>
-              <p className="text-[10px] text-[#484f58] uppercase tracking-wider mb-1">Price History</p>
-              <SportsMultiChart outcomes={chartOutcomes} />
-            </div>
+          {/* Order Book / Price History tabs — mirrors polymarket.com's
+              in-card switcher for the moneyline market. The orderbook is
+              for the first chart outcome's token (usually Team A). */}
+          {chartOutcomes.length > 0 && chartOutcomes[0]?.tokenId && (
+            <CardBookChartTabs
+              tokenId={chartOutcomes[0].tokenId}
+              chartOutcomes={chartOutcomes}
+            />
           )}
 
           <div className="grid grid-cols-3 gap-3 text-xs">
@@ -1335,11 +1376,19 @@ function SportsContent() {
  * inside the sheet so the body behind stays frozen.
  */
 function MobileBetSlipSheet({ selectedBet, onClose }: { selectedBet: SelectedBet | null; onClose: () => void }) {
+  // The sheet itself is hidden via `lg:hidden`, but selectedBet is shared
+  // between desktop (sidebar slip) and mobile (this sheet). Without gating
+  // on viewport the body-scroll-lock effect would also fire on desktop,
+  // freezing the page whenever a user clicked a market. matchMedia lets us
+  // attach the lock only while the sheet is actually visible.
   useEffect(() => {
     if (!selectedBet) return;
+    if (typeof window === "undefined") return;
+    const mq = window.matchMedia("(max-width: 1023px)"); // Tailwind lg breakpoint
+    if (!mq.matches) return; // desktop — the sticky sidebar handles this, don't lock
+
     const h = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
     window.addEventListener("keydown", h);
-    // Freeze body scroll while the sheet is open
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     return () => {
