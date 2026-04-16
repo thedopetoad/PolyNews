@@ -601,7 +601,7 @@ export default function PortfolioPage() {
                             const res = await placeOrder({
                               tokenId: pos.clobTokenId,
                               side: "SELL",
-                              amount: value,
+                              amount: pos.shares, // SELL amount = shares (not USDC)
                               price: livePrice,
                             });
                             console.log("[Close] Result:", JSON.stringify(res));
