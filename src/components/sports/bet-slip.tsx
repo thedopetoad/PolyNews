@@ -45,7 +45,7 @@ const QUICK_AMOUNTS = [1, 5, 10, 100];
 export function BetSlip({ eventTitle, eventSlug, eventEndDate, marketId, marketQuestion, outcomes, negRisk }: BetSlipProps) {
   const { address, isConnected } = useUser();
   const { placeOrder, placing, error: tradeError, canTrade, isOnPolygon } = usePolymarketTrade();
-  const { status: setupStatus, enableTrading, isReady: tradingEnabled, isApproving, error: setupError } = usePolymarketSetup();
+  const { status: setupStatus, isReady: tradingEnabled, refresh: refreshSetup } = usePolymarketSetup();
   const { switchChain } = useSwitchChain();
 
   // Funds live in the Polymarket proxy wallet (derived from the EOA), not
@@ -334,7 +334,11 @@ export function BetSlip({ eventTitle, eventSlug, eventEndDate, marketId, marketQ
                   ? `Buy $${amountNum.toFixed(2)} ${selected?.name || ""}`
                   : `Sell $${amountNum.toFixed(2)} ${selected?.name || ""}`}
       </button>
-      <EnableTradingModal open={enableOpen} onOpenChange={setEnableOpen} />
+      <EnableTradingModal
+        open={enableOpen}
+        onOpenChange={setEnableOpen}
+        onSuccess={refreshSetup}
+      />
 
       {/* Result / Error */}
       {result && (

@@ -7,6 +7,12 @@ import { usePolymarketSetup } from "@/hooks/use-polymarket-setup";
 interface EnableTradingModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /**
+   * Called after enableTrading() confirms onchain success + verifies approvals.
+   * Parent should use this to re-check its own setup state so the UI reflects
+   * the newly-enabled trading state without a full page reload.
+   */
+  onSuccess?: () => void;
 }
 
 /**
@@ -24,7 +30,7 @@ interface EnableTradingModalProps {
  * We bundle all 7 approvals into one relayer call, so in practice the
  * user only signs once.
  */
-export function EnableTradingModal({ open, onOpenChange }: EnableTradingModalProps) {
+export function EnableTradingModal({ open, onOpenChange, onSuccess }: EnableTradingModalProps) {
   const { enableTrading, isApproving, error, status, proxyDeployed, usdcApproved, tokensApproved } = usePolymarketSetup();
   const [dismissed, setDismissed] = useState(false);
 
@@ -33,6 +39,8 @@ export function EnableTradingModal({ open, onOpenChange }: EnableTradingModalPro
   const handleEnable = async () => {
     const ok = await enableTrading();
     if (ok) {
+      // Notify parent so sibling hooks (e.g. bet-slip) re-check setup state
+      onSuccess?.();
       // Close modal a beat after success so the user sees the checkmark
       setTimeout(() => onOpenChange(false), 800);
     }
@@ -100,7 +108,13 @@ export function EnableTradingModal({ open, onOpenChange }: EnableTradingModalPro
 
         {status === "ready" ? (
           <button
-            onClick={() => onOpenChange(false)}
+            onClick={() => {
+              // Fire onSuccess when the modal was ALREADY in ready state
+              // (e.g. user opens it on a wallet that's already set up and
+              // just clicks continue). Harmless if called twice.
+              onSuccess?.();
+              onOpenChange(false);
+            }}
             className="w-full py-3 rounded-lg text-sm font-bold bg-[#238636] text-white hover:bg-[#2ea043] transition-colors"
           >
             ✓ Trading enabled — continue

@@ -52,6 +52,10 @@ export function usePolymarketSetup() {
   const [proxyDeployed, setProxyDeployed] = useState(false);
   const [usdcApproved, setUsdcApproved] = useState(false);
   const [tokensApproved, setTokensApproved] = useState(false);
+  // Bumped to force a re-check after enableTrading (both this hook's own
+  // instance and any sibling instances that call refresh()).
+  const [refreshKey, setRefreshKey] = useState(0);
+  const refresh = useCallback(() => setRefreshKey((k) => k + 1), []);
 
   const proxyAddress = address ? deriveProxyAddress(address) : undefined;
 
@@ -86,7 +90,7 @@ export function usePolymarketSetup() {
     });
 
     return () => { cancelled = true; };
-  }, [proxyAddress, publicClient]);
+  }, [proxyAddress, publicClient, refreshKey]);
 
   // Enable trading: send all 7 approvals via the relayer in one batch
   const enableTrading = useCallback(async () => {
@@ -126,7 +130,6 @@ export function usePolymarketSetup() {
         return false;
       }
 
-      const proxyAddr = deriveProxyAddress(address);
       const txns = buildApprovalTransactions();
 
       // Create relay client — signs via browser wallet, builder auth via remote signer.
@@ -140,12 +143,61 @@ export function usePolymarketSetup() {
         RelayerTxType.PROXY,
       );
 
+      // CRITICAL GAS FIX: The relay hub checks `require(gasleft() > signedGasLimit)`.
+      // The SDK's DEFAULT_GAS_LIMIT = 10_000_000 is too high — the relay hub reverts
+      // with "Not enough gasleft()". Must be LESS than actual tx gas limit.
+      //
+      // For Magic login users there's a second reason to patch: Magic's internal
+      // RPC provider proxies eth_estimateGas through drpc.org, which their own
+      // iframe CSP blocks. The SDK swallows that error and falls back to the 10M
+      // default — which then reverts onchain. Patching to a fixed 5M avoids both.
+      //
+      // 5M covers the 7-approval batched multisend (each ~50-80K + multisend
+      // overhead). Same technique as withdraw-modal.tsx.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const internalSigner = (relayClient as any).signer;
+      if (internalSigner) {
+        internalSigner.estimateGas = async () => BigInt(5_000_000);
+        if (internalSigner.publicClient) {
+          internalSigner.publicClient.estimateGas = async () => BigInt(5_000_000);
+        }
+      }
+
       // Execute all 7 approvals as one relayed batch (1 wallet popup)
       const response = await relayClient.execute(txns);
 
-      // Poll until the relayer confirms the tx is mined
+      // Poll until the relayer confirms the tx is mined.
+      // pollUntilState returns undefined when it hits STATE_FAILED — we MUST
+      // check this, otherwise we treat a failed onchain txn as success.
       if (response?.wait) {
-        await response.wait();
+        const result = await response.wait();
+        if (!result) {
+          const txHash = (response as unknown as { transactionHash?: string }).transactionHash;
+          setError(
+            txHash
+              ? `Transaction reverted onchain (${txHash.slice(0, 10)}…). Try again — if it keeps failing, check Polygonscan for the revert reason.`
+              : "Transaction reverted onchain. Please try again.",
+          );
+          setStatus("not_ready");
+          return false;
+        }
+      }
+
+      // Re-verify approvals onchain — the relayer may report success while some
+      // approvals silently didn't go through. Only mark ready if real state confirms.
+      if (publicClient) {
+        const verifyProxy = deriveProxyAddress(address);
+        const verify = await checkApprovals(publicClient, verifyProxy);
+        setUsdcApproved(verify.usdcApproved);
+        setTokensApproved(verify.tokensApproved);
+        const code = await publicClient.getCode({ address: verifyProxy });
+        const deployed = !!code && code !== "0x";
+        setProxyDeployed(deployed);
+        if (!verify.allApproved || !deployed) {
+          setError("Approvals did not complete. Please try again.");
+          setStatus("not_ready");
+          return false;
+        }
       }
 
       setStatus("ready");
@@ -157,13 +209,14 @@ export function usePolymarketSetup() {
       setStatus("not_ready");
       return false;
     }
-  }, [address, walletClient, wagmiConfig]);
+  }, [address, walletClient, wagmiConfig, googleAddress, publicClient]);
 
   return {
     status,
     error,
     proxyAddress,
     enableTrading,
+    refresh,
     isReady: status === "ready",
     isApproving: status === "approving",
     proxyDeployed,
