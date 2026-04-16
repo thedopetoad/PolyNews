@@ -156,27 +156,53 @@ export default function PortfolioPage() {
     refetchInterval: 30_000,
   });
 
+  // Positions whose close has already settled onchain. Polymarket's /positions
+  // data-api is eventually-consistent (10-30s lag after onchain settlement),
+  // so we hide these locally until the API catches up. Cleared once the API
+  // stops returning the position (i.e. the hide is no longer needed).
+  const [closedLocally, setClosedLocally] = useState<Set<string>>(new Set());
+
   // Real positions — Polymarket data API only, no DB fallback
-  const realPositions = (polyPositions || []).map((p) => ({
-    id: p.asset || p.conditionId,
-    userId: address || "",
-    marketId: p.conditionId,
-    marketQuestion: p.title || p.market?.question || "",
-    outcome: p.outcome || "Yes",
-    shares: p.size,
-    avgPrice: p.avgPrice,
-    clobTokenId: p.asset || null,
-    marketEndDate: null,
-    eventSlug: p.market?.slug || null,
-    tradeType: "real" as const,
-    clobOrderId: null,
-    createdAt: "",
-    updatedAt: "",
-    _curPrice: p.curPrice,
-    _cashPnl: p.cashPnl,
-    _percentPnl: p.percentPnl,
-    _currentValue: p.currentValue,
-  }));
+  const realPositions = (polyPositions || [])
+    // Hide positions we know we already closed but /positions hasn't caught up
+    .filter((p) => !closedLocally.has(p.asset || p.conditionId))
+    .map((p) => ({
+      id: p.asset || p.conditionId,
+      userId: address || "",
+      marketId: p.conditionId,
+      marketQuestion: p.title || p.market?.question || "",
+      outcome: p.outcome || "Yes",
+      shares: p.size,
+      avgPrice: p.avgPrice,
+      clobTokenId: p.asset || null,
+      marketEndDate: null,
+      eventSlug: p.market?.slug || null,
+      tradeType: "real" as const,
+      clobOrderId: null,
+      createdAt: "",
+      updatedAt: "",
+      _curPrice: p.curPrice,
+      _cashPnl: p.cashPnl,
+      _percentPnl: p.percentPnl,
+      _currentValue: p.currentValue,
+    }));
+
+  // Once the /positions API catches up and stops returning a locally-closed
+  // position, drop it from closedLocally so the filter doesn't grow forever.
+  useEffect(() => {
+    if (closedLocally.size === 0) return;
+    const stillReturned = new Set(
+      (polyPositions || []).map((p) => p.asset || p.conditionId),
+    );
+    const gone = [...closedLocally].filter((id) => !stillReturned.has(id));
+    if (gone.length > 0) {
+      setClosedLocally((prev) => {
+        const next = new Set(prev);
+        for (const id of gone) next.delete(id);
+        return next;
+      });
+    }
+  }, [polyPositions, closedLocally]);
 
   // Paper portfolio value
   const paperBalance = user?.balance || 0;
@@ -555,9 +581,13 @@ export default function PortfolioPage() {
                 const isExpanded = expandedPos === pos.id;
                 const isClosing = closingPos === pos.id;
                 const result = closeResult?.id === pos.id ? closeResult : null;
+                // Close has been submitted and (usually) matched by the CLOB,
+                // but settlement is still in-flight. Dim the row so the user
+                // knows it's on its way out and doesn't try to close it again.
+                const settling = !!(result?.ok && result.txHashes && result.txHashes.length > 0);
 
                 return (
-                  <div key={pos.id}>
+                  <div key={pos.id} className={cn(settling && "opacity-60")}>
                     <div
                       className={cn("grid grid-cols-12 gap-2 px-4 py-3 items-center hover:bg-[#1c2128]/50 transition-colors cursor-pointer", isExpanded && "bg-[#1c2128]/30")}
                       onClick={() => setExpandedPos(isExpanded ? null : pos.id)}
@@ -589,7 +619,7 @@ export default function PortfolioPage() {
                       </div>
                       <div className="col-span-2 text-right" onClick={(e) => e.stopPropagation()}>
                         <button
-                          disabled={isClosing}
+                          disabled={isClosing || settling}
                           onClick={async () => {
                             if (!pos.clobTokenId) {
                               console.error("[Close] No tokenId for position", pos.id);
@@ -626,28 +656,15 @@ export default function PortfolioPage() {
                           }}
                           className={cn(
                             "px-3 py-1 rounded text-[11px] font-semibold transition-colors",
-                            isClosing
+                            isClosing || settling
                               ? "bg-[#21262d] text-[#484f58] cursor-wait"
                               : "bg-[#f85149]/15 text-[#f85149] hover:bg-[#f85149]/25"
                           )}
                         >
-                          {isClosing ? "Closing..." : "Close"}
+                          {isClosing ? "Closing..." : settling ? "Settling..." : "Close"}
                         </button>
                       </div>
                     </div>
-                    {/* Close result shown even when collapsed */}
-                    {result && !isExpanded && (
-                      <div className="px-4 py-2 bg-[#0d1117] border-t border-[#21262d] space-y-2">
-                        <p className={cn("text-xs font-medium", result.ok ? "text-[#3fb950]" : "text-[#f85149]")}>{result.msg}</p>
-                        {result.ok && result.txHashes && result.txHashes.length > 0 && (
-                          <TradeProgress
-                            txHashes={result.txHashes}
-                            label="Settling your close…"
-                            onConfirmed={() => queryClient.invalidateQueries({ queryKey: ["polymarket-positions"] })}
-                          />
-                        )}
-                      </div>
-                    )}
                     {/* Expanded details */}
                     {isExpanded && (
                       <div className="px-4 py-3 bg-[#0d1117] border-t border-[#21262d] space-y-2">
@@ -663,8 +680,30 @@ export default function PortfolioPage() {
                             View on Polymarket →
                           </a>
                         )}
-                        {result && (
-                          <p className={cn("text-xs font-medium", result.ok ? "text-[#3fb950]" : "text-[#f85149]")}>{result.msg}</p>
+                      </div>
+                    )}
+                    {/* Close result — shown in both collapsed and expanded states */}
+                    {result && (
+                      <div className="px-4 py-2 bg-[#0d1117] border-t border-[#21262d] space-y-2">
+                        <p className={cn("text-xs font-medium", result.ok ? "text-[#3fb950]" : "text-[#f85149]")}>{result.msg}</p>
+                        {result.ok && result.txHashes && result.txHashes.length > 0 && (
+                          <TradeProgress
+                            txHashes={result.txHashes}
+                            label="Settling your close…"
+                            onConfirmed={() => {
+                              // Onchain settled — hide the row immediately and
+                              // kick off refetches until /positions catches up.
+                              setClosedLocally((prev) => new Set(prev).add(pos.id));
+                              // Polymarket's /positions data-api lags onchain
+                              // state by 10-30s. Retry at 2s, 5s, 10s, 20s.
+                              [2000, 5000, 10000, 20000].forEach((delay) =>
+                                setTimeout(() => {
+                                  queryClient.invalidateQueries({ queryKey: ["polymarket-positions"] });
+                                  queryClient.invalidateQueries({ queryKey: ["polymarket-activity"] });
+                                }, delay),
+                              );
+                            }}
+                          />
                         )}
                       </div>
                     )}
