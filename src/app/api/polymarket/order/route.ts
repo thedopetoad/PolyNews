@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { BuilderSigner } from "@polymarket/builder-signing-sdk";
 
-// Run this route in a non-US region to bypass Polymarket's geoblock.
-// The CLOB rejects ALL requests from US IPs — no builder bypass exists.
-// Frankfurt (fra1) is reliable and low-latency to Polymarket's infra.
-export const preferredRegion = "fra1";
+// Run in a non-blocked region. Polymarket geoblocks US, UK, DE, FR, IT,
+// NL, BE, AU, SG + many others. Japan is NOT blocked and Vercel has a
+// Tokyo region (hnd1) with good connectivity.
+export const preferredRegion = "hnd1";
 
 const CLOB_HOST = "https://clob.polymarket.com";
 
