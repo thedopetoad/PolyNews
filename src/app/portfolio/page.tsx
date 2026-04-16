@@ -15,6 +15,7 @@ import Link from "next/link";
 import { BridgeDepositModal } from "@/components/portfolio/bridge-deposit-modal";
 import { WithdrawModal } from "@/components/portfolio/withdraw-modal";
 import { TradeProgress } from "@/components/sports/trade-progress";
+import { SellPositionModal } from "@/components/portfolio/sell-position-modal";
 import { loadPendingPositions, removePendingPosition, type PendingPosition } from "@/lib/pending-positions";
 import { PendingBridgeIndicator } from "@/components/portfolio/pending-bridge-indicator";
 import { DidYouSendModal } from "@/components/portfolio/did-you-send-modal";
@@ -317,8 +318,74 @@ export default function PortfolioPage() {
   const [expandedPos, setExpandedPos] = useState<string | null>(null);
   const [closingPos, setClosingPos] = useState<string | null>(null);
   const [closeResult, setCloseResult] = useState<{ id: string; msg: string; ok: boolean; txHashes?: string[] } | null>(null);
-  const { placeOrder } = usePolymarketTrade();
+  // Position currently being sold through the slider modal. null = modal closed.
+  const [sellingPos, setSellingPos] = useState<{
+    id: string;
+    tokenId: string;
+    marketQuestion: string;
+    outcome: string;
+    shares: number;
+    avgPrice: number;
+    currentPrice: number;
+  } | null>(null);
+  const { placeOrder, placing: placingOrder } = usePolymarketTrade();
   const queryClient = useQueryClient();
+
+  /**
+   * Execute a SELL for a subset of a position's shares. Shared between the
+   * SellPositionModal's cash-out button and any future inline close paths.
+   * Handles: wire-up of TradeProgress, closedLocally optimistic-hide,
+   * "already closed" detection, and refetches.
+   */
+  const executeSell = async (p: {
+    posId: string;
+    tokenId: string;
+    shares: number; // amount of shares to sell (can be partial)
+    totalShares: number; // total shares in the position, for "full close" detection
+    marketQuestion: string;
+    price: number;
+  }) => {
+    setClosingPos(p.posId);
+    setCloseResult(null);
+    const res = await placeOrder({
+      tokenId: p.tokenId,
+      side: "SELL",
+      amount: p.shares,
+      price: p.price,
+    });
+    if (res.success) {
+      const isFullClose = p.shares >= p.totalShares - 0.01;
+      setCloseResult({
+        id: p.posId,
+        msg: isFullClose ? `Sold ${p.shares.toFixed(2)} shares` : `Sold ${p.shares.toFixed(2)} of ${p.totalShares.toFixed(2)} shares`,
+        ok: true,
+        txHashes: res.transactionHashes,
+      });
+      if (!res.transactionHashes || res.transactionHashes.length === 0) {
+        setTimeout(() => queryClient.invalidateQueries({ queryKey: ["polymarket-positions"] }), 3000);
+      }
+    } else {
+      const errText = (res.error || "").toLowerCase();
+      const isAlreadyClosed =
+        errText.includes("not enough shares") ||
+        errText.includes("may have already been closed") ||
+        errText.includes("not enough balance");
+      if (isAlreadyClosed) {
+        addClosedLocal(p.posId);
+        [500, 2000, 5000, 10000].forEach((d) =>
+          setTimeout(() => {
+            queryClient.invalidateQueries({ queryKey: ["polymarket-positions"] });
+            queryClient.invalidateQueries({ queryKey: ["polymarket-activity"] });
+          }, d),
+        );
+        setCloseResult({ id: p.posId, msg: "Already closed — refreshing…", ok: true });
+      } else {
+        setCloseResult({ id: p.posId, msg: res.error || "Sell failed", ok: false });
+      }
+    }
+    setClosingPos(null);
+    setSellingPos(null); // close modal either way
+  };
   // Mode: "real" shows USDC.e positions, "paper" shows AIRDROP positions
   const [portfolioMode, setPortfolioMode] = useState<"real" | "paper">("real");
 
@@ -655,11 +722,11 @@ export default function PortfolioPage() {
       {tab === "positions" && portfolioMode === "real" && (
         <div className="rounded-lg border border-[#21262d] bg-[#161b22] overflow-hidden">
           <div className="grid grid-cols-12 gap-2 px-4 py-2.5 text-[10px] text-[#484f58] uppercase tracking-wider border-b border-[#21262d]">
-            <div className="col-span-3">{t.portfolio.market}</div>
+            <div className="col-span-4">{t.portfolio.market}</div>
             <div className="col-span-2 text-right">Avg → Now</div>
-            <div className="col-span-2 text-right">{t.portfolio.shares}</div>
-            <div className="col-span-2 text-right">P&L</div>
-            <div className="col-span-1 text-right">Value</div>
+            <div className="col-span-1 text-right">Traded</div>
+            <div className="col-span-1 text-right">To Win</div>
+            <div className="col-span-2 text-right">Value</div>
             <div className="col-span-2 text-right">Action</div>
           </div>
 
@@ -700,10 +767,22 @@ export default function PortfolioPage() {
                       className={cn("grid grid-cols-12 gap-2 px-4 py-3 items-center hover:bg-[#1c2128]/50 transition-colors cursor-pointer", isExpanded && "bg-[#1c2128]/30")}
                       onClick={() => setExpandedPos(isExpanded ? null : pos.id)}
                     >
-                      <div className="col-span-3">
+                      {/* Market + outcome pill + shares label (Polymarket layout) */}
+                      <div className="col-span-4 min-w-0">
                         <p className="text-[13px] text-[#e6edf3] font-medium leading-snug line-clamp-1">{pos.marketQuestion}</p>
-                        <p className="text-[10px] text-[#484f58] mt-0.5">{pos.outcome}</p>
+                        <div className="mt-1 flex items-center gap-2 flex-wrap">
+                          <span className={cn(
+                            "text-[10px] font-bold px-1.5 py-0.5 rounded",
+                            pos.outcome === "Yes" ? "bg-[#3fb950]/15 text-[#3fb950]" :
+                            pos.outcome === "No"  ? "bg-[#f85149]/15 text-[#f85149]" :
+                                                     "bg-[#58a6ff]/15 text-[#58a6ff]"
+                          )}>
+                            {pos.outcome} {Math.round(pos.avgPrice * 100)}¢
+                          </span>
+                          <span className="text-[10px] text-[#484f58] tabular-nums">{pos.shares.toFixed(1)} shares</span>
+                        </div>
                       </div>
+                      {/* AVG → NOW */}
                       <div className="col-span-2 text-right">
                         <span className="text-xs text-[#768390] tabular-nums">{Math.round(pos.avgPrice * 100)}¢</span>
                         <span className="text-[10px] text-[#484f58] mx-0.5">→</span>
@@ -711,91 +790,49 @@ export default function PortfolioPage() {
                           {Math.round(livePrice * 100)}¢
                         </span>
                       </div>
-                      <div className="col-span-2 text-right">
-                        <span className="text-xs text-[#e6edf3] tabular-nums font-medium">{pos.shares.toFixed(1)}</span>
-                      </div>
-                      <div className="col-span-2 text-right">
-                        <span className={cn("text-xs font-medium tabular-nums", pnl >= 0 ? "text-[#3fb950]" : "text-[#f85149]")}>
-                          {pnl >= 0 ? "+" : ""}{formatUsd(pnl)}
-                        </span>
-                        <span className={cn("text-[10px] ml-1 tabular-nums", pnl >= 0 ? "text-[#3fb950]/60" : "text-[#f85149]/60")}>
-                          ({pnlPct >= 0 ? "+" : ""}{pnlPct.toFixed(0)}%)
-                        </span>
-                      </div>
+                      {/* TRADED = cost basis (shares × avgPrice) */}
                       <div className="col-span-1 text-right">
-                        <span className="text-xs text-[#e6edf3] tabular-nums font-medium">{formatUsd(value)}</span>
+                        <span className="text-xs text-[#e6edf3] tabular-nums font-medium">{formatUsd(pos.shares * pos.avgPrice)}</span>
                       </div>
+                      {/* TO WIN = total payout if YES resolves (each share = $1) */}
+                      <div className="col-span-1 text-right">
+                        <span className="text-xs text-[#3fb950] tabular-nums font-medium">{formatUsd(pos.shares)}</span>
+                      </div>
+                      {/* VALUE = current mark, with P&L and % underneath */}
+                      <div className="col-span-2 text-right">
+                        <span className="text-xs text-[#e6edf3] tabular-nums font-semibold">{formatUsd(value)}</span>
+                        <div className={cn("text-[10px] tabular-nums leading-tight", pnl >= 0 ? "text-[#3fb950]" : "text-[#f85149]")}>
+                          {pnl >= 0 ? "+" : ""}{formatUsd(pnl)} <span className="opacity-60">({pnlPct >= 0 ? "+" : ""}{pnlPct.toFixed(2)}%)</span>
+                        </div>
+                      </div>
+                      {/* ACTION = Sell button that opens the Polymarket-style modal */}
                       <div className="col-span-2 text-right" onClick={(e) => e.stopPropagation()}>
                         <button
                           disabled={isClosing || settling}
-                          onClick={async () => {
+                          onClick={() => {
                             if (!pos.clobTokenId) {
-                              console.error("[Close] No tokenId for position", pos.id);
-                              setCloseResult({ id: pos.id, msg: "No token ID — can't close", ok: false });
+                              console.error("[Sell] No tokenId for position", pos.id);
+                              setCloseResult({ id: pos.id, msg: "No token ID — can't sell", ok: false });
                               return;
                             }
-                            console.log("[Close] Selling", pos.shares, "shares of", pos.marketQuestion, "tokenId:", pos.clobTokenId, "price:", livePrice);
-                            setClosingPos(pos.id);
-                            setCloseResult(null);
-                            const res = await placeOrder({
+                            setSellingPos({
+                              id: pos.id,
                               tokenId: pos.clobTokenId,
-                              side: "SELL",
-                              amount: pos.shares, // SELL amount = shares (not USDC)
-                              price: livePrice,
+                              marketQuestion: pos.marketQuestion,
+                              outcome: pos.outcome,
+                              shares: pos.shares,
+                              avgPrice: pos.avgPrice,
+                              currentPrice: livePrice,
                             });
-                            console.log("[Close] Result:", JSON.stringify(res));
-                            if (res.success) {
-                              setCloseResult({
-                                id: pos.id,
-                                msg: `Sold ${pos.shares.toFixed(2)} shares`,
-                                ok: true,
-                                txHashes: res.transactionHashes,
-                              });
-                              // Without txHashes, invalidate on a timer. With
-                              // them, the TradeProgress onConfirmed callback
-                              // handles it at the right moment.
-                              if (!res.transactionHashes || res.transactionHashes.length === 0) {
-                                setTimeout(() => queryClient.invalidateQueries({ queryKey: ["polymarket-positions"] }), 3000);
-                              }
-                            } else {
-                              // Special case: "not enough shares" on a SELL
-                              // almost always means the position was already
-                              // closed onchain (maybe a previous attempt went
-                              // through but we lost visibility). Don't show
-                              // this as a generic error — hide the phantom
-                              // row and refetch so the user sees reality.
-                              const errText = (res.error || "").toLowerCase();
-                              const isAlreadyClosed =
-                                errText.includes("not enough shares") ||
-                                errText.includes("may have already been closed") ||
-                                errText.includes("not enough balance");
-                              if (isAlreadyClosed) {
-                                addClosedLocal(pos.id);
-                                [500, 2000, 5000, 10000].forEach((d) =>
-                                  setTimeout(() => {
-                                    queryClient.invalidateQueries({ queryKey: ["polymarket-positions"] });
-                                    queryClient.invalidateQueries({ queryKey: ["polymarket-activity"] });
-                                  }, d),
-                                );
-                                setCloseResult({
-                                  id: pos.id,
-                                  msg: "Already closed — refreshing…",
-                                  ok: true,
-                                });
-                              } else {
-                                setCloseResult({ id: pos.id, msg: res.error || "Close failed", ok: false });
-                              }
-                            }
-                            setClosingPos(null);
                           }}
                           className={cn(
-                            "px-3 py-1 rounded text-[11px] font-semibold transition-colors",
+                            "px-4 py-1.5 rounded text-xs font-semibold transition-colors",
                             isClosing || settling
                               ? "bg-[#21262d] text-[#484f58] cursor-wait"
-                              : "bg-[#f85149]/15 text-[#f85149] hover:bg-[#f85149]/25"
+                              : "bg-[#58a6ff] text-white hover:bg-[#4d8fea]"
                           )}
                         >
-                          {isClosing ? "Closing..." : settling ? "Settling..." : "Close"}
+                          {isClosing ? "Selling…" : settling ? "Settling…" : "Sell"}
                         </button>
                       </div>
                     </div>
@@ -847,6 +884,31 @@ export default function PortfolioPage() {
             </div>
           )}
         </div>
+      )}
+
+      {/* Sell slider modal — opened by Sell buttons on real position rows.
+          Shares all the closedLocally / TradeProgress plumbing via executeSell. */}
+      {sellingPos && (
+        <SellPositionModal
+          open={!!sellingPos}
+          onClose={() => { if (!placingOrder) setSellingPos(null); }}
+          outcomeName={sellingPos.outcome}
+          marketTitle={sellingPos.marketQuestion}
+          shares={sellingPos.shares}
+          avgPrice={sellingPos.avgPrice}
+          currentPrice={sellingPos.currentPrice}
+          placing={placingOrder || closingPos === sellingPos.id}
+          onCashOut={(sharesToSell) =>
+            executeSell({
+              posId: sellingPos.id,
+              tokenId: sellingPos.tokenId,
+              shares: sharesToSell,
+              totalShares: sellingPos.shares,
+              marketQuestion: sellingPos.marketQuestion,
+              price: sellingPos.currentPrice,
+            })
+          }
+        />
       )}
 
       {tab === "positions" && portfolioMode === "paper" && (
