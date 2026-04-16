@@ -194,8 +194,19 @@ export function usePolymarketTrade() {
       // 1. createOrder() signs via wallet popup (client-side, no HTTP)
       // 2. POST the signed order to our /api/polymarket/order proxy
       // 3. Our server forwards to clob.polymarket.com (no CORS issue)
-      const price = params.price ?? 0.5;
-      const size = params.amount / price;
+      //
+      // Aggressive pricing strategy (FOK-style taker orders):
+      // - BUY at 0.99 = "buy at any ask up to 99¢" → matches best ask, no minimum
+      // - SELL at 0.01 = "sell at any bid down to 1¢" → matches best bid, no minimum
+      // CLOB fills at the actual matched price, not the limit price.
+      // Taker orders bypass the per-market min_order_size (5-15 shares)
+      // that only applies to maker (book-sitting) orders.
+      const displayPrice = params.price ?? 0.5;
+      const aggressivePrice = params.side === "BUY" ? 0.99 : 0.01;
+      // Size: for BUY, shares = amount/displayPrice (what we expect to get).
+      // For SELL, amount is the USDC value so shares = amount/displayPrice too.
+      const size = params.amount / displayPrice;
+      const price = aggressivePrice;
 
       const signedOrder = await authedClient.createOrder(
         {
@@ -233,7 +244,7 @@ export function usePolymarketTrade() {
           signature: signedOrder.signature,
         },
         owner: creds.key,
-        orderType: "GTC",
+        orderType: "FOK", // Fill-Or-Kill — taker order, bypasses min size
       };
 
       // POST via our server proxy to bypass CORS.
