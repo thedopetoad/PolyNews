@@ -24,33 +24,48 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Missing signedOrder" }, { status: 400 });
     }
 
-    // Build builder HMAC headers for attribution
+    // Build builder HMAC headers — required for geoblock bypass
     const key = process.env.POLYMARKET_BUILDER_API_KEY;
     const secret = process.env.POLYMARKET_BUILDER_SECRET;
     const passphrase = process.env.POLYMARKET_BUILDER_PASSPHRASE;
+
+    console.log("[Order Proxy] Builder creds present:", {
+      key: !!key,
+      secret: !!secret,
+      passphrase: !!passphrase,
+    });
+
+    if (!key || !secret || !passphrase) {
+      return NextResponse.json(
+        { error: "Builder credentials not configured on server. Set POLYMARKET_BUILDER_API_KEY, POLYMARKET_BUILDER_SECRET, POLYMARKET_BUILDER_PASSPHRASE in Vercel env vars." },
+        { status: 500 }
+      );
+    }
+
+    const orderPayload = JSON.stringify({ order: signedOrder, orderType, ...options });
+
+    const signer = new BuilderSigner({ key, secret, passphrase });
+    const builderHeaders = signer.createBuilderHeaderPayload("POST", "/order", orderPayload);
 
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
       Accept: "application/json",
     };
 
-    if (key && secret && passphrase) {
-      const signer = new BuilderSigner({ key, secret, passphrase });
-      const orderBody = JSON.stringify({ order: signedOrder, orderType, ...options });
-      const builderHeaders = signer.createBuilderHeaderPayload("POST", "/order", orderBody);
-      // Spread builder headers
-      if (builderHeaders) {
-        for (const [k, v] of Object.entries(builderHeaders)) {
-          if (typeof v === "string") headers[k] = v;
-        }
+    // Add all builder headers (POLY_BUILDER_*)
+    if (builderHeaders) {
+      for (const [k, v] of Object.entries(builderHeaders)) {
+        if (typeof v === "string") headers[k] = v;
       }
     }
+
+    console.log("[Order Proxy] Sending to CLOB with headers:", Object.keys(headers));
 
     // Forward to CLOB
     const clobRes = await fetch(`${CLOB_HOST}/order`, {
       method: "POST",
       headers,
-      body: JSON.stringify({ order: signedOrder, orderType, ...options }),
+      body: orderPayload,
     });
 
     const data = await clobRes.json();
