@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { useUser } from "@/hooks/use-user";
+import { usePositionLivePrices } from "@/hooks/use-live-prices";
 import { useBalance } from "wagmi";
 import { useAuthStore } from "@/stores/use-auth-store";
 import { LoginButton } from "@/components/layout/login-modal";
@@ -96,6 +97,28 @@ export default function PortfolioPage() {
 
   // Tab state
   const [tab, setTab] = useState<"positions" | "history">("positions");
+  // Mode: "real" shows USDC.e positions, "paper" shows AIRDROP positions
+  const [portfolioMode, setPortfolioMode] = useState<"real" | "paper">("real");
+
+  // Live prices for paper positions so we can show real-time P&L
+  const priceTargets = useMemo(() =>
+    paperPositions
+      .filter((p) => p.clobTokenId)
+      .map((p) => ({ id: p.marketId, tokenId: p.clobTokenId!, fallbackYes: p.avgPrice, fallbackNo: 1 - p.avgPrice })),
+    [paperPositions]
+  );
+  const { prices: livePrices } = usePositionLivePrices(priceTargets);
+
+  // Paper P&L (sum of unrealized gains from live price vs avg buy)
+  const paperPnl = useMemo(() => {
+    let total = 0;
+    for (const pos of paperPositions) {
+      const live = livePrices[pos.marketId];
+      const livePrice = live ? (pos.outcome === "Yes" ? live.yesPrice : live.noPrice) : pos.avgPrice;
+      total += (livePrice - pos.avgPrice) * pos.shares;
+    }
+    return total;
+  }, [paperPositions, livePrices]);
 
   // Deposit + Withdraw modals
   const [depositOpen, setDepositOpen] = useState(false);
@@ -146,19 +169,27 @@ export default function PortfolioPage() {
         </div>
       </div>
 
-      {/* Balance Cards */}
+      {/* Balance Cards — click to toggle between Real and Paper views.
+          Active card pulses with a glow to show the link to positions below. */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-        {/* Polymarket-backed balance — funds land in the user's Polymarket
-         * proxy wallet via bridge.polymarket.com. Withdrawals happen on
-         * polymarket.com itself (we're a terminal, not custodial). */}
-        <div className="rounded-xl border border-[#21262d] bg-[#161b22] p-5">
+        {/* USDC.e / Real Trading card */}
+        <button
+          type="button"
+          onClick={() => setPortfolioMode("real")}
+          className={cn(
+            "rounded-xl border bg-[#161b22] p-5 text-left transition-all",
+            portfolioMode === "real"
+              ? "border-[#58a6ff]/40 animate-pulse-glow-blue"
+              : "border-[#21262d] hover:border-[#30363d] cursor-pointer"
+          )}
+        >
           <div className="flex items-center justify-between mb-1">
             <p className="text-[10px] text-[#484f58] uppercase tracking-wider">{t.portfolio.availableToTrade}</p>
             <span className="text-[10px] text-[#3fb950] bg-[#3fb950]/10 px-1.5 py-0.5 rounded font-medium">USDC.e</span>
           </div>
           <p className="text-3xl font-bold text-white tabular-nums">{formatUsd(usdcBal)}</p>
           <p className="text-xs text-[#484f58] mt-1">Held on Polymarket · Polygon</p>
-          <div className="flex gap-2 mt-3">
+          <div className="flex gap-2 mt-3" onClick={(e) => e.stopPropagation()}>
             <button
               onClick={() => setDepositOpen(true)}
               className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md text-xs font-medium bg-[#58a6ff]/10 text-[#58a6ff] hover:bg-[#58a6ff]/20 transition-colors"
@@ -175,34 +206,42 @@ export default function PortfolioPage() {
           {bridgeState && (
             <PendingBridgeIndicator state={bridgeState} onDismiss={dismissPending} />
           )}
-          <BridgeDepositModal
-            open={depositOpen}
-            onOpenChange={setDepositOpen}
-            recipientAddress={address}
-            onDepositInitiated={(chain) => setConfirmDeposit({ chain })}
-          />
-          <DidYouSendModal
-            open={confirmDeposit !== null}
-            onOpenChange={(o) => { if (!o) setConfirmDeposit(null); }}
-            onAnswer={(yes) => {
-              if (yes && confirmDeposit) {
-                startPending("deposit", confirmDeposit.chain);
-              }
-              setConfirmDeposit(null);
-            }}
-          />
-          <WithdrawModal
-            open={withdrawOpen}
-            onOpenChange={setWithdrawOpen}
-            usdcBalance={usdcBal}
-            userAddress={address}
-            onWithdrawStarted={(chain) => startPending("withdraw", chain)}
-            onWithdrawFailed={dismissPending}
-          />
-        </div>
+        </button>
+        {/* Modals live outside the button to avoid nested-interactive issues */}
+        <BridgeDepositModal
+          open={depositOpen}
+          onOpenChange={setDepositOpen}
+          recipientAddress={address}
+          onDepositInitiated={(chain) => setConfirmDeposit({ chain })}
+        />
+        <DidYouSendModal
+          open={confirmDeposit !== null}
+          onOpenChange={(o) => { if (!o) setConfirmDeposit(null); }}
+          onAnswer={(yes) => {
+            if (yes && confirmDeposit) startPending("deposit", confirmDeposit.chain);
+            setConfirmDeposit(null);
+          }}
+        />
+        <WithdrawModal
+          open={withdrawOpen}
+          onOpenChange={setWithdrawOpen}
+          usdcBalance={usdcBal}
+          userAddress={address}
+          onWithdrawStarted={(chain) => startPending("withdraw", chain)}
+          onWithdrawFailed={dismissPending}
+        />
 
-        {/* Paper Portfolio */}
-        <div className="rounded-xl border border-[#21262d] bg-[#161b22] p-5">
+        {/* Paper Portfolio / AIRDROP card */}
+        <button
+          type="button"
+          onClick={() => setPortfolioMode("paper")}
+          className={cn(
+            "rounded-xl border bg-[#161b22] p-5 text-left transition-all",
+            portfolioMode === "paper"
+              ? "border-[#d29922]/40 animate-pulse-glow-green"
+              : "border-[#21262d] hover:border-[#30363d] cursor-pointer"
+          )}
+        >
           <div className="flex items-center justify-between mb-1">
             <p className="text-[10px] text-[#484f58] uppercase tracking-wider">{t.portfolio.paperPortfolio}</p>
             <span className="text-[10px] text-[#d29922] bg-[#d29922]/10 px-1.5 py-0.5 rounded font-medium">AIRDROP</span>
@@ -213,31 +252,51 @@ export default function PortfolioPage() {
           <p className="text-xs text-[#484f58] mt-1">
             {paperBalance.toLocaleString(undefined, { maximumFractionDigits: 0 })} cash + {paperPositionValue.toLocaleString(undefined, { maximumFractionDigits: 0 })} in positions
           </p>
-          <Link
-            href="/trade"
-            className="inline-flex items-center gap-1 mt-3 px-3 py-1.5 rounded-md text-xs font-medium bg-[#d29922]/10 text-[#d29922] hover:bg-[#d29922]/20 transition-colors"
-          >
-            Paper Trade
-          </Link>
-        </div>
-
-        {/* Profit/Loss placeholder */}
-        <div className="rounded-xl border border-[#21262d] bg-[#161b22] p-5">
-          <div className="flex items-center justify-between mb-1">
-            <p className="text-[10px] text-[#484f58] uppercase tracking-wider">{t.portfolio.profitLoss}</p>
-            <div className="flex gap-1">
-              {["1D", "1W", "1M", "ALL"].map((period) => (
-                <button key={period} className={cn(
-                  "text-[9px] px-1.5 py-0.5 rounded font-medium",
-                  period === "ALL" ? "bg-[#58a6ff]/15 text-[#58a6ff]" : "text-[#484f58] hover:text-[#768390]"
-                )}>
-                  {period}
-                </button>
-              ))}
-            </div>
+          <div className="mt-3" onClick={(e) => e.stopPropagation()}>
+            <Link
+              href="/trade"
+              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md text-xs font-medium bg-[#d29922]/10 text-[#d29922] hover:bg-[#d29922]/20 transition-colors"
+            >
+              Paper Trade
+            </Link>
           </div>
-          <p className="text-3xl font-bold text-white tabular-nums">{formatUsd(0)}</p>
-          <p className="text-xs text-[#484f58] mt-1">{t.portfolio.pastDay}</p>
+        </button>
+
+        {/* Profit/Loss card — updates based on active mode */}
+        <div className={cn(
+          "rounded-xl border bg-[#161b22] p-5 transition-all",
+          portfolioMode === "real"
+            ? "border-[#58a6ff]/30"
+            : "border-[#d29922]/30"
+        )}>
+          <div className="flex items-center justify-between mb-1">
+            <p className="text-[10px] text-[#484f58] uppercase tracking-wider">
+              {portfolioMode === "real" ? "Unrealized P&L" : "Paper P&L"}
+            </p>
+            <span className={cn(
+              "text-[9px] px-1.5 py-0.5 rounded font-medium",
+              portfolioMode === "real"
+                ? "bg-[#58a6ff]/15 text-[#58a6ff]"
+                : "bg-[#d29922]/15 text-[#d29922]"
+            )}>
+              {portfolioMode === "real" ? "USDC" : "AIRDROP"}
+            </span>
+          </div>
+          {portfolioMode === "real" ? (
+            <>
+              <p className="text-3xl font-bold text-white tabular-nums">{formatUsd(0)}</p>
+              <p className="text-xs text-[#484f58] mt-1">Place a trade on Sports to track P&L</p>
+            </>
+          ) : (
+            <>
+              <p className={cn("text-3xl font-bold tabular-nums", paperPnl >= 0 ? "text-[#3fb950]" : "text-[#f85149]")}>
+                {paperPnl >= 0 ? "+" : ""}{paperPnl.toFixed(0)} <span className="text-lg">AIRDROP</span>
+              </p>
+              <p className="text-xs text-[#484f58] mt-1">
+                Across {paperPositions.length} position{paperPositions.length !== 1 ? "s" : ""}
+              </p>
+            </>
+          )}
         </div>
       </div>
 
@@ -344,14 +403,25 @@ export default function PortfolioPage() {
       </div>
 
       {/* Positions Tab */}
-      {tab === "positions" && (
+      {tab === "positions" && portfolioMode === "real" && (
         <div className="rounded-lg border border-[#21262d] bg-[#161b22] overflow-hidden">
-          {/* Header */}
+          <div className="text-center py-16">
+            <div className="text-4xl mb-3">📊</div>
+            <p className="text-sm font-medium text-[#e6edf3]">Real Positions</p>
+            <p className="text-xs text-[#484f58] mt-1 max-w-xs mx-auto">
+              Place a trade on the <Link href="/sports" className="text-[#58a6ff] hover:underline">Sports page</Link> to see your real Polymarket positions here.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {tab === "positions" && portfolioMode === "paper" && (
+        <div className="rounded-lg border border-[#21262d] bg-[#161b22] overflow-hidden">
           <div className="grid grid-cols-12 gap-2 px-4 py-2.5 text-[10px] text-[#484f58] uppercase tracking-wider border-b border-[#21262d]">
-            <div className="col-span-5">{t.portfolio.market}</div>
-            <div className="col-span-2 text-right">{t.portfolio.avgNow}</div>
+            <div className="col-span-4">{t.portfolio.market}</div>
+            <div className="col-span-2 text-right">Avg → Now</div>
             <div className="col-span-2 text-right">{t.portfolio.shares}</div>
-            <div className="col-span-1 text-right">{t.portfolio.toWin}</div>
+            <div className="col-span-2 text-right">P&L</div>
             <div className="col-span-2 text-right">{t.portfolio.value}</div>
           </div>
 
@@ -366,22 +436,34 @@ export default function PortfolioPage() {
           ) : (
             <div className="divide-y divide-[#21262d]">
               {paperPositions.map((pos) => {
-                const value = pos.shares * pos.avgPrice;
-                const toWin = pos.shares;
+                const live = livePrices[pos.marketId];
+                const livePrice = live ? (pos.outcome === "Yes" ? live.yesPrice : live.noPrice) : pos.avgPrice;
+                const value = pos.shares * livePrice;
+                const pnl = (livePrice - pos.avgPrice) * pos.shares;
+                const pnlPct = pos.avgPrice > 0 ? ((livePrice - pos.avgPrice) / pos.avgPrice) * 100 : 0;
                 return (
                   <div key={pos.id} className="grid grid-cols-12 gap-2 px-4 py-3 items-center hover:bg-[#1c2128]/50 transition-colors">
-                    <div className="col-span-5">
+                    <div className="col-span-4">
                       <p className="text-[13px] text-[#e6edf3] font-medium leading-snug line-clamp-1">{pos.marketQuestion}</p>
                       <p className="text-[10px] text-[#484f58] mt-0.5">{pos.outcome}</p>
                     </div>
                     <div className="col-span-2 text-right">
                       <span className="text-xs text-[#768390] tabular-nums">{Math.round(pos.avgPrice * 100)}¢</span>
+                      <span className="text-[10px] text-[#484f58] mx-0.5">→</span>
+                      <span className={cn("text-xs font-medium tabular-nums", live ? "text-[#e6edf3]" : "text-[#484f58]")}>
+                        {Math.round(livePrice * 100)}¢
+                      </span>
                     </div>
                     <div className="col-span-2 text-right">
                       <span className="text-xs text-[#e6edf3] tabular-nums font-medium">{pos.shares.toFixed(1)}</span>
                     </div>
-                    <div className="col-span-1 text-right">
-                      <span className="text-xs text-[#3fb950] tabular-nums">{toWin.toFixed(1)}</span>
+                    <div className="col-span-2 text-right">
+                      <span className={cn("text-xs font-medium tabular-nums", pnl >= 0 ? "text-[#3fb950]" : "text-[#f85149]")}>
+                        {pnl >= 0 ? "+" : ""}{pnl.toFixed(0)}
+                      </span>
+                      <span className={cn("text-[10px] ml-1 tabular-nums", pnl >= 0 ? "text-[#3fb950]/60" : "text-[#f85149]/60")}>
+                        ({pnlPct >= 0 ? "+" : ""}{pnlPct.toFixed(0)}%)
+                      </span>
                     </div>
                     <div className="col-span-2 text-right">
                       <span className="text-xs text-[#e6edf3] tabular-nums font-medium">{value.toFixed(0)} <span className="text-[#484f58]">AIRDROP</span></span>
@@ -395,7 +477,17 @@ export default function PortfolioPage() {
       )}
 
       {/* History Tab */}
-      {tab === "history" && (
+      {tab === "history" && portfolioMode === "real" && (
+        <div className="rounded-lg border border-[#21262d] bg-[#161b22] overflow-hidden">
+          <div className="text-center py-16">
+            <div className="text-4xl mb-3">📜</div>
+            <p className="text-sm font-medium text-[#e6edf3]">Trade History</p>
+            <p className="text-xs text-[#484f58] mt-1">Real trade history will appear here once you place trades on Sports.</p>
+          </div>
+        </div>
+      )}
+
+      {tab === "history" && portfolioMode === "paper" && (
         <div className="rounded-lg border border-[#21262d] bg-[#161b22] overflow-hidden">
           <div className="grid grid-cols-12 gap-2 px-4 py-2.5 text-[10px] text-[#484f58] uppercase tracking-wider border-b border-[#21262d]">
             <div className="col-span-1">Side</div>

@@ -1279,7 +1279,7 @@ function LeaderboardTab() {
 /* ─── Main Page ─── */
 export default function TradePage() {
   const { data: events, isLoading } = usePolymarketEvents({ limit: "50" });
-  const [tab, setTab] = useState<"portfolio" | "markets" | "leaderboard">("portfolio");
+  const [tab, setTab] = useState<"markets" | "leaderboard">("markets");
 
   const allMarkets = useMemo(() => {
     if (!events) return [];
@@ -1302,17 +1302,6 @@ export default function TradePage() {
 
       {/* Tabs */}
       <div className="flex border-b border-[#21262d] mb-6">
-        <button
-          onClick={() => setTab("portfolio")}
-          className={cn(
-            "px-4 py-2.5 text-sm font-medium transition-colors",
-            tab === "portfolio"
-              ? "text-white border-b-2 border-[#58a6ff]"
-              : "text-[#768390] hover:text-[#adbac7]"
-          )}
-        >
-          Paper Portfolio
-        </button>
         <button
           onClick={() => setTab("markets")}
           className={cn(
@@ -1342,13 +1331,11 @@ export default function TradePage() {
           <LeaderboardTab />
         ) : isLoading ? (
           <p className="text-sm text-[#484f58] text-center py-16">Loading markets...</p>
-        ) : tab === "portfolio" ? (
-          <PortfolioTab allMarkets={allMarkets} onSwitchTab={() => setTab("markets")} />
         ) : (
           <TradableMarketsTab
             allMarkets={allMarkets}
             events={(events || []) as PolymarketEvent[]}
-            onBought={() => setTab("portfolio")}
+            onBought={() => {}}
           />
         )}
       </div>
