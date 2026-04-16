@@ -1,59 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
-
-// Edge runtime with a SINGLE forced region. Arrays let Vercel pick
-// the nearest (which landed in fra1/Germany = blocked). Force to
-// São Paulo, Brazil — not blocked, good connectivity.
-export const runtime = "edge";
-export const preferredRegion = "gru1";
+import { BuilderSigner } from "@polymarket/builder-signing-sdk";
 
 const CLOB_HOST = "https://clob.polymarket.com";
 
 /**
- * HMAC-SHA256 signing for Polymarket builder headers.
- * Reimplemented with Web Crypto API (Edge-compatible) instead of
- * Node.js crypto from @polymarket/builder-signing-sdk.
- */
-async function hmacSign(secret: string, message: string): Promise<string> {
-  const enc = new TextEncoder();
-  // Convert URL-safe base64 (with - and _) to standard base64 (with + and /)
-  const standardB64 = secret.replace(/-/g, "+").replace(/_/g, "/");
-  const keyData = Uint8Array.from(atob(standardB64), (c) => c.charCodeAt(0));
-  const key = await crypto.subtle.importKey(
-    "raw",
-    keyData,
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"]
-  );
-  const sig = await crypto.subtle.sign("HMAC", key, enc.encode(message));
-  return btoa(String.fromCharCode(...new Uint8Array(sig)));
-}
-
-async function buildBuilderHeaders(
-  apiKey: string,
-  secret: string,
-  passphrase: string,
-  method: string,
-  path: string,
-  body: string
-): Promise<Record<string, string>> {
-  const timestamp = Math.floor(Date.now() / 1000).toString();
-  const message = timestamp + method + path + body;
-  const signature = await hmacSign(secret, message);
-
-  return {
-    "POLY_BUILDER_API_KEY": apiKey,
-    "POLY_BUILDER_SIGNATURE": signature,
-    "POLY_BUILDER_TIMESTAMP": timestamp,
-    "POLY_BUILDER_PASSPHRASE": passphrase,
-  };
-}
-
-/**
  * POST /api/polymarket/order
  *
- * Proxies signed orders to Polymarket's CLOB API.
- * Runs on Edge in a non-US region to bypass geoblock.
+ * Proxies signed orders to Polymarket's CLOB API, bypassing CORS.
+ * The Vercel project region is set to São Paulo (gru1) via dashboard
+ * settings so all functions run from a non-geoblocked country.
  */
 export async function POST(req: NextRequest) {
   try {
@@ -69,7 +24,6 @@ export async function POST(req: NextRequest) {
     const passphrase = process.env.POLYMARKET_BUILDER_PASSPHRASE;
 
     const region = process.env.VERCEL_REGION || "unknown";
-    console.log("[Order Proxy] Region:", region, "| Builder creds:", !!key && !!secret && !!passphrase);
 
     if (!key || !secret || !passphrase) {
       return NextResponse.json(
@@ -80,14 +34,20 @@ export async function POST(req: NextRequest) {
 
     const orderPayload = JSON.stringify({ order: signedOrder, orderType, ...options });
 
-    // Build HMAC headers using Web Crypto (Edge-compatible)
-    const builderHeaders = await buildBuilderHeaders(key, secret, passphrase, "POST", "/order", orderPayload);
+    // Build HMAC headers for builder attribution
+    const signer = new BuilderSigner({ key, secret, passphrase });
+    const builderHeaders = signer.createBuilderHeaderPayload("POST", "/order", orderPayload);
 
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
       Accept: "application/json",
-      ...builderHeaders,
     };
+
+    if (builderHeaders) {
+      for (const [k, v] of Object.entries(builderHeaders)) {
+        if (typeof v === "string") headers[k] = v;
+      }
+    }
 
     // Forward to CLOB
     const clobRes = await fetch(`${CLOB_HOST}/order`, {
