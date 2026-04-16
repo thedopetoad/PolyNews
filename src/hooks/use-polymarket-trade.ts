@@ -188,32 +188,41 @@ export function usePolymarketTrade() {
         getBuilderConfig(),
       );
 
-      // Use a market order (FOK) with aggressive pricing to ensure instant
-      // fill. GTC limit orders at the displayed price sit in the book
-      // without crossing the spread. Market orders sweep the book.
-      //
-      // For BUY: we want to pay UP TO the displayed price (or a bit more
-      // to account for spread). The CLOB fills at the best available
-      // price, not the limit price — so setting price=0.99 for a buy
-      // just means "buy at whatever the market offers up to 99¢".
-      // For SELL: set price=0.01 to sell at whatever the market offers.
-      const aggressivePrice = params.side === "BUY" ? 0.99 : 0.01;
+      // ── Sign client-side, POST server-side (bypass CORS) ──
+      // The CLOB API only allows requests from polymarket.com. Our
+      // frontend at polystream.vercel.app gets CORS blocked. So:
+      // 1. createOrder() signs via wallet popup (client-side, no HTTP)
+      // 2. POST the signed order to our /api/polymarket/order proxy
+      // 3. Our server forwards to clob.polymarket.com (no CORS issue)
+      const price = params.price ?? 0.5;
+      const size = params.amount / price;
 
-      const result = await authedClient.createAndPostMarketOrder(
+      const signedOrder = await authedClient.createOrder(
         {
           tokenID: params.tokenId,
-          amount: params.amount,
+          size,
           side: params.side === "BUY" ? Side.BUY : Side.SELL,
-          price: aggressivePrice,
+          price,
         },
         {
           tickSize: params.tickSize || "0.01",
           negRisk: params.negRisk,
         },
-        OrderType.FOK,
       );
 
-      // Log the full CLOB response for debugging
+      console.log("[PolyStream Trade] Signed order, posting via server proxy...");
+
+      // POST via our server proxy to bypass CORS
+      const proxyRes = await fetch("/api/polymarket/order", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          signedOrder,
+          orderType: "GTC",
+        }),
+      });
+
+      const result = await proxyRes.json();
       console.log("[PolyStream Trade] CLOB response:", JSON.stringify(result));
 
       if (result?.success === false) {
