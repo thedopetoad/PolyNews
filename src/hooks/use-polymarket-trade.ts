@@ -193,27 +193,20 @@ export function usePolymarketTrade() {
       // frontend at polystream.vercel.app gets CORS blocked. So:
       // 1. createOrder() signs via wallet popup (client-side, no HTTP)
       // 2. POST the signed order to our /api/polymarket/order proxy
-      // 3. Our server forwards to clob.polymarket.com (no CORS issue)
-      //
-      // Aggressive pricing strategy (FOK-style taker orders):
-      // - BUY at 0.99 = "buy at any ask up to 99¢" → matches best ask, no minimum
-      // - SELL at 0.01 = "sell at any bid down to 1¢" → matches best bid, no minimum
-      // CLOB fills at the actual matched price, not the limit price.
-      // Taker orders bypass the per-market min_order_size (5-15 shares)
-      // that only applies to maker (book-sitting) orders.
-      const displayPrice = params.price ?? 0.5;
+      // Use createMarketOrder — takes `amount` in USDC directly, handles
+      // decimal precision internally (CLOB requires USDC max 2 decimals,
+      // shares max 5 decimals, which createOrder can violate with aggressive
+      // pricing). Aggressive price ensures instant fill:
+      // - BUY at 0.99 matches best ask, fills at market
+      // - SELL at 0.01 matches best bid, fills at market
       const aggressivePrice = params.side === "BUY" ? 0.99 : 0.01;
-      // Size: for BUY, shares = amount/displayPrice (what we expect to get).
-      // For SELL, amount is the USDC value so shares = amount/displayPrice too.
-      const size = params.amount / displayPrice;
-      const price = aggressivePrice;
 
-      const signedOrder = await authedClient.createOrder(
+      const signedOrder = await authedClient.createMarketOrder(
         {
           tokenID: params.tokenId,
-          size,
+          amount: params.amount,
           side: params.side === "BUY" ? Side.BUY : Side.SELL,
-          price,
+          price: aggressivePrice,
         },
         {
           tickSize: params.tickSize || "0.01",
