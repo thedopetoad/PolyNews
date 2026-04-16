@@ -188,15 +188,17 @@ export function usePolymarketTrade() {
         getBuilderConfig(),
       );
 
-      // Place order — GTC (Good-til-Cancelled) so it stays in the book
-      // until filled or explicitly cancelled. FOK was silently expiring
-      // when there wasn't enough instant liquidity at the exact price.
-      const result = await authedClient.createAndPostMarketOrder(
+      // Place a GTC limit order at the current price. GTC stays in the
+      // order book until filled or cancelled — FOK was silently expiring
+      // when there wasn't enough instant liquidity.
+      // createAndPostOrder is for limit orders (supports GTC/GTD).
+      // createAndPostMarketOrder only supports FOK/FAK.
+      const result = await authedClient.createAndPostOrder(
         {
           tokenID: params.tokenId,
           amount: params.amount,
           side: params.side === "BUY" ? Side.BUY : Side.SELL,
-          price: params.price,
+          price: params.price ?? 0.5,
         },
         {
           tickSize: params.tickSize || "0.01",
