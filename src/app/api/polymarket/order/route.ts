@@ -48,13 +48,12 @@ function createL2Headers(
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { signedOrder, orderType = "GTC", options, userCreds, userAddress } = body;
+    const { orderPayload, userCreds, userAddress } = body;
 
-    if (!signedOrder) {
-      return NextResponse.json({ error: "Missing signedOrder" }, { status: 400 });
+    if (!orderPayload?.order) {
+      return NextResponse.json({ error: "Missing order payload" }, { status: 400 });
     }
 
-    // ApiKeyCreds uses { key, secret, passphrase } (not apiKey)
     if (!userCreds?.key || !userCreds?.secret || !userCreds?.passphrase) {
       return NextResponse.json({ error: "Missing user CLOB API credentials" }, { status: 400 });
     }
@@ -65,11 +64,11 @@ export async function POST(req: NextRequest) {
 
     const region = process.env.VERCEL_REGION || "unknown";
 
-    // Build the order payload
-    const orderPayload = JSON.stringify({ order: signedOrder, orderType, ...options });
+    // Serialize the pre-formatted order payload
+    const orderPayloadStr = JSON.stringify(orderPayload);
 
     // ── L2 User Auth Headers ──
-    const l2Headers = createL2Headers(userCreds, "POST", "/order", orderPayload);
+    const l2Headers = createL2Headers(userCreds, "POST", "/order", orderPayloadStr);
     l2Headers.POLY_ADDRESS = userAddress || "";
 
     // ── Builder Attribution Headers ──
@@ -80,7 +79,7 @@ export async function POST(req: NextRequest) {
         secret: builderSecret,
         passphrase: builderPassphrase,
       });
-      const bh = signer.createBuilderHeaderPayload("POST", "/order", orderPayload);
+      const bh = signer.createBuilderHeaderPayload("POST", "/order", orderPayloadStr);
       if (bh) {
         for (const [k, v] of Object.entries(bh)) {
           if (typeof v === "string") builderHeaders[k] = v;
@@ -102,7 +101,7 @@ export async function POST(req: NextRequest) {
     const clobRes = await fetch(`${CLOB_HOST}/order`, {
       method: "POST",
       headers,
-      body: orderPayload,
+      body: orderPayloadStr,
     });
 
     const data = await clobRes.json();
