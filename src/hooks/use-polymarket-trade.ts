@@ -7,12 +7,12 @@ import { ClobClient } from "@polymarket/clob-client";
 import { Side, OrderType } from "@polymarket/clob-client";
 import type { ApiKeyCreds } from "@polymarket/clob-client";
 import { BuilderConfig } from "@polymarket/builder-signing-sdk";
+import { deriveProxyAddress } from "@/lib/relay";
 
 const CLOB_HOST = "https://clob.polymarket.com";
 const POLYGON_CHAIN_ID = 137;
-// Bumped key from v1 → v2 to invalidate stale EOA-mode creds. The switch to
-// POLY_PROXY signatureType requires fresh credentials derived in proxy mode.
-const CREDS_STORAGE_KEY = "polystream-clob-creds-v2";
+// v3: creds derived with proxy as funderAddress (v2 used EOA which was wrong).
+const CREDS_STORAGE_KEY = "polystream-clob-creds-v3";
 
 /**
  * Remote BuilderConfig — points at our server-side signer so polystream's
@@ -142,17 +142,21 @@ export function usePolymarketTrade() {
       // traded from the EOA address (which has no funds).
       const POLY_PROXY = 1;
 
+      // Derive proxy wallet address from EOA. This is where USDC.e lives
+      // and where Polymarket executes trades from.
+      const proxyAddr = deriveProxyAddress(address);
+
       // Create base client for cred derivation. Builder config intentionally
       // OMITTED here — cred derivation endpoints don't accept builder headers
-      // and would 400 if we sent them. funderAddress = EOA tells the CLOB
-      // "this EOA owns the proxy wallet we're trading through".
+      // and would 400 if we sent them.
+      // funderAddress = proxy wallet (the maker), signer = EOA.
       const baseClient = new ClobClient(
         CLOB_HOST,
         POLYGON_CHAIN_ID,
         signer,
         undefined,
         POLY_PROXY,
-        address,
+        proxyAddr,
       );
 
       // Get cached or derive API credentials (only signs if first time)
@@ -169,7 +173,7 @@ export function usePolymarketTrade() {
       }
 
       // Create authenticated client with builder attribution.
-      // signatureType = POLY_PROXY, funderAddress = EOA address.
+      // signatureType = POLY_PROXY, funderAddress = proxy wallet.
       // Builder config at position 9 hits our remote signer for
       // POLY_BUILDER_* headers so volume credits our builder account.
       const authedClient = new ClobClient(
@@ -178,7 +182,7 @@ export function usePolymarketTrade() {
         signer,
         creds,
         POLY_PROXY,
-        address,
+        proxyAddr,
         undefined,
         undefined,
         getBuilderConfig(),
