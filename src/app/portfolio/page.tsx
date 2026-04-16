@@ -3,7 +3,8 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { useUser } from "@/hooks/use-user";
 import { usePositionLivePrices } from "@/hooks/use-live-prices";
-import { useQuery } from "@tanstack/react-query";
+import { usePolymarketTrade } from "@/hooks/use-polymarket-trade";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useBalance } from "wagmi";
 import { useAuthStore } from "@/stores/use-auth-store";
 import { LoginButton } from "@/components/layout/login-modal";
@@ -154,6 +155,12 @@ export default function PortfolioPage() {
 
   // Tab state
   const [tab, setTab] = useState<"positions" | "history">("positions");
+  // Expandable position + close
+  const [expandedPos, setExpandedPos] = useState<string | null>(null);
+  const [closingPos, setClosingPos] = useState<string | null>(null);
+  const [closeResult, setCloseResult] = useState<{ id: string; msg: string; ok: boolean } | null>(null);
+  const { placeOrder } = usePolymarketTrade();
+  const queryClient = useQueryClient();
   // Mode: "real" shows USDC.e positions, "paper" shows AIRDROP positions
   const [portfolioMode, setPortfolioMode] = useState<"real" | "paper">("real");
 
@@ -490,11 +497,12 @@ export default function PortfolioPage() {
       {tab === "positions" && portfolioMode === "real" && (
         <div className="rounded-lg border border-[#21262d] bg-[#161b22] overflow-hidden">
           <div className="grid grid-cols-12 gap-2 px-4 py-2.5 text-[10px] text-[#484f58] uppercase tracking-wider border-b border-[#21262d]">
-            <div className="col-span-4">{t.portfolio.market}</div>
+            <div className="col-span-3">{t.portfolio.market}</div>
             <div className="col-span-2 text-right">Avg → Now</div>
             <div className="col-span-2 text-right">{t.portfolio.shares}</div>
             <div className="col-span-2 text-right">P&L</div>
-            <div className="col-span-2 text-right">Value</div>
+            <div className="col-span-1 text-right">Value</div>
+            <div className="col-span-2 text-right">Action</div>
           </div>
 
           {realPositions.length === 0 ? (
@@ -507,7 +515,6 @@ export default function PortfolioPage() {
           ) : (
             <div className="divide-y divide-[#21262d]">
               {realPositions.map((pos) => {
-                // Prefer Polymarket data API values (from _curPrice etc.) over our live price hook
                 const ext = pos as typeof pos & { _curPrice?: number; _cashPnl?: number; _percentPnl?: number; _currentValue?: number };
                 const hasPoly = ext._curPrice !== undefined;
                 const live = livePrices[pos.marketId];
@@ -515,33 +522,94 @@ export default function PortfolioPage() {
                 const value = hasPoly && ext._currentValue !== undefined ? ext._currentValue : pos.shares * livePrice;
                 const pnl = hasPoly && ext._cashPnl !== undefined ? ext._cashPnl : (livePrice - pos.avgPrice) * pos.shares;
                 const pnlPct = hasPoly && ext._percentPnl !== undefined ? ext._percentPnl : (pos.avgPrice > 0 ? ((livePrice - pos.avgPrice) / pos.avgPrice) * 100 : 0);
+                const isExpanded = expandedPos === pos.id;
+                const isClosing = closingPos === pos.id;
+                const result = closeResult?.id === pos.id ? closeResult : null;
+
                 return (
-                  <div key={pos.id} className="grid grid-cols-12 gap-2 px-4 py-3 items-center hover:bg-[#1c2128]/50 transition-colors">
-                    <div className="col-span-4">
-                      <p className="text-[13px] text-[#e6edf3] font-medium leading-snug line-clamp-1">{pos.marketQuestion}</p>
-                      <p className="text-[10px] text-[#484f58] mt-0.5">{pos.outcome}</p>
+                  <div key={pos.id}>
+                    <div
+                      className={cn("grid grid-cols-12 gap-2 px-4 py-3 items-center hover:bg-[#1c2128]/50 transition-colors cursor-pointer", isExpanded && "bg-[#1c2128]/30")}
+                      onClick={() => setExpandedPos(isExpanded ? null : pos.id)}
+                    >
+                      <div className="col-span-3">
+                        <p className="text-[13px] text-[#e6edf3] font-medium leading-snug line-clamp-1">{pos.marketQuestion}</p>
+                        <p className="text-[10px] text-[#484f58] mt-0.5">{pos.outcome}</p>
+                      </div>
+                      <div className="col-span-2 text-right">
+                        <span className="text-xs text-[#768390] tabular-nums">{Math.round(pos.avgPrice * 100)}¢</span>
+                        <span className="text-[10px] text-[#484f58] mx-0.5">→</span>
+                        <span className={cn("text-xs font-medium tabular-nums", (hasPoly || live) ? "text-[#e6edf3]" : "text-[#484f58]")}>
+                          {Math.round(livePrice * 100)}¢
+                        </span>
+                      </div>
+                      <div className="col-span-2 text-right">
+                        <span className="text-xs text-[#e6edf3] tabular-nums font-medium">{pos.shares.toFixed(1)}</span>
+                      </div>
+                      <div className="col-span-2 text-right">
+                        <span className={cn("text-xs font-medium tabular-nums", pnl >= 0 ? "text-[#3fb950]" : "text-[#f85149]")}>
+                          {pnl >= 0 ? "+" : ""}{formatUsd(pnl)}
+                        </span>
+                        <span className={cn("text-[10px] ml-1 tabular-nums", pnl >= 0 ? "text-[#3fb950]/60" : "text-[#f85149]/60")}>
+                          ({pnlPct >= 0 ? "+" : ""}{pnlPct.toFixed(0)}%)
+                        </span>
+                      </div>
+                      <div className="col-span-1 text-right">
+                        <span className="text-xs text-[#e6edf3] tabular-nums font-medium">{formatUsd(value)}</span>
+                      </div>
+                      <div className="col-span-2 text-right" onClick={(e) => e.stopPropagation()}>
+                        <button
+                          disabled={isClosing}
+                          onClick={async () => {
+                            if (!pos.clobTokenId) return;
+                            setClosingPos(pos.id);
+                            setCloseResult(null);
+                            const res = await placeOrder({
+                              tokenId: pos.clobTokenId,
+                              side: "SELL",
+                              amount: value,
+                              price: livePrice,
+                            });
+                            if (res.success) {
+                              setCloseResult({ id: pos.id, msg: `Closed! Sold ${pos.shares.toFixed(1)} shares`, ok: true });
+                              // Refresh positions after a short delay
+                              setTimeout(() => queryClient.invalidateQueries({ queryKey: ["polymarket-positions"] }), 3000);
+                            } else {
+                              setCloseResult({ id: pos.id, msg: res.error || "Close failed", ok: false });
+                            }
+                            setClosingPos(null);
+                          }}
+                          className={cn(
+                            "px-3 py-1 rounded text-[11px] font-semibold transition-colors",
+                            isClosing
+                              ? "bg-[#21262d] text-[#484f58] cursor-wait"
+                              : "bg-[#f85149]/15 text-[#f85149] hover:bg-[#f85149]/25"
+                          )}
+                        >
+                          {isClosing ? "Closing..." : "Close"}
+                        </button>
+                      </div>
                     </div>
-                    <div className="col-span-2 text-right">
-                      <span className="text-xs text-[#768390] tabular-nums">{Math.round(pos.avgPrice * 100)}¢</span>
-                      <span className="text-[10px] text-[#484f58] mx-0.5">→</span>
-                      <span className={cn("text-xs font-medium tabular-nums", (hasPoly || live) ? "text-[#e6edf3]" : "text-[#484f58]")}>
-                        {Math.round(livePrice * 100)}¢
-                      </span>
-                    </div>
-                    <div className="col-span-2 text-right">
-                      <span className="text-xs text-[#e6edf3] tabular-nums font-medium">{pos.shares.toFixed(1)}</span>
-                    </div>
-                    <div className="col-span-2 text-right">
-                      <span className={cn("text-xs font-medium tabular-nums", pnl >= 0 ? "text-[#3fb950]" : "text-[#f85149]")}>
-                        {pnl >= 0 ? "+" : ""}{formatUsd(pnl)}
-                      </span>
-                      <span className={cn("text-[10px] ml-1 tabular-nums", pnl >= 0 ? "text-[#3fb950]/60" : "text-[#f85149]/60")}>
-                        ({pnlPct >= 0 ? "+" : ""}{pnlPct.toFixed(0)}%)
-                      </span>
-                    </div>
-                    <div className="col-span-2 text-right">
-                      <span className="text-xs text-[#e6edf3] tabular-nums font-medium">{formatUsd(value)}</span>
-                    </div>
+                    {/* Expanded details */}
+                    {isExpanded && (
+                      <div className="px-4 py-3 bg-[#0d1117] border-t border-[#21262d] space-y-2">
+                        <div className="flex gap-6 text-xs text-[#768390]">
+                          <span>Bought at: <span className="text-[#e6edf3]">{Math.round(pos.avgPrice * 100)}¢</span></span>
+                          <span>Current: <span className="text-[#e6edf3]">{Math.round(livePrice * 100)}¢</span></span>
+                          <span>Shares: <span className="text-[#e6edf3]">{pos.shares.toFixed(2)}</span></span>
+                          <span>Cost: <span className="text-[#e6edf3]">{formatUsd(pos.shares * pos.avgPrice)}</span></span>
+                          <span>Value: <span className="text-[#e6edf3]">{formatUsd(value)}</span></span>
+                        </div>
+                        {pos.eventSlug && (
+                          <a href={`https://polymarket.com/event/${pos.eventSlug}`} target="_blank" rel="noopener noreferrer" className="text-[10px] text-[#58a6ff] hover:underline">
+                            View on Polymarket →
+                          </a>
+                        )}
+                        {result && (
+                          <p className={cn("text-xs font-medium", result.ok ? "text-[#3fb950]" : "text-[#f85149]")}>{result.msg}</p>
+                        )}
+                      </div>
+                    )}
                   </div>
                 );
               })}
