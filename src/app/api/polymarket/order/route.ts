@@ -1,25 +1,57 @@
 import { NextRequest, NextResponse } from "next/server";
-import { BuilderSigner } from "@polymarket/builder-signing-sdk";
 
-// Edge runtime with non-blocked region. Serverless preferredRegion was
-// ignored on Hobby plan (always ran in iad1/US). Edge functions respect
-// preferredRegion on all plans.
+// Edge runtime runs in the specified region on ALL Vercel plans.
+// Polymarket geoblocks US, UK, DE, FR, IT, NL, BE, AU, etc.
+// These regions are NOT blocked.
 export const runtime = "edge";
 export const preferredRegion = ["hnd1", "hkg1", "gru1", "bom1"];
 
 const CLOB_HOST = "https://clob.polymarket.com";
 
 /**
+ * HMAC-SHA256 signing for Polymarket builder headers.
+ * Reimplemented with Web Crypto API (Edge-compatible) instead of
+ * Node.js crypto from @polymarket/builder-signing-sdk.
+ */
+async function hmacSign(secret: string, message: string): Promise<string> {
+  const enc = new TextEncoder();
+  const keyData = Uint8Array.from(atob(secret), (c) => c.charCodeAt(0));
+  const key = await crypto.subtle.importKey(
+    "raw",
+    keyData,
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"]
+  );
+  const sig = await crypto.subtle.sign("HMAC", key, enc.encode(message));
+  return btoa(String.fromCharCode(...new Uint8Array(sig)));
+}
+
+async function buildBuilderHeaders(
+  apiKey: string,
+  secret: string,
+  passphrase: string,
+  method: string,
+  path: string,
+  body: string
+): Promise<Record<string, string>> {
+  const timestamp = Math.floor(Date.now() / 1000).toString();
+  const message = timestamp + method + path + body;
+  const signature = await hmacSign(secret, message);
+
+  return {
+    "POLY_BUILDER_API_KEY": apiKey,
+    "POLY_BUILDER_SIGNATURE": signature,
+    "POLY_BUILDER_TIMESTAMP": timestamp,
+    "POLY_BUILDER_PASSPHRASE": passphrase,
+  };
+}
+
+/**
  * POST /api/polymarket/order
  *
- * Proxies signed orders to Polymarket's CLOB API, bypassing CORS.
- * The CLOB only allows requests from polymarket.com — our frontend
- * at polystream.vercel.app gets blocked. So:
- *
- * 1. Client signs the order via wallet popup (EIP-712)
- * 2. Client sends the signed order HERE
- * 3. We POST it to clob.polymarket.com with builder headers
- * 4. Return the CLOB response to the client
+ * Proxies signed orders to Polymarket's CLOB API.
+ * Runs on Edge in a non-US region to bypass geoblock.
  */
 export async function POST(req: NextRequest) {
   try {
@@ -30,43 +62,30 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Missing signedOrder" }, { status: 400 });
     }
 
-    // Build builder HMAC headers — required for geoblock bypass
     const key = process.env.POLYMARKET_BUILDER_API_KEY;
     const secret = process.env.POLYMARKET_BUILDER_SECRET;
     const passphrase = process.env.POLYMARKET_BUILDER_PASSPHRASE;
 
-    console.log("[Order Proxy] Region:", process.env.VERCEL_REGION || "unknown");
-    console.log("[Order Proxy] Builder creds present:", {
-      key: !!key,
-      secret: !!secret,
-      passphrase: !!passphrase,
-    });
+    const region = process.env.VERCEL_REGION || "unknown";
+    console.log("[Order Proxy] Region:", region, "| Builder creds:", !!key && !!secret && !!passphrase);
 
     if (!key || !secret || !passphrase) {
       return NextResponse.json(
-        { error: "Builder credentials not configured on server. Set POLYMARKET_BUILDER_API_KEY, POLYMARKET_BUILDER_SECRET, POLYMARKET_BUILDER_PASSPHRASE in Vercel env vars." },
+        { error: "Builder credentials not configured", _serverRegion: region },
         { status: 500 }
       );
     }
 
     const orderPayload = JSON.stringify({ order: signedOrder, orderType, ...options });
 
-    const signer = new BuilderSigner({ key, secret, passphrase });
-    const builderHeaders = signer.createBuilderHeaderPayload("POST", "/order", orderPayload);
+    // Build HMAC headers using Web Crypto (Edge-compatible)
+    const builderHeaders = await buildBuilderHeaders(key, secret, passphrase, "POST", "/order", orderPayload);
 
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
       Accept: "application/json",
+      ...builderHeaders,
     };
-
-    // Add all builder headers (POLY_BUILDER_*)
-    if (builderHeaders) {
-      for (const [k, v] of Object.entries(builderHeaders)) {
-        if (typeof v === "string") headers[k] = v;
-      }
-    }
-
-    console.log("[Order Proxy] Sending to CLOB with headers:", Object.keys(headers));
 
     // Forward to CLOB
     const clobRes = await fetch(`${CLOB_HOST}/order`, {
@@ -76,15 +95,11 @@ export async function POST(req: NextRequest) {
     });
 
     const data = await clobRes.json();
-    // Pass through the region for debugging
-    if (data.error) {
-      data._serverRegion = process.env.VERCEL_REGION || "unknown";
-    }
+    data._serverRegion = region;
     return NextResponse.json(data, { status: clobRes.status });
   } catch (err) {
-    console.error("Order proxy error:", err);
     return NextResponse.json(
-      { error: `Proxy error: ${(err as Error).message}` },
+      { error: `Proxy error: ${(err as Error).message}`, _serverRegion: process.env.VERCEL_REGION || "unknown" },
       { status: 500 }
     );
   }
