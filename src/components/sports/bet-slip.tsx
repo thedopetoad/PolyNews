@@ -7,6 +7,7 @@ import { usePolymarketTrade } from "@/hooks/use-polymarket-trade";
 import { usePolymarketSetup } from "@/hooks/use-polymarket-setup";
 import { LoginButton } from "@/components/layout/login-modal";
 import { BridgeDepositModal } from "@/components/portfolio/bridge-deposit-modal";
+import { EnableTradingModal } from "@/components/sports/enable-trading-modal";
 import { useT } from "@/lib/i18n";
 import { useSwitchChain, useBalance } from "wagmi";
 import { polygon } from "wagmi/chains";
@@ -72,6 +73,7 @@ export function BetSlip({ eventTitle, eventSlug, eventEndDate, marketId, marketQ
   const [amount, setAmount] = useState("");
   const [result, setResult] = useState<{ success: boolean; msg: string } | null>(null);
   const [depositOpen, setDepositOpen] = useState(false);
+  const [enableOpen, setEnableOpen] = useState(false);
 
   // Live-refresh prices every 5s so the bet slip always shows current odds
   const [livePrices, setLivePrices] = useState<Record<string, number>>({});
@@ -296,54 +298,43 @@ export function BetSlip({ eventTitle, eventSlug, eventEndDate, marketId, marketQ
         </p>
       )}
 
-      {/* Either Enable Trading OR Trade button — never both */}
-      {!tradingEnabled && setupStatus !== "checking" ? (
-        <>
-          <button
-            onClick={enableTrading}
-            disabled={isApproving}
-            className={cn(
-              "w-full py-3 rounded-lg text-sm font-bold transition-all",
-              isApproving
-                ? "bg-[#21262d] text-[#484f58] cursor-wait"
-                : "bg-[#58a6ff] text-white hover:bg-[#4d8fea] active:scale-[0.98]"
-            )}
-          >
-            {isApproving ? "Enabling trading..." : "Enable Trading"}
-          </button>
-          {setupError && (
-            <p className="text-[10px] text-[#f85149] text-center mt-1">{setupError}</p>
-          )}
-          <p className="text-[10px] text-[#768390] text-center mt-1">
-            One-time setup: deploys your proxy wallet and approves tokens. Gas-free.
-          </p>
-        </>
-      ) : (
-        <button
-          onClick={handleTrade}
-          disabled={placing || amountNum <= 0}
-          className={cn(
-            "w-full py-3 rounded-lg text-sm font-bold transition-all",
-            placing
-              ? "bg-[#21262d] text-[#484f58] cursor-wait"
-              : amountNum <= 0
-                ? "bg-[#21262d] text-[#484f58]"
+      {/* Trade button — opens Enable Trading modal instead of trading
+          if the user hasn't completed the one-time setup yet. */}
+      <button
+        onClick={() => {
+          if (!tradingEnabled && setupStatus !== "checking") {
+            setEnableOpen(true);
+            return;
+          }
+          handleTrade();
+        }}
+        disabled={placing || amountNum <= 0}
+        className={cn(
+          "w-full py-3 rounded-lg text-sm font-bold transition-all",
+          placing
+            ? "bg-[#21262d] text-[#484f58] cursor-wait"
+            : amountNum <= 0
+              ? "bg-[#21262d] text-[#484f58]"
+              : !tradingEnabled && setupStatus !== "checking"
+                ? "bg-[#58a6ff] text-white hover:bg-[#4d8fea] active:scale-[0.98]"
                 : insufficientBalance
                   ? "bg-[#d29922]/20 text-[#d29922] hover:bg-[#d29922]/30 active:scale-[0.98]"
                   : "bg-[#238636] text-white hover:bg-[#2ea043] active:scale-[0.98]"
-          )}
-        >
-          {placing
-            ? t.betSlip.confirmingInWallet
-            : amountNum <= 0
-              ? "Enter an amount"
+        )}
+      >
+        {placing
+          ? t.betSlip.confirmingInWallet
+          : amountNum <= 0
+            ? "Enter an amount"
+            : !tradingEnabled && setupStatus !== "checking"
+              ? "🔐 Enable Trading to continue"
               : insufficientBalance
                 ? t.betSlip.insufficientUsdc
                 : side === "BUY"
                   ? `Buy $${amountNum.toFixed(2)} ${selected?.name || ""}`
                   : `Sell $${amountNum.toFixed(2)} ${selected?.name || ""}`}
-        </button>
-      )}
+      </button>
+      <EnableTradingModal open={enableOpen} onOpenChange={setEnableOpen} />
 
       {/* Result / Error */}
       {result && (
