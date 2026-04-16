@@ -13,7 +13,7 @@ const CLOB_HOST = "https://clob.polymarket.com";
  *   signature = base64(HMAC-SHA256(base64decode(secret), message))
  */
 function createL2Headers(
-  creds: { apiKey: string; secret: string; passphrase: string },
+  creds: { key: string; secret: string; passphrase: string },
   method: string,
   requestPath: string,
   body: string
@@ -29,7 +29,7 @@ function createL2Headers(
 
   return {
     POLY_ADDRESS: "", // Set by caller
-    POLY_API_KEY: creds.apiKey,
+    POLY_API_KEY: creds.key,
     POLY_PASSPHRASE: creds.passphrase,
     POLY_SIGNATURE: signature,
     POLY_TIMESTAMP: timestamp,
@@ -54,7 +54,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Missing signedOrder" }, { status: 400 });
     }
 
-    if (!userCreds?.apiKey || !userCreds?.secret || !userCreds?.passphrase) {
+    // ApiKeyCreds uses { key, secret, passphrase } (not apiKey)
+    if (!userCreds?.key || !userCreds?.secret || !userCreds?.passphrase) {
       return NextResponse.json({ error: "Missing user CLOB API credentials" }, { status: 400 });
     }
 
