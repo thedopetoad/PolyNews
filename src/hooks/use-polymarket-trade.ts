@@ -194,12 +194,16 @@ export function usePolymarketTrade() {
       // 1. createOrder() signs via wallet popup (client-side, no HTTP)
       // 2. POST the signed order to our /api/polymarket/order proxy
       // Use createMarketOrder — takes `amount` in USDC directly, handles
-      // decimal precision internally (CLOB requires USDC max 2 decimals,
-      // shares max 5 decimals, which createOrder can violate with aggressive
-      // pricing). Aggressive price ensures instant fill:
-      // - BUY at 0.99 matches best ask, fills at market
-      // - SELL at 0.01 matches best bid, fills at market
-      const aggressivePrice = params.side === "BUY" ? 0.99 : 0.01;
+      // decimal precision internally. The price is a SLIPPAGE CAP, not the
+      // actual fill price. CLOB fills at the best available ask/bid up to
+      // this cap. We use ±5% of the displayed price instead of a flat
+      // 0.99/0.01 — otherwise thin markets (esports, handicap) where the
+      // ask is far from mid can fill at 99¢ when user expected ~50¢.
+      const displayPrice = params.price ?? 0.5;
+      const slippagePct = 0.05; // 5% max slippage
+      const aggressivePrice = params.side === "BUY"
+        ? Math.min(0.99, Math.max(0.01, displayPrice * (1 + slippagePct)))
+        : Math.max(0.01, Math.min(0.99, displayPrice * (1 - slippagePct)));
 
       const signedOrder = await authedClient.createMarketOrder(
         {
