@@ -212,13 +212,18 @@ export function usePolymarketTrade() {
 
       console.log("[PolyStream Trade] Signed order, posting via server proxy...");
 
-      // POST via our server proxy to bypass CORS
+      // POST via our server proxy to bypass CORS.
+      // Include user's CLOB API creds — the /order endpoint requires
+      // BOTH L2 auth headers (user) AND builder headers (attribution).
       const proxyRes = await fetch("/api/polymarket/order", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           signedOrder,
           orderType: "GTC",
+          // User's CLOB API credentials for L2 authentication
+          userCreds: creds,
+          userAddress: address,
         }),
       });
 

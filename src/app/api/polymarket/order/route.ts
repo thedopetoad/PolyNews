@@ -1,53 +1,101 @@
 import { NextRequest, NextResponse } from "next/server";
 import { BuilderSigner } from "@polymarket/builder-signing-sdk";
+import { createHmac } from "crypto";
 
 const CLOB_HOST = "https://clob.polymarket.com";
 
 /**
+ * Generate L2 authentication headers for the user's CLOB API credentials.
+ * These prove to the CLOB that the user authorized this request.
+ *
+ * Format matches @polymarket/clob-client's createL2Headers():
+ *   message = timestamp + method + requestPath + body
+ *   signature = base64(HMAC-SHA256(base64decode(secret), message))
+ */
+function createL2Headers(
+  creds: { apiKey: string; secret: string; passphrase: string },
+  method: string,
+  requestPath: string,
+  body: string
+): Record<string, string> {
+  const timestamp = Math.floor(Date.now() / 1000).toString();
+  const message = timestamp + method + requestPath + body;
+
+  // Decode URL-safe base64 secret
+  const secretBuf = Buffer.from(creds.secret, "base64");
+  const signature = createHmac("sha256", secretBuf)
+    .update(message)
+    .digest("base64");
+
+  return {
+    POLY_ADDRESS: "", // Set by caller
+    POLY_API_KEY: creds.apiKey,
+    POLY_PASSPHRASE: creds.passphrase,
+    POLY_SIGNATURE: signature,
+    POLY_TIMESTAMP: timestamp,
+  };
+}
+
+/**
  * POST /api/polymarket/order
  *
- * Proxies signed orders to Polymarket's CLOB API, bypassing CORS.
- * The Vercel project region is set to São Paulo (gru1) via dashboard
- * settings so all functions run from a non-geoblocked country.
+ * Proxies signed orders to Polymarket's CLOB API with BOTH:
+ * - L2 user auth headers (POLY_ADDRESS, POLY_API_KEY, etc.)
+ * - Builder attribution headers (POLY_BUILDER_*)
+ *
+ * The Vercel project runs in São Paulo (non-geoblocked region).
  */
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { signedOrder, orderType = "GTC", options } = body;
+    const { signedOrder, orderType = "GTC", options, userCreds, userAddress } = body;
 
     if (!signedOrder) {
       return NextResponse.json({ error: "Missing signedOrder" }, { status: 400 });
     }
 
-    const key = process.env.POLYMARKET_BUILDER_API_KEY;
-    const secret = process.env.POLYMARKET_BUILDER_SECRET;
-    const passphrase = process.env.POLYMARKET_BUILDER_PASSPHRASE;
+    if (!userCreds?.apiKey || !userCreds?.secret || !userCreds?.passphrase) {
+      return NextResponse.json({ error: "Missing user CLOB API credentials" }, { status: 400 });
+    }
+
+    const builderKey = process.env.POLYMARKET_BUILDER_API_KEY;
+    const builderSecret = process.env.POLYMARKET_BUILDER_SECRET;
+    const builderPassphrase = process.env.POLYMARKET_BUILDER_PASSPHRASE;
 
     const region = process.env.VERCEL_REGION || "unknown";
 
-    if (!key || !secret || !passphrase) {
-      return NextResponse.json(
-        { error: "Builder credentials not configured", _serverRegion: region },
-        { status: 500 }
-      );
-    }
-
+    // Build the order payload
     const orderPayload = JSON.stringify({ order: signedOrder, orderType, ...options });
 
-    // Build HMAC headers for builder attribution
-    const signer = new BuilderSigner({ key, secret, passphrase });
-    const builderHeaders = signer.createBuilderHeaderPayload("POST", "/order", orderPayload);
+    // ── L2 User Auth Headers ──
+    const l2Headers = createL2Headers(userCreds, "POST", "/order", orderPayload);
+    l2Headers.POLY_ADDRESS = userAddress || "";
 
+    // ── Builder Attribution Headers ──
+    let builderHeaders: Record<string, string> = {};
+    if (builderKey && builderSecret && builderPassphrase) {
+      const signer = new BuilderSigner({
+        key: builderKey,
+        secret: builderSecret,
+        passphrase: builderPassphrase,
+      });
+      const bh = signer.createBuilderHeaderPayload("POST", "/order", orderPayload);
+      if (bh) {
+        for (const [k, v] of Object.entries(bh)) {
+          if (typeof v === "string") builderHeaders[k] = v;
+        }
+      }
+    }
+
+    // Merge all headers
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
       Accept: "application/json",
+      ...l2Headers,
+      ...builderHeaders,
     };
 
-    if (builderHeaders) {
-      for (const [k, v] of Object.entries(builderHeaders)) {
-        if (typeof v === "string") headers[k] = v;
-      }
-    }
+    console.log("[Order Proxy] Region:", region, "| Headers:", Object.keys(headers).join(", "));
 
     // Forward to CLOB
     const clobRes = await fetch(`${CLOB_HOST}/order`, {
