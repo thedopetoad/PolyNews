@@ -250,14 +250,17 @@ export function usePolymarketTrade() {
       const result = await proxyRes.json();
       console.log("[PolyStream Trade] CLOB response:", JSON.stringify(result));
 
-      if (result?.success === false) {
-        const msg = result.errorMsg || result.error_msg || "Order rejected by Polymarket";
-        if (msg.includes("auth") || msg.includes("key") || msg.includes("401")) {
+      // Check for errors — the CLOB returns { error: "..." } on failure,
+      // NOT { success: false }. Also check HTTP status.
+      if (!proxyRes.ok || result?.error) {
+        const msg = result?.error || result?.errorMsg || result?.error_msg || "Order rejected by Polymarket";
+        // Clear cached creds on auth errors so next trade re-derives
+        if (msg.includes("auth") || msg.includes("key") || msg.includes("Unauthorized")) {
           cachedCredsRef.current = null;
           localStorage.removeItem(CREDS_STORAGE_KEY);
         }
         setError(msg);
-        return { success: false, error: msg, orderID: result.orderID };
+        return { success: false, error: msg, orderID: result?.orderID };
       }
 
       return {
