@@ -4,6 +4,7 @@ import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { useUser } from "@/hooks/use-user";
 import { usePolymarketTrade } from "@/hooks/use-polymarket-trade";
+import { usePolymarketSetup } from "@/hooks/use-polymarket-setup";
 import { LoginButton } from "@/components/layout/login-modal";
 import { BridgeDepositModal } from "@/components/portfolio/bridge-deposit-modal";
 import { useT } from "@/lib/i18n";
@@ -42,6 +43,7 @@ const QUICK_AMOUNTS = [1, 5, 10, 100];
 export function BetSlip({ eventTitle, eventSlug, eventEndDate, marketId, marketQuestion, outcomes, negRisk }: BetSlipProps) {
   const { address, isConnected } = useUser();
   const { placeOrder, placing, error: tradeError, canTrade, isOnPolygon } = usePolymarketTrade();
+  const { status: setupStatus, enableTrading, isReady: tradingEnabled, isApproving, error: setupError } = usePolymarketSetup();
   const { switchChain } = useSwitchChain();
 
   // Funds live in the Polymarket proxy wallet (derived from the EOA), not
@@ -251,30 +253,58 @@ export function BetSlip({ eventTitle, eventSlug, eventEndDate, marketId, marketQ
         </p>
       )}
 
-      {/* Single trade button — handles chain switching automatically */}
+      {/* Enable Trading button — shown when proxy isn't set up yet */}
+      {!tradingEnabled && setupStatus !== "checking" && (
+        <button
+          onClick={enableTrading}
+          disabled={isApproving}
+          className={cn(
+            "w-full py-3 rounded-lg text-sm font-bold transition-all mb-2",
+            isApproving
+              ? "bg-[#21262d] text-[#484f58] cursor-wait"
+              : "bg-[#58a6ff] text-white hover:bg-[#4d8fea] active:scale-[0.98]"
+          )}
+        >
+          {isApproving ? "Enabling trading..." : "Enable Trading"}
+        </button>
+      )}
+      {setupError && (
+        <p className="text-[10px] text-[#f85149] text-center mb-2">{setupError}</p>
+      )}
+      {!tradingEnabled && setupStatus !== "checking" && (
+        <p className="text-[10px] text-[#768390] text-center mb-2">
+          One-time setup: deploys your proxy wallet and approves tokens. Gas-free.
+        </p>
+      )}
+
+      {/* Trade button — only active after trading is enabled */}
       <button
         onClick={handleTrade}
-        disabled={placing || amountNum <= 0}
+        disabled={placing || amountNum <= 0 || (!tradingEnabled && setupStatus !== "checking")}
         className={cn(
           "w-full py-3 rounded-lg text-sm font-bold transition-all",
           placing
             ? "bg-[#21262d] text-[#484f58] cursor-wait"
-            : amountNum <= 0
+            : !tradingEnabled
               ? "bg-[#21262d] text-[#484f58]"
-              : insufficientBalance
-                ? "bg-[#d29922]/20 text-[#d29922] hover:bg-[#d29922]/30 active:scale-[0.98]"
-                : "bg-[#238636] text-white hover:bg-[#2ea043] active:scale-[0.98]"
+              : amountNum <= 0
+                ? "bg-[#21262d] text-[#484f58]"
+                : insufficientBalance
+                  ? "bg-[#d29922]/20 text-[#d29922] hover:bg-[#d29922]/30 active:scale-[0.98]"
+                  : "bg-[#238636] text-white hover:bg-[#2ea043] active:scale-[0.98]"
         )}
       >
         {placing
           ? t.betSlip.confirmingInWallet
-          : amountNum <= 0
-            ? "Enter an amount"
-            : insufficientBalance
-              ? t.betSlip.insufficientUsdc
-              : side === "BUY"
-                ? `Buy $${amountNum.toFixed(2)} ${selected?.name || ""}`
-                : `Sell $${amountNum.toFixed(2)} ${selected?.name || ""}`}
+          : !tradingEnabled
+            ? "Enable trading first"
+            : amountNum <= 0
+              ? "Enter an amount"
+              : insufficientBalance
+                ? t.betSlip.insufficientUsdc
+                : side === "BUY"
+                  ? `Buy $${amountNum.toFixed(2)} ${selected?.name || ""}`
+                  : `Sell $${amountNum.toFixed(2)} ${selected?.name || ""}`}
       </button>
 
       {/* Result / Error */}
