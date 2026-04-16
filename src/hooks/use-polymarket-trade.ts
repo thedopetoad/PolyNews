@@ -193,12 +193,17 @@ export function usePolymarketTrade() {
       // when there wasn't enough instant liquidity.
       // createAndPostOrder is for limit orders (supports GTC/GTD).
       // createAndPostMarketOrder only supports FOK/FAK.
+      // Limit orders use `size` (shares), not `amount` (USDC).
+      // Convert: shares = amount / price.
+      const price = params.price ?? 0.5;
+      const size = params.amount / price;
+
       const result = await authedClient.createAndPostOrder(
         {
           tokenID: params.tokenId,
-          amount: params.amount,
+          size,
           side: params.side === "BUY" ? Side.BUY : Side.SELL,
-          price: params.price ?? 0.5,
+          price,
         },
         {
           tickSize: params.tickSize || "0.01",
