@@ -87,7 +87,11 @@ export function usePolymarketTrade() {
   const [error, setError] = useState<string | null>(null);
   const cachedCredsRef = useRef<ApiKeyCreds | null>(null);
 
-  const isOnPolygon = chainId === POLYGON_CHAIN_ID;
+  // Magic/Google-login users are hardwired to Polygon — wagmi's chainId may
+  // report undefined for them until their connector finishes attaching, which
+  // spuriously triggers the "wrong chain" flow in the bet slip. Treat Magic
+  // users as always on Polygon; only enforce the check for real wallets.
+  const isOnPolygon = googleAddress ? true : chainId === POLYGON_CHAIN_ID;
   const canTrade = !!(address && walletClient && isOnPolygon);
 
   const getOrDeriveCreds = useCallback(async (client: ClobClient, addr: string): Promise<ApiKeyCreds> => {
