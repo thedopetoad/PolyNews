@@ -126,6 +126,35 @@ export default function PortfolioPage() {
     refetchInterval: 30_000,
   });
 
+  interface PolyActivity {
+    proxyWallet: string;
+    timestamp: number;
+    conditionId: string;
+    type: string;
+    size: number;
+    usdcSize: number;
+    transactionHash: string;
+    price: number;
+    asset: string;
+    side: string;
+    outcomeIndex: number;
+    title: string;
+    slug?: string;
+  }
+  const { data: polyActivity } = useQuery<PolyActivity[]>({
+    queryKey: ["polymarket-activity", proxyAddress],
+    queryFn: async () => {
+      if (!proxyAddress) return [];
+      const res = await fetch(`/api/polymarket/activity?user=${proxyAddress}`);
+      if (!res.ok) return [];
+      const data = await res.json();
+      return data.activity || [];
+    },
+    enabled: !!proxyAddress,
+    staleTime: 15_000,
+    refetchInterval: 30_000,
+  });
+
   // Real positions — Polymarket data API only, no DB fallback
   const realPositions = (polyPositions || []).map((p) => ({
     id: p.asset || p.conditionId,
@@ -690,14 +719,69 @@ export default function PortfolioPage() {
         </div>
       )}
 
-      {/* History Tab */}
+      {/* History Tab — Real */}
       {tab === "history" && portfolioMode === "real" && (
         <div className="rounded-lg border border-[#21262d] bg-[#161b22] overflow-hidden">
-          <div className="text-center py-16">
-            <div className="text-4xl mb-3">📜</div>
-            <p className="text-sm font-medium text-[#e6edf3]">Trade History</p>
-            <p className="text-xs text-[#484f58] mt-1">Real trade history will appear here once you place trades on Sports.</p>
+          <div className="grid grid-cols-12 gap-2 px-4 py-2.5 text-[10px] text-[#484f58] uppercase tracking-wider border-b border-[#21262d]">
+            <div className="col-span-1">Side</div>
+            <div className="col-span-5">Market</div>
+            <div className="col-span-2 text-right">Shares</div>
+            <div className="col-span-2 text-right">Price / Total</div>
+            <div className="col-span-2 text-right">When</div>
           </div>
+          {!polyActivity || polyActivity.length === 0 ? (
+            <div className="text-center py-12">
+              <div className="text-4xl mb-3">📜</div>
+              <p className="text-sm font-medium text-[#e6edf3]">No trades yet</p>
+              <p className="text-xs text-[#484f58] mt-1">
+                Place a trade on the <Link href="/sports" className="text-[#58a6ff] hover:underline">Sports page</Link> to see history here.
+              </p>
+            </div>
+          ) : (
+            <div className="divide-y divide-[#21262d]">
+              {polyActivity.map((a, i) => {
+                const when = new Date(a.timestamp * 1000);
+                const elapsed = Date.now() - a.timestamp * 1000;
+                const hours = elapsed / 3600000;
+                const whenLabel =
+                  elapsed < 60000 ? "just now" :
+                  elapsed < 3600000 ? `${Math.floor(elapsed / 60000)}m ago` :
+                  hours < 24 ? `${Math.floor(hours)}h ago` :
+                  when.toLocaleDateString();
+                return (
+                  <a
+                    key={`${a.transactionHash}-${i}`}
+                    href={`https://polygonscan.com/tx/${a.transactionHash}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="grid grid-cols-12 gap-2 px-4 py-3 items-center hover:bg-[#1c2128]/50 transition-colors"
+                  >
+                    <div className="col-span-1">
+                      <span className={cn(
+                        "text-[10px] font-bold px-1.5 py-0.5 rounded",
+                        a.side === "BUY" ? "bg-[#3fb950]/15 text-[#3fb950]" : "bg-[#f85149]/15 text-[#f85149]"
+                      )}>
+                        {a.side}
+                      </span>
+                    </div>
+                    <div className="col-span-5">
+                      <p className="text-[13px] text-[#e6edf3] font-medium leading-snug line-clamp-1">{a.title}</p>
+                    </div>
+                    <div className="col-span-2 text-right">
+                      <span className="text-xs text-[#e6edf3] tabular-nums font-medium">{a.size.toFixed(2)}</span>
+                    </div>
+                    <div className="col-span-2 text-right">
+                      <span className="text-xs text-[#e6edf3] tabular-nums font-medium">{Math.round(a.price * 100)}¢</span>
+                      <span className="text-[10px] text-[#484f58] ml-1 tabular-nums">{formatUsd(a.usdcSize)}</span>
+                    </div>
+                    <div className="col-span-2 text-right">
+                      <span className="text-[11px] text-[#768390] tabular-nums">{whenLabel}</span>
+                    </div>
+                  </a>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
 
