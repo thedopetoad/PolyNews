@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { BuilderSigner } from "@polymarket/builder-signing-sdk";
 
-// Run in a non-blocked region. Polymarket geoblocks US, UK, DE, FR, IT,
-// NL, BE, AU, SG + many others. Try multiple non-blocked regions.
+// Edge runtime with non-blocked region. Serverless preferredRegion was
+// ignored on Hobby plan (always ran in iad1/US). Edge functions respect
+// preferredRegion on all plans.
+export const runtime = "edge";
 export const preferredRegion = ["hnd1", "hkg1", "gru1", "bom1"];
 
 const CLOB_HOST = "https://clob.polymarket.com";
