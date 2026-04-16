@@ -32,6 +32,13 @@ interface BetSlipProps {
   marketId: string;
   marketQuestion: string;
   outcomes: BetOutcome[];
+  /**
+   * Which outcome index the user clicked on the game card. Pre-selects
+   * that outcome in the slip so clicking "ORIO" on the card shows ORIO
+   * in the slip instead of defaulting to index 0. Syncs on change, so
+   * clicking a different card outcome flips the slip to match.
+   */
+  initialOutcomeIdx?: number;
   negRisk?: boolean;
 }
 
@@ -43,7 +50,7 @@ function abbrev(name: string): string {
 
 const QUICK_AMOUNTS = [1, 5, 10, 100];
 
-export function BetSlip({ eventTitle, eventSlug, eventEndDate, marketId, marketQuestion, outcomes, negRisk }: BetSlipProps) {
+export function BetSlip({ eventTitle, eventSlug, eventEndDate, marketId, marketQuestion, outcomes, initialOutcomeIdx = 0, negRisk }: BetSlipProps) {
   const { address, isConnected } = useUser();
   const { placeOrder, placing, error: tradeError, canTrade, isOnPolygon } = usePolymarketTrade();
   const { status: setupStatus, isReady: tradingEnabled, refresh: refreshSetup } = usePolymarketSetup();
@@ -70,11 +77,19 @@ export function BetSlip({ eventTitle, eventSlug, eventEndDate, marketId, marketQ
   const { t } = useT();
 
   const [side, setSide] = useState<"BUY" | "SELL">("BUY");
-  const [selectedOutcome, setSelectedOutcome] = useState<number>(0);
+  const [selectedOutcome, setSelectedOutcome] = useState<number>(initialOutcomeIdx);
   const [amount, setAmount] = useState("");
   const [result, setResult] = useState<{ success: boolean; msg: string; txHashes?: string[]; side?: "BUY" | "SELL" } | null>(null);
   const [depositOpen, setDepositOpen] = useState(false);
   const [enableOpen, setEnableOpen] = useState(false);
+
+  // Sync selection with parent — card click on a different outcome should
+  // flip the slip. Also resets on marketId change (a different row / market
+  // in the same section shouldn't carry stale selection or result state).
+  useEffect(() => {
+    setSelectedOutcome(initialOutcomeIdx);
+    setResult(null);
+  }, [initialOutcomeIdx, marketId]);
 
   // Live-refresh prices every 5s so the bet slip always shows current odds
   const [livePrices, setLivePrices] = useState<Record<string, number>>({});

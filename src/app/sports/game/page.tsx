@@ -141,6 +141,7 @@ function MarketSection({ title, markets, volume, eventTitle, eventSlug, eventEnd
             marketId={selectedMarket.id}
             marketQuestion={selectedMarket.question}
             outcomes={betOutcomes}
+            initialOutcomeIdx={selectedOutcomeIdx ?? 0}
             negRisk={negRisk}
           />
         </div>
