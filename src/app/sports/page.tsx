@@ -565,21 +565,17 @@ function LiveRadioPlayer({ teamA, teamB }: { teamA: string; teamB: string }) {
    Order Book / Graph switcher. Defaults to Order Book since that's the
    live view most users want when they've just expanded a card. */
 function CardBookChartTabs({ tokenId, chartOutcomes }: { tokenId: string; chartOutcomes: ChartOutcome[] }) {
-  const [tab, setTab] = useState<"book" | "chart">("book");
+  // Default to Price History — cleaner and more visual at a glance; order
+  // book is there one click away for traders who want depth.
+  const [tab, setTab] = useState<"chart" | "book">("chart");
+  // Whole card bubbles a click to collapse itself, so we have to stop the
+  // tab clicks and the wrapper from propagating — otherwise tapping a tab
+  // closes the card.
   return (
-    <div>
+    <div onClick={(e) => e.stopPropagation()}>
       <div className="flex items-center gap-4 mb-2 border-b border-[#21262d]">
         <button
-          onClick={() => setTab("book")}
-          className={cn(
-            "pb-1.5 text-xs font-semibold transition-colors border-b-2 -mb-[1px]",
-            tab === "book" ? "text-white border-[#58a6ff]" : "text-[#768390] border-transparent hover:text-[#e6edf3]"
-          )}
-        >
-          Order Book
-        </button>
-        <button
-          onClick={() => setTab("chart")}
+          onClick={(e) => { e.stopPropagation(); setTab("chart"); }}
           className={cn(
             "pb-1.5 text-xs font-semibold transition-colors border-b-2 -mb-[1px]",
             tab === "chart" ? "text-white border-[#58a6ff]" : "text-[#768390] border-transparent hover:text-[#e6edf3]"
@@ -587,11 +583,20 @@ function CardBookChartTabs({ tokenId, chartOutcomes }: { tokenId: string; chartO
         >
           Price History
         </button>
+        <button
+          onClick={(e) => { e.stopPropagation(); setTab("book"); }}
+          className={cn(
+            "pb-1.5 text-xs font-semibold transition-colors border-b-2 -mb-[1px]",
+            tab === "book" ? "text-white border-[#58a6ff]" : "text-[#768390] border-transparent hover:text-[#e6edf3]"
+          )}
+        >
+          Order Book
+        </button>
       </div>
-      {tab === "book" ? (
-        <OrderBook tokenId={tokenId} side="BUY" />
-      ) : (
+      {tab === "chart" ? (
         <SportsMultiChart outcomes={chartOutcomes} />
+      ) : (
+        <OrderBook tokenId={tokenId} side="BUY" />
       )}
     </div>
   );
@@ -1099,10 +1104,6 @@ function SportsContent() {
         </div>
       </div>
 
-      {/* Desktop — odds format menu anchored top-right of the content column */}
-      <div className="hidden lg:flex items-center justify-end mb-3">
-        <OddsFormatMenu />
-      </div>
 
       {/* 3-column layout matching polymarket.com/sports */}
       <div className="flex gap-5">
@@ -1256,13 +1257,13 @@ function SportsContent() {
             <h2 className="text-2xl font-bold text-white">
               {view === "live" ? "Sports Live" : selectedLeague?.name || selectedSport.toUpperCase()}
             </h2>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-3">
               {view === "live" && totalLiveCount > 0 && (
                 <span className="text-[11px] text-[#768390] tabular-nums">
                   {totalLiveCount} {totalLiveCount === 1 ? "game" : "games"}
                 </span>
               )}
-              <LoginButton />
+              <OddsFormatMenu />
             </div>
           </div>
 
