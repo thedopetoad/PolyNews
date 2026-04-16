@@ -213,9 +213,11 @@ export function usePolymarketTrade() {
         OrderType.FOK,
       );
 
+      // Log the full CLOB response for debugging
+      console.log("[PolyStream Trade] CLOB response:", JSON.stringify(result));
+
       if (result?.success === false) {
-        const msg = result.errorMsg || "Order rejected by Polymarket";
-        // If auth error, clear cached creds so next attempt re-derives
+        const msg = result.errorMsg || result.error_msg || "Order rejected by Polymarket";
         if (msg.includes("auth") || msg.includes("key") || msg.includes("401")) {
           cachedCredsRef.current = null;
           localStorage.removeItem(CREDS_STORAGE_KEY);

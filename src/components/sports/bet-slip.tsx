@@ -139,7 +139,8 @@ export function BetSlip({ eventTitle, eventSlug, eventEndDate, marketId, marketQ
       negRisk,
     });
     if (res.success) {
-      setResult({ success: true, msg: `Order placed! ${shares.toFixed(1)} shares of ${selected.name}` });
+      const statusInfo = res.status ? ` (${res.status})` : "";
+      setResult({ success: true, msg: `Order ${res.status === "MATCHED" ? "filled" : "placed"}! ${shares.toFixed(1)} shares of ${selected.name}${statusInfo}` });
       setAmount("");
     } else {
       setResult({ success: false, msg: res.error || "Order failed" });
