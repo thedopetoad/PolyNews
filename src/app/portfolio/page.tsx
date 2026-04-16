@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { useUser } from "@/hooks/use-user";
 import { usePositionLivePrices } from "@/hooks/use-live-prices";
+import { useQuery } from "@tanstack/react-query";
 import { useBalance } from "wagmi";
 import { useAuthStore } from "@/stores/use-auth-store";
 import { LoginButton } from "@/components/layout/login-modal";
@@ -90,9 +91,66 @@ export default function PortfolioPage() {
     prevBalRef.current = usdcBal;
   }, [usdcBal, bridgeState, completeBridge]);
 
-  // Split positions by type
-  const realPositions = paperPositions.filter((p) => p.tradeType === "real");
+  // Split DB positions by type
+  const dbRealPositions = paperPositions.filter((p) => p.tradeType === "real");
   const paperOnlyPositions = paperPositions.filter((p) => p.tradeType !== "real");
+
+  // Fetch REAL positions from Polymarket's data API (source of truth).
+  // Falls back to our DB-tracked positions if the API returns empty
+  // (e.g. data API indexing delay, or trades not settled yet).
+  interface PolyPosition {
+    title: string;
+    market: { slug: string; question: string };
+    outcome: string;
+    size: number;
+    avgPrice: number;
+    curPrice: number;
+    initialValue: number;
+    currentValue: number;
+    cashPnl: number;
+    percentPnl: number;
+    conditionId: string;
+    asset: string;
+    proxyWallet: string;
+  }
+  const { data: polyPositions } = useQuery<PolyPosition[]>({
+    queryKey: ["polymarket-positions", proxyAddress],
+    queryFn: async () => {
+      if (!proxyAddress) return [];
+      const res = await fetch(`/api/polymarket/positions?user=${proxyAddress}`);
+      if (!res.ok) return [];
+      const data = await res.json();
+      return data.positions || [];
+    },
+    enabled: !!proxyAddress,
+    staleTime: 15_000,
+    refetchInterval: 30_000,
+  });
+
+  // Use Polymarket data API positions if available, otherwise fall back to our DB
+  const realPositions = (polyPositions && polyPositions.length > 0)
+    ? polyPositions.map((p) => ({
+        id: p.asset || p.conditionId,
+        userId: address || "",
+        marketId: p.conditionId,
+        marketQuestion: p.title || p.market?.question || "",
+        outcome: p.outcome || "Yes",
+        shares: p.size,
+        avgPrice: p.avgPrice,
+        clobTokenId: p.asset || null,
+        marketEndDate: null,
+        eventSlug: p.market?.slug || null,
+        tradeType: "real" as const,
+        clobOrderId: null,
+        createdAt: "",
+        updatedAt: "",
+        // Extra fields from Polymarket data API
+        _curPrice: p.curPrice,
+        _cashPnl: p.cashPnl,
+        _percentPnl: p.percentPnl,
+        _currentValue: p.currentValue,
+      }))
+    : dbRealPositions;
 
   // Paper portfolio value
   const paperBalance = user?.balance || 0;
@@ -129,13 +187,18 @@ export default function PortfolioPage() {
     return total;
   }, [paperOnlyPositions, livePrices]);
 
-  // Real P&L
+  // Real P&L — prefer Polymarket data API values when available
   const realPnl = useMemo(() => {
     let total = 0;
     for (const pos of realPositions) {
-      const live = livePrices[pos.marketId];
-      const livePrice = live ? (pos.outcome === "Yes" ? live.yesPrice : live.noPrice) : pos.avgPrice;
-      total += (livePrice - pos.avgPrice) * pos.shares;
+      const ext = pos as typeof pos & { _cashPnl?: number };
+      if (ext._cashPnl !== undefined) {
+        total += ext._cashPnl;
+      } else {
+        const live = livePrices[pos.marketId];
+        const livePrice = live ? (pos.outcome === "Yes" ? live.yesPrice : live.noPrice) : pos.avgPrice;
+        total += (livePrice - pos.avgPrice) * pos.shares;
+      }
     }
     return total;
   }, [realPositions, livePrices]);
@@ -449,11 +512,14 @@ export default function PortfolioPage() {
           ) : (
             <div className="divide-y divide-[#21262d]">
               {realPositions.map((pos) => {
+                // Prefer Polymarket data API values (from _curPrice etc.) over our live price hook
+                const ext = pos as typeof pos & { _curPrice?: number; _cashPnl?: number; _percentPnl?: number; _currentValue?: number };
+                const hasPoly = ext._curPrice !== undefined;
                 const live = livePrices[pos.marketId];
-                const livePrice = live ? (pos.outcome === "Yes" ? live.yesPrice : live.noPrice) : pos.avgPrice;
-                const value = pos.shares * livePrice;
-                const pnl = (livePrice - pos.avgPrice) * pos.shares;
-                const pnlPct = pos.avgPrice > 0 ? ((livePrice - pos.avgPrice) / pos.avgPrice) * 100 : 0;
+                const livePrice = hasPoly ? ext._curPrice! : (live ? (pos.outcome === "Yes" ? live.yesPrice : live.noPrice) : pos.avgPrice);
+                const value = hasPoly && ext._currentValue !== undefined ? ext._currentValue : pos.shares * livePrice;
+                const pnl = hasPoly && ext._cashPnl !== undefined ? ext._cashPnl : (livePrice - pos.avgPrice) * pos.shares;
+                const pnlPct = hasPoly && ext._percentPnl !== undefined ? ext._percentPnl : (pos.avgPrice > 0 ? ((livePrice - pos.avgPrice) / pos.avgPrice) * 100 : 0);
                 return (
                   <div key={pos.id} className="grid grid-cols-12 gap-2 px-4 py-3 items-center hover:bg-[#1c2128]/50 transition-colors">
                     <div className="col-span-4">
@@ -463,7 +529,7 @@ export default function PortfolioPage() {
                     <div className="col-span-2 text-right">
                       <span className="text-xs text-[#768390] tabular-nums">{Math.round(pos.avgPrice * 100)}¢</span>
                       <span className="text-[10px] text-[#484f58] mx-0.5">→</span>
-                      <span className={cn("text-xs font-medium tabular-nums", live ? "text-[#e6edf3]" : "text-[#484f58]")}>
+                      <span className={cn("text-xs font-medium tabular-nums", (hasPoly || live) ? "text-[#e6edf3]" : "text-[#484f58]")}>
                         {Math.round(livePrice * 100)}¢
                       </span>
                     </div>
