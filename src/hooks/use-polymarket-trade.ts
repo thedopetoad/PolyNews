@@ -264,7 +264,11 @@ export function usePolymarketTrade() {
         const raw = result?.error || result?.errorMsg || result?.error_msg || "Order rejected by Polymarket";
         let msg = raw;
         // Translate common cryptic CLOB errors into user-friendly messages
-        if (raw.includes("not enough liquidity") || raw.includes("no asks") || raw.includes("no bids") || raw.includes("could not be filled")) {
+        if (raw.includes("allowance is not enough") || raw.includes("allowance: 0")) {
+          msg = "Trading not enabled for this market type. Go to a game, tap Sell then Buy, then hit \"Enable Trading\" to approve all exchange contracts.";
+        } else if (raw.includes("not enough balance")) {
+          msg = "Insufficient USDC.e in your Polymarket proxy wallet. Deposit more to trade.";
+        } else if (raw.includes("not enough liquidity") || raw.includes("no asks") || raw.includes("no bids") || raw.includes("could not be filled")) {
           msg = "Not enough liquidity at this price. The market is too thin — try a smaller amount or wait for better odds.";
         } else if (raw.includes("not match") || raw.includes("price range")) {
           msg = "Price moved more than 5% while the order was being placed. Try again with the current odds.";

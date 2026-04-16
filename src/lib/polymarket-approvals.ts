@@ -89,23 +89,34 @@ export async function checkApprovals(
   proxyAddress: `0x${string}`
 ): Promise<{ allApproved: boolean; usdcApproved: boolean; tokensApproved: boolean }> {
   try {
-    // Check one USDC.e approval (CTF Exchange — the main one)
-    const usdcAllowance = await publicClient.readContract({
-      address: USDC_E,
-      abi: erc20Abi,
-      functionName: "allowance",
-      args: [proxyAddress, CTF_EXCHANGE],
-    });
-    const usdcApproved = usdcAllowance > BigInt(0);
+    // Check ALL 4 USDC.e approvals — soccer + other multi-outcome markets
+    // use Neg Risk exchange/adapter which need their own approvals.
+    const usdcSpenders = [CTF, CTF_EXCHANGE, NEG_RISK_CTF_EXCHANGE, NEG_RISK_ADAPTER];
+    const usdcAllowances = await Promise.all(
+      usdcSpenders.map((spender) =>
+        publicClient.readContract({
+          address: USDC_E,
+          abi: erc20Abi,
+          functionName: "allowance",
+          args: [proxyAddress, spender],
+        })
+      )
+    );
+    const usdcApproved = usdcAllowances.every((a) => a > BigInt(0));
 
-    // Check one outcome token approval (CTF → CTF Exchange)
-    const tokenApproved = await publicClient.readContract({
-      address: CTF,
-      abi: ERC1155_APPROVAL_ABI,
-      functionName: "isApprovedForAll",
-      args: [proxyAddress, CTF_EXCHANGE],
-    });
-    const tokensApproved = Boolean(tokenApproved);
+    // Check ALL 3 outcome token approvals
+    const tokenSpenders = [CTF_EXCHANGE, NEG_RISK_CTF_EXCHANGE, NEG_RISK_ADAPTER];
+    const tokenApprovals = await Promise.all(
+      tokenSpenders.map((spender) =>
+        publicClient.readContract({
+          address: CTF,
+          abi: ERC1155_APPROVAL_ABI,
+          functionName: "isApprovedForAll",
+          args: [proxyAddress, spender],
+        })
+      )
+    );
+    const tokensApproved = tokenApprovals.every(Boolean);
 
     return {
       allApproved: usdcApproved && tokensApproved,
