@@ -91,13 +91,11 @@ export default function PortfolioPage() {
     prevBalRef.current = usdcBal;
   }, [usdcBal, bridgeState, completeBridge]);
 
-  // Split DB positions by type
-  const dbRealPositions = paperPositions.filter((p) => p.tradeType === "real");
+  // Paper positions only — real positions come exclusively from Polymarket's data API
   const paperOnlyPositions = paperPositions.filter((p) => p.tradeType !== "real");
 
   // Fetch REAL positions from Polymarket's data API (source of truth).
-  // Falls back to our DB-tracked positions if the API returns empty
-  // (e.g. data API indexing delay, or trades not settled yet).
+  // No DB fallback — if the data API says 0 positions, that's the truth.
   interface PolyPosition {
     title: string;
     market: { slug: string; question: string };
@@ -127,30 +125,27 @@ export default function PortfolioPage() {
     refetchInterval: 30_000,
   });
 
-  // Use Polymarket data API positions if available, otherwise fall back to our DB
-  const realPositions = (polyPositions && polyPositions.length > 0)
-    ? polyPositions.map((p) => ({
-        id: p.asset || p.conditionId,
-        userId: address || "",
-        marketId: p.conditionId,
-        marketQuestion: p.title || p.market?.question || "",
-        outcome: p.outcome || "Yes",
-        shares: p.size,
-        avgPrice: p.avgPrice,
-        clobTokenId: p.asset || null,
-        marketEndDate: null,
-        eventSlug: p.market?.slug || null,
-        tradeType: "real" as const,
-        clobOrderId: null,
-        createdAt: "",
-        updatedAt: "",
-        // Extra fields from Polymarket data API
-        _curPrice: p.curPrice,
-        _cashPnl: p.cashPnl,
-        _percentPnl: p.percentPnl,
-        _currentValue: p.currentValue,
-      }))
-    : dbRealPositions;
+  // Real positions — Polymarket data API only, no DB fallback
+  const realPositions = (polyPositions || []).map((p) => ({
+    id: p.asset || p.conditionId,
+    userId: address || "",
+    marketId: p.conditionId,
+    marketQuestion: p.title || p.market?.question || "",
+    outcome: p.outcome || "Yes",
+    shares: p.size,
+    avgPrice: p.avgPrice,
+    clobTokenId: p.asset || null,
+    marketEndDate: null,
+    eventSlug: p.market?.slug || null,
+    tradeType: "real" as const,
+    clobOrderId: null,
+    createdAt: "",
+    updatedAt: "",
+    _curPrice: p.curPrice,
+    _cashPnl: p.cashPnl,
+    _percentPnl: p.percentPnl,
+    _currentValue: p.currentValue,
+  }));
 
   // Paper portfolio value
   const paperBalance = user?.balance || 0;

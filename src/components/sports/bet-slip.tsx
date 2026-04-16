@@ -110,35 +110,8 @@ export function BetSlip({ eventTitle, eventSlug, eventEndDate, marketId, marketQ
       negRisk,
     });
     if (res.success) {
-      setResult({ success: true, msg: `Order filled! ${shares.toFixed(1)} shares of ${selected.name}` });
+      setResult({ success: true, msg: `Order placed! ${shares.toFixed(1)} shares of ${selected.name}` });
       setAmount("");
-      // Persist the position in our DB so it shows up in Portfolio
-      try {
-        const saveRes = await fetch("/api/trade/real", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            userId: address,
-            marketId,
-            marketQuestion,
-            outcome: selected.name,
-            shares,
-            price: selected.price,
-            clobTokenId: selected.tokenId,
-            clobOrderId: res.orderID,
-            eventSlug,
-            endDate: eventEndDate,
-            side,
-          }),
-        });
-        if (!saveRes.ok) {
-          const err = await saveRes.text();
-          console.error("Failed to save position:", err);
-          setResult({ success: true, msg: `Order filled! ${shares.toFixed(1)} shares — but failed to save to portfolio.` });
-        }
-      } catch (e) {
-        console.error("Failed to save position:", e);
-      }
     } else {
       setResult({ success: false, msg: res.error || "Order failed" });
     }
