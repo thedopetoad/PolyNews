@@ -7,6 +7,7 @@ import { RelayClient, RelayerTxType } from "@polymarket/builder-relayer-client";
 import { BuilderConfig } from "@polymarket/builder-signing-sdk";
 import { deriveProxyAddress } from "@/lib/relay";
 import { buildApprovalTransactions, checkApprovals } from "@/lib/polymarket-approvals";
+import { useAuthStore } from "@/stores/use-auth-store";
 
 const RELAYER_URL = "https://relayer-v2.polymarket.com/";
 const POLYGON_CHAIN_ID = 137;
@@ -33,7 +34,11 @@ export type SetupStatus = "checking" | "not_ready" | "ready" | "approving" | "er
  * message in their wallet — no gas, no on-chain tx from the EOA.
  */
 export function usePolymarketSetup() {
-  const { address } = useAccount();
+  const { address: wagmiAddress } = useAccount();
+  const googleAddress = useAuthStore((s) => s.googleAddress);
+  // Prefer Google address for Magic users (wagmi connector may take a moment
+  // to attach on session restore). Falls back to wagmi for MetaMask/Phantom.
+  const address = (googleAddress || wagmiAddress) as `0x${string}` | undefined;
   const { data: walletClient } = useWalletClient();
   const publicClient = usePublicClient({ chainId: POLYGON_CHAIN_ID });
   const wagmiConfig = useConfig();

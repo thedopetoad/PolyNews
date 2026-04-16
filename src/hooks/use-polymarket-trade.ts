@@ -8,6 +8,7 @@ import { Side, OrderType } from "@polymarket/clob-client";
 import type { ApiKeyCreds } from "@polymarket/clob-client";
 import { BuilderConfig } from "@polymarket/builder-signing-sdk";
 import { deriveProxyAddress } from "@/lib/relay";
+import { useAuthStore } from "@/stores/use-auth-store";
 
 const CLOB_HOST = "https://clob.polymarket.com";
 const POLYGON_CHAIN_ID = 137;
@@ -73,7 +74,10 @@ function saveCreds(address: string, creds: ApiKeyCreds) {
  * 2. Each trade only requires the order EIP-712 signature
  */
 export function usePolymarketTrade() {
-  const { address, chainId } = useAccount();
+  const { address: wagmiAddress, chainId } = useAccount();
+  const googleAddress = useAuthStore((s) => s.googleAddress);
+  // Prefer Google/Magic address over wagmi for the same reason as useUser.
+  const address = (googleAddress || wagmiAddress) as `0x${string}` | undefined;
   const { data: walletClient } = useWalletClient();
   const wagmiConfig = useConfig();
   const [placing, setPlacing] = useState(false);
