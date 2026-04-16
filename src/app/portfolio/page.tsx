@@ -837,10 +837,11 @@ export default function PortfolioPage() {
         <div className="rounded-lg border border-[#21262d] bg-[#161b22] overflow-hidden">
           <div className="grid grid-cols-12 gap-2 px-4 py-2.5 text-[10px] text-[#484f58] uppercase tracking-wider border-b border-[#21262d]">
             <div className="col-span-1">Side</div>
-            <div className="col-span-5">Market</div>
+            <div className="col-span-4">Market</div>
             <div className="col-span-2 text-right">Shares</div>
             <div className="col-span-2 text-right">Price / Total</div>
             <div className="col-span-2 text-right">When</div>
+            <div className="col-span-1 text-right">Tx</div>
           </div>
           {!polyActivity || polyActivity.length === 0 ? (
             <div className="text-center py-12">
@@ -862,11 +863,8 @@ export default function PortfolioPage() {
                   hours < 24 ? `${Math.floor(hours)}h ago` :
                   when.toLocaleDateString();
                 return (
-                  <a
+                  <div
                     key={`${a.transactionHash}-${i}`}
-                    href={`https://polygonscan.com/tx/${a.transactionHash}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
                     className="grid grid-cols-12 gap-2 px-4 py-3 items-center hover:bg-[#1c2128]/50 transition-colors"
                   >
                     <div className="col-span-1">
@@ -877,7 +875,7 @@ export default function PortfolioPage() {
                         {a.side}
                       </span>
                     </div>
-                    <div className="col-span-5">
+                    <div className="col-span-4">
                       <p className="text-[13px] text-[#e6edf3] font-medium leading-snug line-clamp-1">{a.title}</p>
                     </div>
                     <div className="col-span-2 text-right">
@@ -890,7 +888,21 @@ export default function PortfolioPage() {
                     <div className="col-span-2 text-right">
                       <span className="text-[11px] text-[#768390] tabular-nums">{whenLabel}</span>
                     </div>
-                  </a>
+                    <div className="col-span-1 text-right">
+                      <a
+                        href={`https://polygonscan.com/tx/${a.transactionHash}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        title={`View ${a.transactionHash.slice(0, 10)}… on Polygonscan`}
+                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium text-[#58a6ff] bg-[#58a6ff]/10 hover:bg-[#58a6ff]/20 transition-colors tabular-nums"
+                      >
+                        {a.transactionHash.slice(0, 6)}
+                        <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M7 17L17 7M10 7h7v7" />
+                        </svg>
+                      </a>
+                    </div>
+                  </div>
                 );
               })}
             </div>
