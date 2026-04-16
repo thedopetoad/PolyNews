@@ -158,9 +158,53 @@ export default function PortfolioPage() {
 
   // Positions whose close has already settled onchain. Polymarket's /positions
   // data-api is eventually-consistent (10-30s lag after onchain settlement),
-  // so we hide these locally until the API catches up. Cleared once the API
-  // stops returning the position (i.e. the hide is no longer needed).
-  const [closedLocally, setClosedLocally] = useState<Set<string>>(new Set());
+  // so we hide these locally until the API catches up.
+  //
+  // Persisted to localStorage with a TTL so a page reload within the lag
+  // window still hides them (previous version was in-memory only, so
+  // reloading brought the stale row right back). Entries are removed either
+  // (a) when /positions stops returning the ID, or (b) when the TTL expires
+  // — whichever comes first. 2min TTL is well outside the worst observed
+  // lag (~30s) but short enough to not stick if something goes wrong.
+  const CLOSED_STORAGE_KEY = "polystream-closed-positions";
+  const CLOSED_TTL_MS = 120_000;
+  const [closedLocally, setClosedLocally] = useState<Set<string>>(() => {
+    if (typeof window === "undefined") return new Set();
+    try {
+      const raw = localStorage.getItem(CLOSED_STORAGE_KEY);
+      if (!raw) return new Set();
+      const entries = JSON.parse(raw) as Record<string, number>;
+      const now = Date.now();
+      const live = new Set<string>();
+      for (const [id, expiresAt] of Object.entries(entries)) {
+        if (expiresAt > now) live.add(id);
+      }
+      return live;
+    } catch {
+      return new Set();
+    }
+  });
+
+  // Helper that both sets the in-memory Set AND writes to localStorage.
+  // Use this instead of setClosedLocally directly wherever we add IDs.
+  const addClosedLocal = (id: string) => {
+    setClosedLocally((prev) => {
+      const next = new Set(prev);
+      next.add(id);
+      try {
+        const rawExisting = localStorage.getItem(CLOSED_STORAGE_KEY);
+        const existing = rawExisting ? (JSON.parse(rawExisting) as Record<string, number>) : {};
+        existing[id] = Date.now() + CLOSED_TTL_MS;
+        // Drop expired entries opportunistically so the store doesn't grow.
+        const now = Date.now();
+        for (const [k, v] of Object.entries(existing)) {
+          if (v <= now) delete existing[k];
+        }
+        localStorage.setItem(CLOSED_STORAGE_KEY, JSON.stringify(existing));
+      } catch {}
+      return next;
+    });
+  };
 
   // Real positions — Polymarket data API only, no DB fallback
   const realPositions = (polyPositions || [])
@@ -188,11 +232,15 @@ export default function PortfolioPage() {
     }));
 
   // Once the /positions API catches up and stops returning a locally-closed
-  // position, drop it from closedLocally so the filter doesn't grow forever.
+  // position, drop it from both state and localStorage so the filter doesn't
+  // grow forever. Requires polyPositions to have actually loaded (length > 0
+  // OR a definitive empty response) — otherwise the initial undefined state
+  // would wrongly clear entries before /positions had a chance to return them.
   useEffect(() => {
     if (closedLocally.size === 0) return;
+    if (!polyPositions) return; // query hasn't loaded yet
     const stillReturned = new Set(
-      (polyPositions || []).map((p) => p.asset || p.conditionId),
+      polyPositions.map((p) => p.asset || p.conditionId),
     );
     const gone = [...closedLocally].filter((id) => !stillReturned.has(id));
     if (gone.length > 0) {
@@ -201,6 +249,14 @@ export default function PortfolioPage() {
         for (const id of gone) next.delete(id);
         return next;
       });
+      try {
+        const rawExisting = localStorage.getItem(CLOSED_STORAGE_KEY);
+        if (rawExisting) {
+          const existing = JSON.parse(rawExisting) as Record<string, number>;
+          for (const id of gone) delete existing[id];
+          localStorage.setItem(CLOSED_STORAGE_KEY, JSON.stringify(existing));
+        }
+      } catch {}
     }
   }, [polyPositions, closedLocally]);
 
@@ -691,9 +747,9 @@ export default function PortfolioPage() {
                             txHashes={result.txHashes}
                             label="Settling your close…"
                             onConfirmed={() => {
-                              // Onchain settled — hide the row immediately and
-                              // kick off refetches until /positions catches up.
-                              setClosedLocally((prev) => new Set(prev).add(pos.id));
+                              // Onchain settled — persist the hide and kick off
+                              // refetches until /positions catches up.
+                              addClosedLocal(pos.id);
                               // Polymarket's /positions data-api lags onchain
                               // state by 10-30s. Retry at 2s, 5s, 10s, 20s.
                               [2000, 5000, 10000, 20000].forEach((delay) =>
