@@ -5,12 +5,12 @@ import { createHmac } from "crypto";
 const CLOB_HOST = "https://clob.polymarket.com";
 
 /**
- * Generate L2 authentication headers for the user's CLOB API credentials.
- * These prove to the CLOB that the user authorized this request.
+ * Generate L2 authentication headers matching the exact format of
+ * @polymarket/clob-client's createL2Headers() + buildPolyHmacSignature().
  *
- * Format matches @polymarket/clob-client's createL2Headers():
- *   message = timestamp + method + requestPath + body
- *   signature = base64(HMAC-SHA256(base64decode(secret), message))
+ * CRITICAL: The signature must be URL-SAFE base64 (+ → -, / → _)
+ * while the secret is URL-safe base64 that must be converted to
+ * standard base64 before HMAC key import.
  */
 function createL2Headers(
   creds: { key: string; secret: string; passphrase: string },
@@ -21,17 +21,21 @@ function createL2Headers(
   const timestamp = Math.floor(Date.now() / 1000).toString();
   const message = timestamp + method + requestPath + body;
 
-  // Decode URL-safe base64 secret
-  const secretBuf = Buffer.from(creds.secret, "base64");
-  const signature = createHmac("sha256", secretBuf)
+  // Convert URL-safe base64 secret to standard, then decode
+  const standardB64 = creds.secret.replace(/-/g, "+").replace(/_/g, "/");
+  const secretBuf = Buffer.from(standardB64, "base64");
+
+  // HMAC-SHA256 → base64 → convert to URL-safe base64
+  const sigStandard = createHmac("sha256", secretBuf)
     .update(message)
     .digest("base64");
+  const sigUrlSafe = sigStandard.replace(/\+/g, "-").replace(/\//g, "_");
 
   return {
     POLY_ADDRESS: "", // Set by caller
     POLY_API_KEY: creds.key,
     POLY_PASSPHRASE: creds.passphrase,
-    POLY_SIGNATURE: signature,
+    POLY_SIGNATURE: sigUrlSafe,
     POLY_TIMESTAMP: timestamp,
   };
 }
