@@ -2,9 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { BuilderSigner } from "@polymarket/builder-signing-sdk";
 
 // Run in a non-blocked region. Polymarket geoblocks US, UK, DE, FR, IT,
-// NL, BE, AU, SG + many others. Japan is NOT blocked and Vercel has a
-// Tokyo region (hnd1) with good connectivity.
-export const preferredRegion = "hnd1";
+// NL, BE, AU, SG + many others. Try multiple non-blocked regions.
+export const preferredRegion = ["hnd1", "hkg1", "gru1", "bom1"];
 
 const CLOB_HOST = "https://clob.polymarket.com";
 
@@ -34,6 +33,7 @@ export async function POST(req: NextRequest) {
     const secret = process.env.POLYMARKET_BUILDER_SECRET;
     const passphrase = process.env.POLYMARKET_BUILDER_PASSPHRASE;
 
+    console.log("[Order Proxy] Region:", process.env.VERCEL_REGION || "unknown");
     console.log("[Order Proxy] Builder creds present:", {
       key: !!key,
       secret: !!secret,
@@ -74,6 +74,10 @@ export async function POST(req: NextRequest) {
     });
 
     const data = await clobRes.json();
+    // Pass through the region for debugging
+    if (data.error) {
+      data._serverRegion = process.env.VERCEL_REGION || "unknown";
+    }
     return NextResponse.json(data, { status: clobRes.status });
   } catch (err) {
     console.error("Order proxy error:", err);
