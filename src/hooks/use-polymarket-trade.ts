@@ -295,7 +295,13 @@ export function usePolymarketTrade() {
         if (raw.includes("allowance is not enough") || raw.includes("allowance: 0")) {
           msg = "Trading not enabled for this market type. Go to a game, tap Sell then Buy, then hit \"Enable Trading\" to approve all exchange contracts.";
         } else if (raw.includes("not enough balance")) {
-          msg = "Insufficient USDC.e in your Polymarket proxy wallet. Deposit more to trade.";
+          // "not enough balance" is ambiguous in CLOB land — it means USDC.e
+          // on a BUY, but outcome tokens on a SELL. Tell the user the right
+          // story. For SELL it usually signals the position has already
+          // closed onchain but the UI hasn't caught up yet.
+          msg = params.side === "BUY"
+            ? "Insufficient USDC.e in your Polymarket proxy wallet. Deposit more to trade."
+            : "Not enough shares to sell — this position may have already been closed. Reload the page to refresh.";
         } else if (raw.includes("not enough liquidity") || raw.includes("no asks") || raw.includes("no bids") || raw.includes("could not be filled")) {
           msg = "Not enough liquidity at this price. The market is too thin — try a smaller amount or wait for better odds.";
         } else if (raw.includes("not match") || raw.includes("price range")) {

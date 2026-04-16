@@ -758,7 +758,33 @@ export default function PortfolioPage() {
                                 setTimeout(() => queryClient.invalidateQueries({ queryKey: ["polymarket-positions"] }), 3000);
                               }
                             } else {
-                              setCloseResult({ id: pos.id, msg: res.error || "Close failed", ok: false });
+                              // Special case: "not enough shares" on a SELL
+                              // almost always means the position was already
+                              // closed onchain (maybe a previous attempt went
+                              // through but we lost visibility). Don't show
+                              // this as a generic error — hide the phantom
+                              // row and refetch so the user sees reality.
+                              const errText = (res.error || "").toLowerCase();
+                              const isAlreadyClosed =
+                                errText.includes("not enough shares") ||
+                                errText.includes("may have already been closed") ||
+                                errText.includes("not enough balance");
+                              if (isAlreadyClosed) {
+                                addClosedLocal(pos.id);
+                                [500, 2000, 5000, 10000].forEach((d) =>
+                                  setTimeout(() => {
+                                    queryClient.invalidateQueries({ queryKey: ["polymarket-positions"] });
+                                    queryClient.invalidateQueries({ queryKey: ["polymarket-activity"] });
+                                  }, d),
+                                );
+                                setCloseResult({
+                                  id: pos.id,
+                                  msg: "Already closed — refreshing…",
+                                  ok: true,
+                                });
+                              } else {
+                                setCloseResult({ id: pos.id, msg: res.error || "Close failed", ok: false });
+                              }
                             }
                             setClosingPos(null);
                           }}
