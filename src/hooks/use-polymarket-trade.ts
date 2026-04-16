@@ -188,7 +188,9 @@ export function usePolymarketTrade() {
         getBuilderConfig(),
       );
 
-      // Place market order — this is the ONLY signature the user sees
+      // Place order — GTC (Good-til-Cancelled) so it stays in the book
+      // until filled or explicitly cancelled. FOK was silently expiring
+      // when there wasn't enough instant liquidity at the exact price.
       const result = await authedClient.createAndPostMarketOrder(
         {
           tokenID: params.tokenId,
@@ -200,7 +202,7 @@ export function usePolymarketTrade() {
           tickSize: params.tickSize || "0.01",
           negRisk: params.negRisk,
         },
-        OrderType.FOK,
+        OrderType.GTC,
       );
 
       if (result?.success === false) {
