@@ -561,7 +561,12 @@ export default function PortfolioPage() {
                         <button
                           disabled={isClosing}
                           onClick={async () => {
-                            if (!pos.clobTokenId) return;
+                            if (!pos.clobTokenId) {
+                              console.error("[Close] No tokenId for position", pos.id);
+                              setCloseResult({ id: pos.id, msg: "No token ID — can't close", ok: false });
+                              return;
+                            }
+                            console.log("[Close] Selling", pos.shares, "shares of", pos.marketQuestion, "tokenId:", pos.clobTokenId, "price:", livePrice);
                             setClosingPos(pos.id);
                             setCloseResult(null);
                             const res = await placeOrder({
@@ -570,9 +575,9 @@ export default function PortfolioPage() {
                               amount: value,
                               price: livePrice,
                             });
+                            console.log("[Close] Result:", JSON.stringify(res));
                             if (res.success) {
-                              setCloseResult({ id: pos.id, msg: `Closed! Sold ${pos.shares.toFixed(1)} shares`, ok: true });
-                              // Refresh positions after a short delay
+                              setCloseResult({ id: pos.id, msg: `Closed! Sold ${pos.shares.toFixed(1)} shares (${res.status || "processing"})`, ok: true });
                               setTimeout(() => queryClient.invalidateQueries({ queryKey: ["polymarket-positions"] }), 3000);
                             } else {
                               setCloseResult({ id: pos.id, msg: res.error || "Close failed", ok: false });
@@ -590,6 +595,12 @@ export default function PortfolioPage() {
                         </button>
                       </div>
                     </div>
+                    {/* Close result shown even when collapsed */}
+                    {result && !isExpanded && (
+                      <div className="px-4 py-2 bg-[#0d1117] border-t border-[#21262d]">
+                        <p className={cn("text-xs font-medium", result.ok ? "text-[#3fb950]" : "text-[#f85149]")}>{result.msg}</p>
+                      </div>
+                    )}
                     {/* Expanded details */}
                     {isExpanded && (
                       <div className="px-4 py-3 bg-[#0d1117] border-t border-[#21262d] space-y-2">
