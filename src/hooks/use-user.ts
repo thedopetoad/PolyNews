@@ -30,6 +30,8 @@ export interface DbPosition {
   clobTokenId: string | null;
   marketEndDate: string | null;
   eventSlug: string | null;
+  tradeType?: string;      // "paper" (default) or "real"
+  clobOrderId?: string | null;
   createdAt: string;
   updatedAt: string;
 }

@@ -90,9 +90,13 @@ export default function PortfolioPage() {
     prevBalRef.current = usdcBal;
   }, [usdcBal, bridgeState, completeBridge]);
 
+  // Split positions by type
+  const realPositions = paperPositions.filter((p) => p.tradeType === "real");
+  const paperOnlyPositions = paperPositions.filter((p) => p.tradeType !== "real");
+
   // Paper portfolio value
   const paperBalance = user?.balance || 0;
-  const paperPositionValue = paperPositions.reduce((sum, p) => sum + p.shares * p.avgPrice, 0);
+  const paperPositionValue = paperOnlyPositions.reduce((sum, p) => sum + p.shares * p.avgPrice, 0);
   const paperTotal = paperBalance + paperPositionValue;
 
   // Tab state
@@ -100,25 +104,41 @@ export default function PortfolioPage() {
   // Mode: "real" shows USDC.e positions, "paper" shows AIRDROP positions
   const [portfolioMode, setPortfolioMode] = useState<"real" | "paper">("real");
 
-  // Live prices for paper positions so we can show real-time P&L
+  // Live prices for ALL positions (paper + real) so we can show real-time P&L
+  const allPositionsWithToken = paperPositions.filter((p) => p.clobTokenId);
   const priceTargets = useMemo(() =>
-    paperPositions
-      .filter((p) => p.clobTokenId)
-      .map((p) => ({ id: p.marketId, tokenId: p.clobTokenId!, fallbackYes: p.avgPrice, fallbackNo: 1 - p.avgPrice })),
-    [paperPositions]
+    allPositionsWithToken.map((p) => ({
+      id: p.marketId,
+      tokenId: p.clobTokenId!,
+      fallbackYes: p.avgPrice,
+      fallbackNo: 1 - p.avgPrice,
+    })),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [allPositionsWithToken.length]
   );
   const { prices: livePrices } = usePositionLivePrices(priceTargets);
 
-  // Paper P&L (sum of unrealized gains from live price vs avg buy)
+  // Paper P&L
   const paperPnl = useMemo(() => {
     let total = 0;
-    for (const pos of paperPositions) {
+    for (const pos of paperOnlyPositions) {
       const live = livePrices[pos.marketId];
       const livePrice = live ? (pos.outcome === "Yes" ? live.yesPrice : live.noPrice) : pos.avgPrice;
       total += (livePrice - pos.avgPrice) * pos.shares;
     }
     return total;
-  }, [paperPositions, livePrices]);
+  }, [paperOnlyPositions, livePrices]);
+
+  // Real P&L
+  const realPnl = useMemo(() => {
+    let total = 0;
+    for (const pos of realPositions) {
+      const live = livePrices[pos.marketId];
+      const livePrice = live ? (pos.outcome === "Yes" ? live.yesPrice : live.noPrice) : pos.avgPrice;
+      total += (livePrice - pos.avgPrice) * pos.shares;
+    }
+    return total;
+  }, [realPositions, livePrices]);
 
   // Deposit + Withdraw modals
   const [depositOpen, setDepositOpen] = useState(false);
@@ -284,8 +304,14 @@ export default function PortfolioPage() {
           </div>
           {portfolioMode === "real" ? (
             <>
-              <p className="text-3xl font-bold text-white tabular-nums">{formatUsd(0)}</p>
-              <p className="text-xs text-[#484f58] mt-1">Place a trade on Sports to track P&L</p>
+              <p className={cn("text-3xl font-bold tabular-nums", realPnl >= 0 ? "text-[#3fb950]" : "text-[#f85149]")}>
+                {realPnl >= 0 ? "+" : ""}{formatUsd(realPnl)}
+              </p>
+              <p className="text-xs text-[#484f58] mt-1">
+                {realPositions.length > 0
+                  ? `Across ${realPositions.length} position${realPositions.length !== 1 ? "s" : ""}`
+                  : "Place a trade on Sports to track P&L"}
+              </p>
             </>
           ) : (
             <>
@@ -293,7 +319,7 @@ export default function PortfolioPage() {
                 {paperPnl >= 0 ? "+" : ""}{paperPnl.toFixed(0)} <span className="text-lg">AIRDROP</span>
               </p>
               <p className="text-xs text-[#484f58] mt-1">
-                Across {paperPositions.length} position{paperPositions.length !== 1 ? "s" : ""}
+                Across {paperOnlyPositions.length} position{paperOnlyPositions.length !== 1 ? "s" : ""}
               </p>
             </>
           )}
@@ -405,13 +431,61 @@ export default function PortfolioPage() {
       {/* Positions Tab */}
       {tab === "positions" && portfolioMode === "real" && (
         <div className="rounded-lg border border-[#21262d] bg-[#161b22] overflow-hidden">
-          <div className="text-center py-16">
-            <div className="text-4xl mb-3">📊</div>
-            <p className="text-sm font-medium text-[#e6edf3]">Real Positions</p>
-            <p className="text-xs text-[#484f58] mt-1 max-w-xs mx-auto">
-              Place a trade on the <Link href="/sports" className="text-[#58a6ff] hover:underline">Sports page</Link> to see your real Polymarket positions here.
-            </p>
+          <div className="grid grid-cols-12 gap-2 px-4 py-2.5 text-[10px] text-[#484f58] uppercase tracking-wider border-b border-[#21262d]">
+            <div className="col-span-4">{t.portfolio.market}</div>
+            <div className="col-span-2 text-right">Avg → Now</div>
+            <div className="col-span-2 text-right">{t.portfolio.shares}</div>
+            <div className="col-span-2 text-right">P&L</div>
+            <div className="col-span-2 text-right">Value</div>
           </div>
+
+          {realPositions.length === 0 ? (
+            <div className="text-center py-12">
+              <p className="text-sm text-[#484f58]">No real positions yet</p>
+              <p className="text-xs text-[#484f58] mt-1">
+                Place a trade on the <Link href="/sports" className="text-[#58a6ff] hover:underline">Sports page</Link> to see positions here.
+              </p>
+            </div>
+          ) : (
+            <div className="divide-y divide-[#21262d]">
+              {realPositions.map((pos) => {
+                const live = livePrices[pos.marketId];
+                const livePrice = live ? (pos.outcome === "Yes" ? live.yesPrice : live.noPrice) : pos.avgPrice;
+                const value = pos.shares * livePrice;
+                const pnl = (livePrice - pos.avgPrice) * pos.shares;
+                const pnlPct = pos.avgPrice > 0 ? ((livePrice - pos.avgPrice) / pos.avgPrice) * 100 : 0;
+                return (
+                  <div key={pos.id} className="grid grid-cols-12 gap-2 px-4 py-3 items-center hover:bg-[#1c2128]/50 transition-colors">
+                    <div className="col-span-4">
+                      <p className="text-[13px] text-[#e6edf3] font-medium leading-snug line-clamp-1">{pos.marketQuestion}</p>
+                      <p className="text-[10px] text-[#484f58] mt-0.5">{pos.outcome}</p>
+                    </div>
+                    <div className="col-span-2 text-right">
+                      <span className="text-xs text-[#768390] tabular-nums">{Math.round(pos.avgPrice * 100)}¢</span>
+                      <span className="text-[10px] text-[#484f58] mx-0.5">→</span>
+                      <span className={cn("text-xs font-medium tabular-nums", live ? "text-[#e6edf3]" : "text-[#484f58]")}>
+                        {Math.round(livePrice * 100)}¢
+                      </span>
+                    </div>
+                    <div className="col-span-2 text-right">
+                      <span className="text-xs text-[#e6edf3] tabular-nums font-medium">{pos.shares.toFixed(1)}</span>
+                    </div>
+                    <div className="col-span-2 text-right">
+                      <span className={cn("text-xs font-medium tabular-nums", pnl >= 0 ? "text-[#3fb950]" : "text-[#f85149]")}>
+                        {pnl >= 0 ? "+" : ""}{formatUsd(pnl)}
+                      </span>
+                      <span className={cn("text-[10px] ml-1 tabular-nums", pnl >= 0 ? "text-[#3fb950]/60" : "text-[#f85149]/60")}>
+                        ({pnlPct >= 0 ? "+" : ""}{pnlPct.toFixed(0)}%)
+                      </span>
+                    </div>
+                    <div className="col-span-2 text-right">
+                      <span className="text-xs text-[#e6edf3] tabular-nums font-medium">{formatUsd(value)}</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
 
@@ -425,7 +499,7 @@ export default function PortfolioPage() {
             <div className="col-span-2 text-right">{t.portfolio.value}</div>
           </div>
 
-          {paperPositions.length === 0 ? (
+          {paperOnlyPositions.length === 0 ? (
             <div className="text-center py-12">
               <p className="text-sm text-[#484f58]">{t.portfolio.noPositions}</p>
               <div className="flex gap-3 justify-center mt-3">
@@ -435,7 +509,7 @@ export default function PortfolioPage() {
             </div>
           ) : (
             <div className="divide-y divide-[#21262d]">
-              {paperPositions.map((pos) => {
+              {paperOnlyPositions.map((pos) => {
                 const live = livePrices[pos.marketId];
                 const livePrice = live ? (pos.outcome === "Yes" ? live.yesPrice : live.noPrice) : pos.avgPrice;
                 const value = pos.shares * livePrice;

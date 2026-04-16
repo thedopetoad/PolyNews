@@ -108,8 +108,26 @@ export function BetSlip({ eventTitle, eventSlug, eventEndDate, marketId, marketQ
       negRisk,
     });
     if (res.success) {
-      setResult({ success: true, msg: `Order filled! ${shares.toFixed(1)} shares` });
+      setResult({ success: true, msg: `Order filled! ${shares.toFixed(1)} shares of ${selected.name}` });
       setAmount("");
+      // Persist the position in our DB so it shows up in Portfolio
+      fetch("/api/trade/real", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userId: address,
+          marketId,
+          marketQuestion,
+          outcome: selected.name,
+          shares,
+          price: selected.price,
+          clobTokenId: selected.tokenId,
+          clobOrderId: res.orderID,
+          eventSlug,
+          endDate: eventEndDate,
+          side,
+        }),
+      }).catch(() => {}); // fire-and-forget — don't block UI
     } else {
       setResult({ success: false, msg: res.error || "Order failed" });
     }

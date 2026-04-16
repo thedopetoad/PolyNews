@@ -25,7 +25,8 @@ export const users = pgTable("users", {
   signupIp: text("signup_ip"),
 });
 
-// Paper trading positions
+// Trading positions — paper (AIRDROP) and real (USDC) alike.
+// tradeType: "paper" (default, legacy) or "real" (actual CLOB orders).
 export const positions = pgTable("positions", {
   id: text("id").primaryKey(),
   userId: text("user_id").notNull().references(() => users.id),
@@ -37,6 +38,8 @@ export const positions = pgTable("positions", {
   clobTokenId: text("clob_token_id"),
   marketEndDate: text("market_end_date"),
   eventSlug: text("event_slug"),
+  tradeType: text("trade_type").notNull().default("paper"),
+  clobOrderId: text("clob_order_id"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
