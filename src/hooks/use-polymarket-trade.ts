@@ -188,28 +188,29 @@ export function usePolymarketTrade() {
         getBuilderConfig(),
       );
 
-      // Place a GTC limit order at the current price. GTC stays in the
-      // order book until filled or cancelled — FOK was silently expiring
-      // when there wasn't enough instant liquidity.
-      // createAndPostOrder is for limit orders (supports GTC/GTD).
-      // createAndPostMarketOrder only supports FOK/FAK.
-      // Limit orders use `size` (shares), not `amount` (USDC).
-      // Convert: shares = amount / price.
-      const price = params.price ?? 0.5;
-      const size = params.amount / price;
+      // Use a market order (FOK) with aggressive pricing to ensure instant
+      // fill. GTC limit orders at the displayed price sit in the book
+      // without crossing the spread. Market orders sweep the book.
+      //
+      // For BUY: we want to pay UP TO the displayed price (or a bit more
+      // to account for spread). The CLOB fills at the best available
+      // price, not the limit price — so setting price=0.99 for a buy
+      // just means "buy at whatever the market offers up to 99¢".
+      // For SELL: set price=0.01 to sell at whatever the market offers.
+      const aggressivePrice = params.side === "BUY" ? 0.99 : 0.01;
 
-      const result = await authedClient.createAndPostOrder(
+      const result = await authedClient.createAndPostMarketOrder(
         {
           tokenID: params.tokenId,
-          size,
+          amount: params.amount,
           side: params.side === "BUY" ? Side.BUY : Side.SELL,
-          price,
+          price: aggressivePrice,
         },
         {
           tickSize: params.tickSize || "0.01",
           negRisk: params.negRisk,
         },
-        OrderType.GTC,
+        OrderType.FOK,
       );
 
       if (result?.success === false) {
