@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 
-// Edge runtime runs in the specified region on ALL Vercel plans.
-// Polymarket geoblocks US, UK, DE, FR, IT, NL, BE, AU, etc.
-// These regions are NOT blocked.
+// Edge runtime with a SINGLE forced region. Arrays let Vercel pick
+// the nearest (which landed in fra1/Germany = blocked). Force to
+// São Paulo, Brazil — not blocked, good connectivity.
 export const runtime = "edge";
-export const preferredRegion = ["hnd1", "hkg1", "gru1", "bom1"];
+export const preferredRegion = "gru1";
 
 const CLOB_HOST = "https://clob.polymarket.com";
 
@@ -15,7 +15,9 @@ const CLOB_HOST = "https://clob.polymarket.com";
  */
 async function hmacSign(secret: string, message: string): Promise<string> {
   const enc = new TextEncoder();
-  const keyData = Uint8Array.from(atob(secret), (c) => c.charCodeAt(0));
+  // Convert URL-safe base64 (with - and _) to standard base64 (with + and /)
+  const standardB64 = secret.replace(/-/g, "+").replace(/_/g, "/");
+  const keyData = Uint8Array.from(atob(standardB64), (c) => c.charCodeAt(0));
   const key = await crypto.subtle.importKey(
     "raw",
     keyData,
