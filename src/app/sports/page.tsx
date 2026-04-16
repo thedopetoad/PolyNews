@@ -593,11 +593,16 @@ function CardBookChartTabs({ tokenId, chartOutcomes }: { tokenId: string; chartO
           Order Book
         </button>
       </div>
-      {tab === "chart" ? (
-        <SportsMultiChart outcomes={chartOutcomes} />
-      ) : (
-        <OrderBook tokenId={tokenId} side="BUY" />
-      )}
+      {/* Fixed min-height so swapping tabs (or the content's own loading
+          state) doesn't reflow and pop the card's stats row up into the
+          user's face — which caused the ugly flash the user reported. */}
+      <div className="min-h-[280px]">
+        {tab === "chart" ? (
+          <SportsMultiChart outcomes={chartOutcomes} />
+        ) : (
+          <OrderBook tokenId={tokenId} side="BUY" />
+        )}
+      </div>
     </div>
   );
 }
@@ -1263,7 +1268,6 @@ function SportsContent() {
                   {totalLiveCount} {totalLiveCount === 1 ? "game" : "games"}
                 </span>
               )}
-              <OddsFormatMenu />
             </div>
           </div>
 
@@ -1282,7 +1286,7 @@ function SportsContent() {
               </div>
             ) : liveByLeagueSorted.length > 0 ? (
               <div className="space-y-6">
-                {liveByLeagueSorted.map((group) => (
+                {liveByLeagueSorted.map((group, groupIdx) => (
                   <div key={group.sport}>
                     <div className="flex items-center gap-2 mb-3">
                       {group.league.image ? (
@@ -1295,6 +1299,8 @@ function SportsContent() {
                       {group.sport === selectedSport && (
                         <span className="text-[9px] text-[#58a6ff] bg-[#58a6ff]/10 border border-[#58a6ff]/25 px-1.5 py-0.5 rounded uppercase tracking-wider font-semibold">Selected</span>
                       )}
+                      {/* Odds format menu anchored at the top of the first group. */}
+                      {groupIdx === 0 && <div className="ml-auto"><OddsFormatMenu /></div>}
                     </div>
                     <div className="space-y-3">
                       {group.events.map((e, i) => <GameCard key={e.id} event={e} index={i} sport={group.sport} expanded={expandedId === e.id} onToggle={() => setExpandedId(expandedId === e.id ? null : e.id)} onSelectBet={setSelectedBet} />)}
@@ -1314,9 +1320,14 @@ function SportsContent() {
             </div>
           ) : grouped.length > 0 ? (
             <div className="space-y-6">
-              {grouped.map((group) => (
+              {grouped.map((group, groupIdx) => (
                 <div key={group.date}>
-                  <p className="text-sm font-semibold text-[#e6edf3] mb-3">{formatDateHeader(group.events[0].gameStartTime)}</p>
+                  <div className="flex items-center justify-between mb-3">
+                    <p className="text-sm font-semibold text-[#e6edf3]">{formatDateHeader(group.events[0].gameStartTime)}</p>
+                    {/* Odds format menu lives next to the first date header —
+                        lines up with the top of the first card as requested. */}
+                    {groupIdx === 0 && <OddsFormatMenu />}
+                  </div>
                   <div className="space-y-3">
                     {group.events.map((e, i) => <GameCard key={e.id} event={e} index={i} sport={selectedSport} expanded={expandedId === e.id} onToggle={() => setExpandedId(expandedId === e.id ? null : e.id)} onSelectBet={setSelectedBet} />)}
                   </div>
