@@ -804,11 +804,8 @@ function SportsContent() {
       if (!res.ok) throw new Error("Failed");
       return res.json();
     },
-    // 30s interval matches the 15s server-side cache with headroom. Focus
-    // refetch overrides the global off-by-default setting — we want this
-    // page to re-sync when a user returns to the tab, especially mobile.
-    staleTime: 20 * 1000,
-    refetchInterval: 30 * 1000,
+    staleTime: 10 * 1000,
+    refetchInterval: 15 * 1000,
     refetchOnWindowFocus: true,
   });
 
@@ -856,8 +853,8 @@ function SportsContent() {
       });
     },
     enabled: view === "live" && leagues.length > 0,
-    staleTime: 20 * 1000,
-    refetchInterval: 30 * 1000,
+    staleTime: 10 * 1000,
+    refetchInterval: 15 * 1000,
     refetchOnWindowFocus: true,
   });
 

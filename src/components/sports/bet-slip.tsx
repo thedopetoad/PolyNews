@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { cn } from "@/lib/utils";
 import { useUser } from "@/hooks/use-user";
 import { usePolymarketTrade } from "@/hooks/use-polymarket-trade";
@@ -72,9 +72,38 @@ export function BetSlip({ eventTitle, eventSlug, eventEndDate, marketId, marketQ
   const [result, setResult] = useState<{ success: boolean; msg: string } | null>(null);
   const [depositOpen, setDepositOpen] = useState(false);
 
+  // Live-refresh prices every 5s so the bet slip always shows current odds
+  const [livePrices, setLivePrices] = useState<Record<string, number>>({});
+  const refreshPrices = useCallback(async () => {
+    for (const o of outcomes) {
+      if (!o.tokenId) continue;
+      try {
+        const res = await fetch(`/api/polymarket/prices?token_id=${o.tokenId}`);
+        if (!res.ok) continue;
+        const data = await res.json();
+        const mid = parseFloat(data.mid);
+        if (mid > 0 && mid < 1) {
+          setLivePrices((prev) => ({ ...prev, [o.tokenId]: mid }));
+        }
+      } catch {}
+    }
+  }, [outcomes]);
+
+  useEffect(() => {
+    refreshPrices();
+    const interval = setInterval(refreshPrices, 5000);
+    return () => clearInterval(interval);
+  }, [refreshPrices]);
+
   if (outcomes.length === 0) return null;
 
-  const selected = outcomes[selectedOutcome];
+  // Use live prices when available, fallback to initial price from card click
+  const liveOutcomes = outcomes.map((o) => ({
+    ...o,
+    price: livePrices[o.tokenId] ?? o.price,
+  }));
+
+  const selected = liveOutcomes[selectedOutcome];
   const amountNum = parseFloat(amount) || 0;
   const shares = selected && amountNum > 0 ? amountNum / selected.price : 0;
   const payout = shares;
@@ -155,7 +184,7 @@ export function BetSlip({ eventTitle, eventSlug, eventEndDate, marketId, marketQ
 
       {/* Outcome buttons */}
       <div className="flex gap-2">
-        {outcomes.map((o, i) => (
+        {liveOutcomes.map((o, i) => (
           <button
             key={o.name}
             onClick={() => { setSelectedOutcome(i); setResult(null); }}

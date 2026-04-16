@@ -142,7 +142,7 @@ export async function GET(request: NextRequest) {
     // for real-money bet slips to reflect market state changes promptly.
     const res = await fetch(
       `${GAMMA_API}/events?active=true&closed=false&limit=20&series_id=${seriesId}&order=startDate&ascending=true`,
-      { next: { revalidate: 15 } }
+      { next: { revalidate: 10 } }
     );
 
     if (!res.ok) {

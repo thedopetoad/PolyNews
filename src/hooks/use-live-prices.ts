@@ -53,7 +53,7 @@ export function useLivePrices(markets: MarketWithPrices[]) {
     if (markets.length === 0) return;
     setReady(false);
     fetchPrices(markets);
-    const interval = setInterval(() => fetchPrices(markets), 15000);
+    const interval = setInterval(() => fetchPrices(markets), 5000);
     return () => clearInterval(interval);
   }, [marketIds, fetchPrices]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -108,7 +108,7 @@ export function usePositionLivePrices(targets: PriceTarget[]) {
   useEffect(() => {
     setReady(false);
     fetchPrices();
-    const interval = setInterval(fetchPrices, 15000);
+    const interval = setInterval(fetchPrices, 5000);
     return () => clearInterval(interval);
   }, [fetchPrices]);
 
