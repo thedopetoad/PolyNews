@@ -131,10 +131,13 @@ export function BetSlip({ eventTitle, eventSlug, eventEndDate, marketId, marketQ
       return;
     }
     setResult(null);
+    // For BUY, amount is USDC to spend. For SELL, amount is shares to sell.
+    // Bet slip input is always in USDC so convert for SELL: shares = USDC / price.
+    const orderAmount = side === "SELL" ? amountNum / selected.price : amountNum;
     const res = await placeOrder({
       tokenId: selected.tokenId,
       side,
-      amount: amountNum,
+      amount: orderAmount,
       price: selected.price,
       negRisk,
     });
