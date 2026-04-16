@@ -662,6 +662,7 @@ function GameCard({ event, index, sport, expanded, onToggle, onSelectBet }: { ev
             price: moneyline.prices[i] ?? 0,
             tokenId: moneyline.clobTokenIds[i] || "",
           })),
+          initialOutcomeIdx: 0,
           negRisk: event.negRisk,
         }) : undefined}
       />
@@ -686,6 +687,7 @@ function GameCard({ event, index, sport, expanded, onToggle, onSelectBet }: { ev
             price: moneyline.prices[i] ?? 0,
             tokenId: moneyline.clobTokenIds[i] || "",
           })),
+          initialOutcomeIdx: 1,
           negRisk: event.negRisk,
         }) : undefined}
       />
@@ -772,6 +774,12 @@ interface SelectedBet {
   marketId: string;
   marketQuestion: string;
   outcomes: { name: string; price: number; tokenId: string }[];
+  /**
+   * Which outcome the user clicked on the card. Passed to BetSlip so the
+   * slip's selection matches the team row the user tapped instead of always
+   * defaulting to index 0. Team A row → 0, Team B row → 1.
+   */
+  initialOutcomeIdx?: number;
   negRisk?: boolean;
 }
 
