@@ -143,23 +143,27 @@ export function usePolymarketSetup() {
         RelayerTxType.PROXY,
       );
 
-      // CRITICAL GAS FIX: The relay hub checks `require(gasleft() > signedGasLimit)`.
-      // The SDK's DEFAULT_GAS_LIMIT = 10_000_000 is too high — the relay hub reverts
-      // with "Not enough gasleft()". Must be LESS than actual tx gas limit.
+      // CRITICAL GAS FIX: The relay hub checks `require(gasleft() > signedGasLimit)`
+      // which reserves `signedGasLimit` of gas for the callee. That means the
+      // signed value must sit BELOW whatever tx.gasLimit the relayer chooses, but
+      // ABOVE the callee's actual usage. Empirical evidence from tx
+      // 0xb057932f... — we signed 5M, the relayer sent the tx with only 2.15M,
+      // hub reverted immediately with "Not enough gasleft()".
       //
       // For Magic login users there's a second reason to patch: Magic's internal
       // RPC provider proxies eth_estimateGas through drpc.org, which their own
       // iframe CSP blocks. The SDK swallows that error and falls back to the 10M
-      // default — which then reverts onchain. Patching to a fixed 5M avoids both.
+      // default, which then hits the same hub revert.
       //
-      // 5M covers the 7-approval batched multisend (each ~50-80K + multisend
-      // overhead). Same technique as withdraw-modal.tsx.
+      // 1M comfortably covers the 7-approval batched multisend (each ~50-80K +
+      // multisend overhead ≈ 500-700K) and sits well below the relayer's ~2M
+      // tx.gasLimit cap we observed.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const internalSigner = (relayClient as any).signer;
       if (internalSigner) {
-        internalSigner.estimateGas = async () => BigInt(5_000_000);
+        internalSigner.estimateGas = async () => BigInt(1_000_000);
         if (internalSigner.publicClient) {
-          internalSigner.publicClient.estimateGas = async () => BigInt(5_000_000);
+          internalSigner.publicClient.estimateGas = async () => BigInt(1_000_000);
         }
       }
 
