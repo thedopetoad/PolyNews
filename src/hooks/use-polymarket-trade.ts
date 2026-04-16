@@ -10,7 +10,9 @@ import { BuilderConfig } from "@polymarket/builder-signing-sdk";
 
 const CLOB_HOST = "https://clob.polymarket.com";
 const POLYGON_CHAIN_ID = 137;
-const CREDS_STORAGE_KEY = "polystream-clob-creds";
+// Bumped key from v1 → v2 to invalidate stale EOA-mode creds. The switch to
+// POLY_PROXY signatureType requires fresh credentials derived in proxy mode.
+const CREDS_STORAGE_KEY = "polystream-clob-creds-v2";
 
 /**
  * Remote BuilderConfig — points at our server-side signer so polystream's
@@ -130,10 +132,28 @@ export function usePolymarketTrade() {
     setError(null);
 
     try {
+      // ── Signature type ──
+      // POLY_PROXY (1) = the EOA signs on behalf of its Polymarket proxy
+      // wallet. This enables relayer gas coverage (gas-free for the user),
+      // trades execute from the proxy (where deposited USDC.e lives), and
+      // positions show up correctly on polymarket.com.
+      //
+      // EOA (0) was wrong — it made the user pay gas themselves and
+      // traded from the EOA address (which has no funds).
+      const POLY_PROXY = 1;
+
       // Create base client for cred derivation. Builder config intentionally
       // OMITTED here — cred derivation endpoints don't accept builder headers
-      // and would 400 if we sent them.
-      const baseClient = new ClobClient(CLOB_HOST, POLYGON_CHAIN_ID, signer);
+      // and would 400 if we sent them. funderAddress = EOA tells the CLOB
+      // "this EOA owns the proxy wallet we're trading through".
+      const baseClient = new ClobClient(
+        CLOB_HOST,
+        POLYGON_CHAIN_ID,
+        signer,
+        undefined,
+        POLY_PROXY,
+        address,
+      );
 
       // Get cached or derive API credentials (only signs if first time)
       let creds: ApiKeyCreds;
@@ -148,18 +168,19 @@ export function usePolymarketTrade() {
         return { success: false, error: msg };
       }
 
-      // Create authenticated client with builder attribution. The 5th-8th
-      // positional args (signatureType, funderAddress, geoBlockToken,
-      // useServerTime) stay default; we only need to pass `builderConfig` at
-      // position 9. Every subsequent order POST will hit our remote signer
-      // for `POLY_BUILDER_*` headers so the trade credits polystream's
-      // builder rewards account.
+      // Create authenticated client with builder attribution.
+      // signatureType = POLY_PROXY, funderAddress = EOA address.
+      // Builder config at position 9 hits our remote signer for
+      // POLY_BUILDER_* headers so volume credits our builder account.
       const authedClient = new ClobClient(
         CLOB_HOST,
         POLYGON_CHAIN_ID,
         signer,
         creds,
-        undefined, undefined, undefined, undefined,
+        POLY_PROXY,
+        address,
+        undefined,
+        undefined,
         getBuilderConfig(),
       );
 
