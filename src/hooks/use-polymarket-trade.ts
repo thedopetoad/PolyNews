@@ -45,6 +45,13 @@ export interface TradeResult {
   orderID?: string;
   error?: string;
   status?: string;
+  /**
+   * Polygon tx hashes the CLOB submitted for this order's settlement.
+   * Present on matched orders; empty/absent for orders that went `live` on
+   * the book without a taker. Used by the bet slip & portfolio close UI to
+   * show an onchain progress bar + Polygonscan link.
+   */
+  transactionHashes?: string[];
 }
 
 /**
@@ -308,6 +315,9 @@ export function usePolymarketTrade() {
         success: true,
         orderID: result?.orderID,
         status: result?.status,
+        transactionHashes: Array.isArray(result?.transactionsHashes)
+          ? result.transactionsHashes
+          : undefined,
       };
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Trade failed";

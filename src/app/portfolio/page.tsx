@@ -14,6 +14,7 @@ import { POLYMARKET_BASE_URL } from "@/lib/constants";
 import Link from "next/link";
 import { BridgeDepositModal } from "@/components/portfolio/bridge-deposit-modal";
 import { WithdrawModal } from "@/components/portfolio/withdraw-modal";
+import { TradeProgress } from "@/components/sports/trade-progress";
 import { PendingBridgeIndicator } from "@/components/portfolio/pending-bridge-indicator";
 import { DidYouSendModal } from "@/components/portfolio/did-you-send-modal";
 import { deriveProxyAddress } from "@/lib/relay";
@@ -187,7 +188,7 @@ export default function PortfolioPage() {
   // Expandable position + close
   const [expandedPos, setExpandedPos] = useState<string | null>(null);
   const [closingPos, setClosingPos] = useState<string | null>(null);
-  const [closeResult, setCloseResult] = useState<{ id: string; msg: string; ok: boolean } | null>(null);
+  const [closeResult, setCloseResult] = useState<{ id: string; msg: string; ok: boolean; txHashes?: string[] } | null>(null);
   const { placeOrder } = usePolymarketTrade();
   const queryClient = useQueryClient();
   // Mode: "real" shows USDC.e positions, "paper" shows AIRDROP positions
@@ -606,8 +607,18 @@ export default function PortfolioPage() {
                             });
                             console.log("[Close] Result:", JSON.stringify(res));
                             if (res.success) {
-                              setCloseResult({ id: pos.id, msg: `Closed! Sold ${pos.shares.toFixed(1)} shares (${res.status || "processing"})`, ok: true });
-                              setTimeout(() => queryClient.invalidateQueries({ queryKey: ["polymarket-positions"] }), 3000);
+                              setCloseResult({
+                                id: pos.id,
+                                msg: `Sold ${pos.shares.toFixed(2)} shares`,
+                                ok: true,
+                                txHashes: res.transactionHashes,
+                              });
+                              // Without txHashes, invalidate on a timer. With
+                              // them, the TradeProgress onConfirmed callback
+                              // handles it at the right moment.
+                              if (!res.transactionHashes || res.transactionHashes.length === 0) {
+                                setTimeout(() => queryClient.invalidateQueries({ queryKey: ["polymarket-positions"] }), 3000);
+                              }
                             } else {
                               setCloseResult({ id: pos.id, msg: res.error || "Close failed", ok: false });
                             }
@@ -626,8 +637,15 @@ export default function PortfolioPage() {
                     </div>
                     {/* Close result shown even when collapsed */}
                     {result && !isExpanded && (
-                      <div className="px-4 py-2 bg-[#0d1117] border-t border-[#21262d]">
+                      <div className="px-4 py-2 bg-[#0d1117] border-t border-[#21262d] space-y-2">
                         <p className={cn("text-xs font-medium", result.ok ? "text-[#3fb950]" : "text-[#f85149]")}>{result.msg}</p>
+                        {result.ok && result.txHashes && result.txHashes.length > 0 && (
+                          <TradeProgress
+                            txHashes={result.txHashes}
+                            label="Settling your close…"
+                            onConfirmed={() => queryClient.invalidateQueries({ queryKey: ["polymarket-positions"] })}
+                          />
+                        )}
                       </div>
                     )}
                     {/* Expanded details */}

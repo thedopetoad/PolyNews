@@ -8,6 +8,7 @@ import { usePolymarketSetup } from "@/hooks/use-polymarket-setup";
 import { LoginButton } from "@/components/layout/login-modal";
 import { BridgeDepositModal } from "@/components/portfolio/bridge-deposit-modal";
 import { EnableTradingModal } from "@/components/sports/enable-trading-modal";
+import { TradeProgress } from "@/components/sports/trade-progress";
 import { useT } from "@/lib/i18n";
 import { useSwitchChain, useBalance } from "wagmi";
 import { polygon } from "wagmi/chains";
@@ -71,7 +72,7 @@ export function BetSlip({ eventTitle, eventSlug, eventEndDate, marketId, marketQ
   const [side, setSide] = useState<"BUY" | "SELL">("BUY");
   const [selectedOutcome, setSelectedOutcome] = useState<number>(0);
   const [amount, setAmount] = useState("");
-  const [result, setResult] = useState<{ success: boolean; msg: string } | null>(null);
+  const [result, setResult] = useState<{ success: boolean; msg: string; txHashes?: string[]; side?: "BUY" | "SELL" } | null>(null);
   const [depositOpen, setDepositOpen] = useState(false);
   const [enableOpen, setEnableOpen] = useState(false);
 
@@ -168,8 +169,12 @@ export function BetSlip({ eventTitle, eventSlug, eventEndDate, marketId, marketQ
       negRisk,
     });
     if (res.success) {
-      const statusInfo = res.status ? ` (${res.status})` : "";
-      setResult({ success: true, msg: `Order ${res.status === "MATCHED" ? "filled" : "placed"}! ${shares.toFixed(1)} shares of ${selected.name}${statusInfo}` });
+      setResult({
+        success: true,
+        msg: `${side === "BUY" ? "Bought" : "Sold"} ${shares.toFixed(2)} shares of ${selected.name}`,
+        txHashes: res.transactionHashes,
+        side,
+      });
       setAmount("");
     } else {
       setResult({ success: false, msg: res.error || "Order failed" });
@@ -341,10 +346,19 @@ export function BetSlip({ eventTitle, eventSlug, eventEndDate, marketId, marketQ
       />
 
       {/* Result / Error */}
-      {result && (
-        <p className={cn("text-xs font-medium text-center", result.success ? "text-[#3fb950]" : "text-[#f85149]")}>
-          {result.msg}
-        </p>
+      {result && result.success && (
+        <div className="space-y-2">
+          <p className="text-xs font-medium text-center text-[#3fb950]">{result.msg}</p>
+          {result.txHashes && result.txHashes.length > 0 && (
+            <TradeProgress
+              txHashes={result.txHashes}
+              label={`Settling your ${result.side === "BUY" ? "buy" : "sell"}…`}
+            />
+          )}
+        </div>
+      )}
+      {result && !result.success && (
+        <p className="text-xs font-medium text-center text-[#f85149]">{result.msg}</p>
       )}
       {tradeError && !result && (
         <p className="text-xs text-[#f85149] text-center">{tradeError}</p>
