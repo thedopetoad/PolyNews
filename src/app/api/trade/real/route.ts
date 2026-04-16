@@ -17,7 +17,7 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const {
-      userId,
+      userId: rawUserId,
       marketId,
       marketQuestion,
       outcome,
@@ -30,9 +30,14 @@ export async function POST(req: NextRequest) {
       side,
     } = body;
 
-    if (!userId || !marketId || !outcome || !shares || !price) {
+    if (!rawUserId || !marketId || !outcome || !shares || !price) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
     }
+
+    // Normalize to lowercase — the users table stores addresses lowercase
+    // (via the paper trade route and useUser). Without this, the FK
+    // constraint on userId → users.id fails.
+    const userId = rawUserId.toLowerCase();
 
     const db = getDb();
 
