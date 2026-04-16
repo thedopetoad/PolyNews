@@ -11,6 +11,7 @@ import { useT } from "@/lib/i18n";
 import { useSwitchChain, useBalance } from "wagmi";
 import { polygon } from "wagmi/chains";
 import { deriveProxyAddress } from "@/lib/relay";
+import { estimateSlippage, SlippageEstimate } from "@/lib/slippage";
 
 // USDC.e on Polygon — required for Polymarket CLOB (their CLOB uses USDC.e as
 // collateral, orders against native USDC get rejected).
@@ -94,6 +95,29 @@ export function BetSlip({ eventTitle, eventSlug, eventEndDate, marketId, marketQ
     const interval = setInterval(refreshPrices, 5000);
     return () => clearInterval(interval);
   }, [refreshPrices]);
+
+  // Fetch orderbook for the selected outcome to show slippage estimate
+  const [slippage, setSlippage] = useState<SlippageEstimate | null>(null);
+  const amountNumForSlip = parseFloat(amount) || 0;
+  const selectedTokenId = outcomes[selectedOutcome]?.tokenId;
+  const selectedPrice = outcomes[selectedOutcome]?.price ?? 0.5;
+  useEffect(() => {
+    if (!selectedTokenId || amountNumForSlip <= 0) {
+      setSlippage(null);
+      return;
+    }
+    let cancelled = false;
+    fetch(`/api/polymarket/book?token_id=${selectedTokenId}`)
+      .then((r) => r.json())
+      .then((book) => {
+        if (cancelled) return;
+        // For SELL, amount is shares; for BUY, amount is USDC
+        const orderAmount = side === "SELL" ? amountNumForSlip / selectedPrice : amountNumForSlip;
+        setSlippage(estimateSlippage(book, side, orderAmount));
+      })
+      .catch(() => { if (!cancelled) setSlippage(null); });
+    return () => { cancelled = true; };
+  }, [selectedTokenId, amountNumForSlip, side, selectedPrice]);
 
   if (outcomes.length === 0) return null;
 
@@ -247,6 +271,19 @@ export function BetSlip({ eventTitle, eventSlug, eventEndDate, marketId, marketQ
           <span>{t.betSlip.payout}: <span className="text-[#3fb950] font-medium">${payout.toFixed(2)}</span></span>
         )}
       </div>
+
+      {/* Slippage warning */}
+      {slippage && amountNum > 0 && !slippage.filled && (
+        <p className="text-[10px] text-[#f85149] bg-[#f85149]/10 px-2 py-1.5 rounded">
+          ⚠️ Not enough liquidity on the orderbook to fill this size. Try a smaller amount.
+        </p>
+      )}
+      {slippage && slippage.filled && slippage.warn && (
+        <p className="text-[10px] text-[#d29922] bg-[#d29922]/10 px-2 py-1.5 rounded">
+          ⚠️ High slippage: expected fill ~{Math.round(slippage.avgFillPrice * 100)}¢
+          ({slippage.slippagePct.toFixed(1)}% away from best price). Thin liquidity on this market.
+        </p>
+      )}
 
       {/* Insufficient balance warning */}
       {insufficientBalance && (

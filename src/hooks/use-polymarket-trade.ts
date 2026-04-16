@@ -261,11 +261,19 @@ export function usePolymarketTrade() {
       // Check for errors — the CLOB returns { error: "..." } on failure,
       // NOT { success: false }. Also check HTTP status.
       if (!proxyRes.ok || result?.error) {
-        const msg = result?.error || result?.errorMsg || result?.error_msg || "Order rejected by Polymarket";
-        // Clear cached creds on auth errors so next trade re-derives
-        if (msg.includes("auth") || msg.includes("key") || msg.includes("Unauthorized")) {
+        const raw = result?.error || result?.errorMsg || result?.error_msg || "Order rejected by Polymarket";
+        let msg = raw;
+        // Translate common cryptic CLOB errors into user-friendly messages
+        if (raw.includes("not enough liquidity") || raw.includes("no asks") || raw.includes("no bids") || raw.includes("could not be filled")) {
+          msg = "Not enough liquidity at this price. The market is too thin — try a smaller amount or wait for better odds.";
+        } else if (raw.includes("not match") || raw.includes("price range")) {
+          msg = "Price moved more than 5% while the order was being placed. Try again with the current odds.";
+        } else if (raw.includes("minimum")) {
+          msg = `${raw} — this market requires larger orders. Try buying more first.`;
+        } else if (raw.includes("auth") || raw.includes("key") || raw.includes("Unauthorized")) {
           cachedCredsRef.current = null;
           localStorage.removeItem(CREDS_STORAGE_KEY);
+          msg = "Session expired — sign again to continue trading.";
         }
         setError(msg);
         return { success: false, error: msg, orderID: result?.orderID };
