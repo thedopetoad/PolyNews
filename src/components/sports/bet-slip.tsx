@@ -13,6 +13,7 @@ import { BetConfirmModal } from "@/components/sports/bet-confirm-modal";
 import { addPendingPosition } from "@/lib/pending-positions";
 import { formatOdds } from "@/lib/odds-format";
 import { useOddsFormat } from "@/stores/use-odds-format";
+import { useUserPosition } from "@/hooks/use-user-position";
 import { useT } from "@/lib/i18n";
 import { useSwitchChain, useBalance } from "wagmi";
 import { polygon } from "wagmi/chains";
@@ -81,6 +82,10 @@ export function BetSlip({ eventTitle, eventSlug: _eventSlug, eventEndDate: _even
   const usdcBal = proxyBal + eoaBal;
   const { t } = useT();
 
+  // Look up the user's holdings for all outcomes in this market — drives
+  // the SELL tab's "Shares available" indicator and the 25/50/Max chips.
+  const { data: positionLookup } = useUserPosition(proxyAddress);
+
   const [side, setSide] = useState<"BUY" | "SELL">("BUY");
   const [selectedOutcome, setSelectedOutcome] = useState<number>(initialOutcomeIdx);
   const [amount, setAmount] = useState("");
@@ -135,13 +140,14 @@ export function BetSlip({ eventTitle, eventSlug: _eventSlug, eventEndDate: _even
       .then((r) => r.json())
       .then((book) => {
         if (cancelled) return;
-        // For SELL, amount is shares; for BUY, amount is USDC
-        const orderAmount = side === "SELL" ? amountNumForSlip / selectedPrice : amountNumForSlip;
-        setSlippage(estimateSlippage(book, side, orderAmount));
+        // estimateSlippage wants USDC for BUY, shares for SELL — and now
+        // that's exactly what amountNumForSlip already means (BUY input is
+        // USDC, SELL input is shares), no conversion needed.
+        setSlippage(estimateSlippage(book, side, amountNumForSlip));
       })
       .catch(() => { if (!cancelled) setSlippage(null); });
     return () => { cancelled = true; };
-  }, [selectedTokenId, amountNumForSlip, side, selectedPrice]);
+  }, [selectedTokenId, amountNumForSlip, side]);
 
   if (outcomes.length === 0) return null;
 
@@ -153,19 +159,35 @@ export function BetSlip({ eventTitle, eventSlug: _eventSlug, eventEndDate: _even
 
   const selected = liveOutcomes[selectedOutcome];
   const amountNum = parseFloat(amount) || 0;
+
+  // The input means different things on each side, Polymarket-style:
+  //   - BUY:  amountNum = USDC the user wants to spend.
+  //   - SELL: amountNum = shares the user wants to sell.
+  // Keeping them as separate semantics ends the "is $1 a dollar or a
+  // share?" ambiguity — just like polymarket.com.
+  const heldShares = selected && positionLookup?.byTokenId[selected.tokenId]?.size || 0;
+
   // Effective fill price: use slippage-walked avg if we have it (more honest
   // than mid), otherwise mid. This powers both the share count and the
   // "to win" profit so the numbers the user sees are what they'll actually get.
   const effectivePrice = slippage?.filled ? slippage.avgFillPrice : selectedPrice;
-  const shares = selected && amountNum > 0 ? amountNum / effectivePrice : 0;
+  // For BUY: convert USDC → shares. For SELL: the input IS shares.
+  const shares = side === "BUY"
+    ? (selected && amountNum > 0 ? amountNum / effectivePrice : 0)
+    : amountNum;
+  // Proceeds in USDC when SELLing (shares × price); identical to cost in BUY.
+  const proceedsUsd = side === "SELL" ? shares * effectivePrice : amountNum;
   const toWin = side === "BUY" ? shares - amountNum : 0; // profit if YES resolves
-  const insufficientBalance = amountNum > 0 && amountNum > usdcBal;
+  const insufficientBalance = side === "BUY" && amountNum > 0 && amountNum > usdcBal;
+  const insufficientShares = side === "SELL" && shares > 0 && shares > heldShares + 0.01;
 
   const placeTrade = async () => {
     if (!selected || amountNum <= 0) return;
     setResult(null);
-    // For BUY, amount is USDC to spend. For SELL, amount is shares to sell.
-    const orderAmount = side === "SELL" ? amountNum / selected.price : amountNum;
+    // placeOrder always takes the CLOB-native amount:
+    //   BUY  → USDC to spend
+    //   SELL → shares to sell
+    const orderAmount = amountNum;
     const res = await placeOrder({
       tokenId: selected.tokenId,
       side,
@@ -230,10 +252,12 @@ export function BetSlip({ eventTitle, eventSlug: _eventSlug, eventEndDate: _even
       {/* Outcome name */}
       <p className="text-xs text-[#58a6ff] font-medium">{selected?.name}</p>
 
-      {/* Buy / Sell tabs */}
+      {/* Buy / Sell tabs — reset amount on side flip because the input's
+          unit changes (USDC ↔ shares), and keeping a stale number across
+          is a footgun. */}
       <div className="flex gap-0 bg-[#0d1117] rounded-lg p-0.5">
         <button
-          onClick={() => setSide("BUY")}
+          onClick={() => { setSide("BUY"); setAmount(""); setResult(null); }}
           className={cn(
             "flex-1 py-1.5 rounded-md text-xs font-semibold transition-colors",
             side === "BUY" ? "bg-[#238636] text-white" : "text-[#768390] hover:text-white"
@@ -242,7 +266,7 @@ export function BetSlip({ eventTitle, eventSlug: _eventSlug, eventEndDate: _even
           {t.betSlip.buy}
         </button>
         <button
-          onClick={() => setSide("SELL")}
+          onClick={() => { setSide("SELL"); setAmount(""); setResult(null); }}
           className={cn(
             "flex-1 py-1.5 rounded-md text-xs font-semibold transition-colors",
             side === "SELL" ? "bg-[#f85149] text-white" : "text-[#768390] hover:text-white"
@@ -252,29 +276,42 @@ export function BetSlip({ eventTitle, eventSlug: _eventSlug, eventEndDate: _even
         </button>
       </div>
 
-      {/* Outcome buttons */}
+      {/* Outcome buttons — with held-shares label underneath on SELL tab,
+          matching polymarket.com's cash-out flow. */}
       <div className="flex gap-2">
-        {liveOutcomes.map((o, i) => (
-          <button
-            key={o.name}
-            onClick={() => { setSelectedOutcome(i); setResult(null); }}
-            className={cn(
-              "flex-1 py-2 rounded-lg text-xs font-semibold tabular-nums transition-all border",
-              selectedOutcome === i
-                ? "bg-[#238636]/20 border-[#3fb950] text-[#3fb950]"
-                : "bg-[#0d1117] border-[#21262d] text-[#e6edf3] hover:border-[#30363d]"
-            )}
-          >
-            {abbrev(o.name)} {formatOdds(o.price, format)}
-          </button>
-        ))}
+        {liveOutcomes.map((o, i) => {
+          const held = positionLookup?.byTokenId[o.tokenId]?.size || 0;
+          return (
+            <button
+              key={o.name}
+              onClick={() => { setSelectedOutcome(i); setResult(null); setAmount(""); }}
+              className={cn(
+                "flex-1 py-2 rounded-lg text-xs font-semibold tabular-nums transition-all border flex flex-col items-center",
+                selectedOutcome === i
+                  ? "bg-[#238636]/20 border-[#3fb950] text-[#3fb950]"
+                  : "bg-[#0d1117] border-[#21262d] text-[#e6edf3] hover:border-[#30363d]"
+              )}
+            >
+              <span>{abbrev(o.name)} {formatOdds(o.price, format)}</span>
+              {side === "SELL" && held > 0 && (
+                <span className="text-[10px] font-normal text-[#3fb950] mt-0.5">{held.toFixed(2)} shares</span>
+              )}
+            </button>
+          );
+        })}
       </div>
 
-      {/* Amount input */}
+      {/* Amount input — swaps semantics by side.
+          BUY  → $ prefix, input is USDC to spend.
+          SELL → "Shares" label, input is share count, no $ prefix. */}
       <div>
-        <label className="text-[10px] text-[#484f58] uppercase tracking-wider block mb-1">{t.betSlip.amount}</label>
+        <label className="text-[10px] text-[#484f58] uppercase tracking-wider block mb-1">
+          {side === "BUY" ? t.betSlip.amount : "Shares"}
+        </label>
         <div className="relative">
-          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-[#484f58]">$</span>
+          {side === "BUY" && (
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-[#484f58]">$</span>
+          )}
           <input
             type="number"
             placeholder="0"
@@ -287,54 +324,102 @@ export function BetSlip({ eventTitle, eventSlug: _eventSlug, eventEndDate: _even
                 else handleTradeClick();
               }
             }}
-            className="w-full bg-[#0d1117] border border-[#30363d] rounded-lg pl-7 pr-3 py-2.5 text-lg text-white placeholder-[#30363d] focus:border-[#58a6ff] outline-none tabular-nums font-semibold"
-            min="0.1"
-            step="0.01"
+            className={cn(
+              "w-full bg-[#0d1117] border border-[#30363d] rounded-lg pr-3 py-2.5 text-lg text-white placeholder-[#30363d] focus:border-[#58a6ff] outline-none tabular-nums font-semibold",
+              side === "BUY" ? "pl-7" : "pl-3"
+            )}
+            min={side === "BUY" ? "0.1" : "0.01"}
+            step={side === "BUY" ? "0.01" : "0.01"}
           />
         </div>
       </div>
 
-      {/* Quick amount buttons */}
-      <div className="flex gap-1.5">
-        {QUICK_AMOUNTS.map((q) => (
+      {/* Quick amount buttons — vary by side:
+          BUY  → +$1 / +$5 / +$10 / +$100 / Max-USDC
+          SELL → 25% / 50% / Max of held shares (disabled at 0 shares) */}
+      {side === "BUY" ? (
+        <div className="flex gap-1.5">
+          {QUICK_AMOUNTS.map((q) => (
+            <button
+              key={q}
+              onClick={() => { setAmount(String((amountNum || 0) + q)); setResult(null); }}
+              className="flex-1 py-1.5 rounded-md text-[11px] font-medium bg-[#21262d] text-[#e6edf3] hover:bg-[#30363d] transition-colors tabular-nums"
+            >
+              +${q}
+            </button>
+          ))}
           <button
-            key={q}
-            onClick={() => { setAmount(String((amountNum || 0) + q)); setResult(null); }}
-            className="flex-1 py-1.5 rounded-md text-[11px] font-medium bg-[#21262d] text-[#e6edf3] hover:bg-[#30363d] transition-colors tabular-nums"
+            onClick={() => { setAmount(String(Math.floor(usdcBal * 100) / 100)); setResult(null); }}
+            className="flex-1 py-1.5 rounded-md text-[11px] font-medium bg-[#21262d] text-[#e6edf3] hover:bg-[#30363d] transition-colors"
           >
-            +${q}
+            {t.betSlip.max}
           </button>
-        ))}
-        <button
-          onClick={() => { setAmount(String(Math.floor(usdcBal * 100) / 100)); setResult(null); }}
-          className="flex-1 py-1.5 rounded-md text-[11px] font-medium bg-[#21262d] text-[#e6edf3] hover:bg-[#30363d] transition-colors"
-        >
-          {t.betSlip.max}
-        </button>
-      </div>
-
-      {/* Balance + Shares + To win (Polymarket-style break-out) */}
-      <div className="space-y-1 px-1">
-        <div className="flex justify-between text-xs text-[#768390]">
-          <span>Balance</span>
-          <span className="text-[#e6edf3] font-medium tabular-nums">${usdcBal.toFixed(2)} USDC</span>
         </div>
-        {amountNum > 0 && selected && (
+      ) : (
+        <div className="flex gap-1.5">
+          {[0.25, 0.5].map((frac) => (
+            <button
+              key={frac}
+              disabled={heldShares <= 0}
+              onClick={() => { setAmount((heldShares * frac).toFixed(2)); setResult(null); }}
+              className={cn(
+                "flex-1 py-1.5 rounded-md text-[11px] font-medium transition-colors tabular-nums",
+                heldShares > 0
+                  ? "bg-[#21262d] text-[#e6edf3] hover:bg-[#30363d]"
+                  : "bg-[#21262d]/50 text-[#484f58] cursor-not-allowed"
+              )}
+            >
+              {Math.round(frac * 100)}%
+            </button>
+          ))}
+          <button
+            disabled={heldShares <= 0}
+            onClick={() => { setAmount(heldShares.toFixed(4)); setResult(null); }}
+            className={cn(
+              "flex-1 py-1.5 rounded-md text-[11px] font-medium transition-colors",
+              heldShares > 0
+                ? "bg-[#21262d] text-[#e6edf3] hover:bg-[#30363d]"
+                : "bg-[#21262d]/50 text-[#484f58] cursor-not-allowed"
+            )}
+          >
+            Max
+          </button>
+        </div>
+      )}
+
+      {/* Summary rows: Balance/Shares/To win on BUY, Holdings/Receive on SELL. */}
+      <div className="space-y-1 px-1">
+        {side === "BUY" ? (
+          <div className="flex justify-between text-xs text-[#768390]">
+            <span>Balance</span>
+            <span className="text-[#e6edf3] font-medium tabular-nums">${usdcBal.toFixed(2)} USDC</span>
+          </div>
+        ) : (
+          <div className="flex justify-between text-xs text-[#768390]">
+            <span>Holdings</span>
+            <span className="text-[#e6edf3] font-medium tabular-nums">{heldShares.toFixed(2)} shares</span>
+          </div>
+        )}
+        {amountNum > 0 && selected && side === "BUY" && (
           <>
             <div className="flex justify-between text-xs text-[#768390]">
               <span>Shares</span>
               <span className="text-[#e6edf3] font-medium tabular-nums">{shares.toFixed(2)}</span>
             </div>
-            {side === "BUY" && (
-              <div className="flex justify-between text-xs text-[#768390]">
-                <span>To win</span>
-                <span className="text-[#3fb950] font-semibold tabular-nums">
-                  ${toWin.toFixed(2)}
-                  {amountNum > 0 && <span className="text-[10px] text-[#3fb950]/60 ml-1 font-normal">(+{((toWin / amountNum) * 100).toFixed(0)}%)</span>}
-                </span>
-              </div>
-            )}
+            <div className="flex justify-between text-xs text-[#768390]">
+              <span>To win</span>
+              <span className="text-[#3fb950] font-semibold tabular-nums">
+                ${toWin.toFixed(2)}
+                <span className="text-[10px] text-[#3fb950]/60 ml-1 font-normal">(+{((toWin / amountNum) * 100).toFixed(0)}%)</span>
+              </span>
+            </div>
           </>
+        )}
+        {amountNum > 0 && selected && side === "SELL" && (
+          <div className="flex justify-between text-xs text-[#768390]">
+            <span>Receive</span>
+            <span className="text-[#3fb950] font-semibold tabular-nums">${proceedsUsd.toFixed(2)}</span>
+          </div>
         )}
       </div>
 
@@ -350,7 +435,7 @@ export function BetSlip({ eventTitle, eventSlug: _eventSlug, eventEndDate: _even
         </p>
       )}
 
-      {/* Insufficient balance warning */}
+      {/* Insufficient balance warning (BUY) */}
       {insufficientBalance && (
         <p className="text-[10px] text-[#d29922] bg-[#d29922]/10 px-2 py-1.5 rounded">
           {t.betSlip.insufficientUsdc}.{" "}
@@ -358,6 +443,13 @@ export function BetSlip({ eventTitle, eventSlug: _eventSlug, eventEndDate: _even
             {t.portfolio.depositUsdc} &rarr;
           </button>
           <BridgeDepositModal open={depositOpen} onOpenChange={setDepositOpen} recipientAddress={address} />
+        </p>
+      )}
+
+      {/* Insufficient shares warning (SELL) */}
+      {insufficientShares && (
+        <p className="text-[10px] text-[#d29922] bg-[#d29922]/10 px-2 py-1.5 rounded">
+          You only have {heldShares.toFixed(2)} shares of {selected?.name} to sell.
         </p>
       )}
 
@@ -371,7 +463,7 @@ export function BetSlip({ eventTitle, eventSlug: _eventSlug, eventEndDate: _even
           }
           handleTradeClick();
         }}
-        disabled={placing || amountNum <= 0}
+        disabled={placing || amountNum <= 0 || insufficientShares}
         className={cn(
           "w-full py-3 rounded-lg text-sm font-bold transition-all",
           placing
@@ -380,22 +472,26 @@ export function BetSlip({ eventTitle, eventSlug: _eventSlug, eventEndDate: _even
               ? "bg-[#21262d] text-[#484f58]"
               : !tradingEnabled && setupStatus !== "checking"
                 ? "bg-[#58a6ff] text-white hover:bg-[#4d8fea] active:scale-[0.98]"
-                : insufficientBalance
+                : insufficientBalance || insufficientShares
                   ? "bg-[#d29922]/20 text-[#d29922] hover:bg-[#d29922]/30 active:scale-[0.98]"
-                  : "bg-[#238636] text-white hover:bg-[#2ea043] active:scale-[0.98]"
+                  : side === "SELL"
+                    ? "bg-[#58a6ff] text-white hover:bg-[#4d8fea] active:scale-[0.98]"
+                    : "bg-[#238636] text-white hover:bg-[#2ea043] active:scale-[0.98]"
         )}
       >
         {placing
           ? t.betSlip.confirmingInWallet
           : amountNum <= 0
-            ? "Enter an amount"
+            ? side === "SELL" ? "Enter shares" : "Enter an amount"
             : !tradingEnabled && setupStatus !== "checking"
               ? "🔐 Enable Trading to continue"
               : insufficientBalance
                 ? t.betSlip.insufficientUsdc
-                : side === "BUY"
-                  ? `Buy $${amountNum.toFixed(2)} ${selected?.name || ""}`
-                  : `Sell $${amountNum.toFixed(2)} ${selected?.name || ""}`}
+                : insufficientShares
+                  ? `Only ${heldShares.toFixed(2)} shares held`
+                  : side === "BUY"
+                    ? `Buy $${amountNum.toFixed(2)} ${selected?.name || ""}`
+                    : `Sell ${selected?.name || ""}`}
       </button>
       <EnableTradingModal
         open={enableOpen}
@@ -409,7 +505,7 @@ export function BetSlip({ eventTitle, eventSlug: _eventSlug, eventEndDate: _even
         side={side}
         outcomeName={selected?.name || ""}
         shares={shares}
-        costUsd={amountNum}
+        costUsd={side === "BUY" ? amountNum : proceedsUsd}
         avgPrice={effectivePrice}
         slippageWarn={slippageWarnMsg}
         placing={placing}

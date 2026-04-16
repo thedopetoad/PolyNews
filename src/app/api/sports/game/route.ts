@@ -106,25 +106,40 @@ async function getClobPrice(tokenId: string): Promise<number | null> {
 
 export async function GET(request: NextRequest) {
   const eventId = request.nextUrl.searchParams.get("eventId");
+  const slug = request.nextUrl.searchParams.get("slug");
   const sport = request.nextUrl.searchParams.get("sport") || "";
 
-  if (!eventId) {
-    return NextResponse.json({ error: "eventId required" }, { status: 400 });
+  if (!eventId && !slug) {
+    return NextResponse.json({ error: "eventId or slug required" }, { status: 400 });
   }
 
   try {
     // Fetch event from Gamma. 15s cache matches the list route — user
     // drilled in from a fresh list and expects the detail view to be at
     // least as up-to-date, especially for real-money bet slips.
-    const res = await fetch(`${GAMMA_API}/events/${eventId}`, {
-      next: { revalidate: 15 },
-    });
-
-    if (!res.ok) {
-      return NextResponse.json({ error: "Event not found" }, { status: 404 });
+    //
+    // Two lookup paths: by id (sports page → game page) or by slug
+    // (portfolio row click → game page, since Polymarket's positions
+    // endpoint returns slug but not eventId).
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let event: any;
+    if (eventId) {
+      const res = await fetch(`${GAMMA_API}/events/${eventId}`, {
+        next: { revalidate: 15 },
+      });
+      if (!res.ok) return NextResponse.json({ error: "Event not found" }, { status: 404 });
+      event = await res.json();
+    } else {
+      const res = await fetch(`${GAMMA_API}/events?slug=${encodeURIComponent(slug!)}&limit=1`, {
+        next: { revalidate: 15 },
+      });
+      if (!res.ok) return NextResponse.json({ error: "Event not found" }, { status: 404 });
+      const arr = await res.json();
+      if (!Array.isArray(arr) || arr.length === 0) {
+        return NextResponse.json({ error: "Event not found" }, { status: 404 });
+      }
+      event = arr[0];
     }
-
-    const event = await res.json();
 
     // Parse all markets and categorize them
     const moneylineMarkets: typeof parsedMarkets = [];

@@ -254,6 +254,15 @@ export default function PortfolioPage() {
       _currentValue: p.currentValue,
     }));
 
+  // Sum the current-mark value of all real positions — Polymarket's
+  // /positions API already does the per-position math (currentValue), so
+  // we just add. Falls back to shares × avgPrice for entries lacking
+  // curPrice (rare).
+  const realPositionsValue = realPositions.reduce((sum, p) => {
+    const ext = p as typeof p & { _currentValue?: number };
+    return sum + (ext._currentValue ?? p.shares * p.avgPrice);
+  }, 0);
+
   // When a pending position shows up in /positions, remove it from the
   // pending list (both state and localStorage). This is what flips the
   // skeleton row into the real row seamlessly.
@@ -482,7 +491,9 @@ export default function PortfolioPage() {
       {/* Balance Cards — click to toggle between Real and Paper views.
           Active card pulses with a glow to show the link to positions below. */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-        {/* USDC.e / Real Trading card */}
+        {/* Real Trading card — Polymarket-style: big "Total Portfolio"
+            (USDC + position values) on the left, "Available to trade" (just
+            USDC) tucked top-right. */}
         <button
           type="button"
           onClick={() => setPortfolioMode("real")}
@@ -493,12 +504,20 @@ export default function PortfolioPage() {
               : "border-[#21262d] hover:border-[#30363d] cursor-pointer"
           )}
         >
-          <div className="flex items-center justify-between mb-1">
-            <p className="text-[10px] text-[#484f58] uppercase tracking-wider">{t.portfolio.availableToTrade}</p>
-            <span className="text-[10px] text-[#3fb950] bg-[#3fb950]/10 px-1.5 py-0.5 rounded font-medium">USDC.e</span>
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-[10px] text-[#484f58] uppercase tracking-wider">Total Portfolio</p>
+              <p className="text-3xl font-bold text-white tabular-nums">{formatUsd(usdcBal + realPositionsValue)}</p>
+              <p className="text-[11px] text-[#484f58] mt-1">
+                Cash + open positions · Held on Polymarket
+              </p>
+            </div>
+            <div className="text-right flex-shrink-0">
+              <p className="text-[10px] text-[#484f58] uppercase tracking-wider">Available to trade</p>
+              <p className="text-base font-bold text-[#58a6ff] tabular-nums">{formatUsd(usdcBal)}</p>
+              <span className="inline-block mt-0.5 text-[9px] text-[#3fb950] bg-[#3fb950]/10 px-1.5 py-0.5 rounded font-medium">USDC.e</span>
+            </div>
           </div>
-          <p className="text-3xl font-bold text-white tabular-nums">{formatUsd(usdcBal)}</p>
-          <p className="text-xs text-[#484f58] mt-1">Held on Polymarket · Polygon</p>
           <div className="flex gap-2 mt-3" onClick={(e) => e.stopPropagation()}>
             <button
               onClick={() => setDepositOpen(true)}
@@ -767,9 +786,23 @@ export default function PortfolioPage() {
                       className={cn("grid grid-cols-12 gap-2 px-4 py-3 items-center hover:bg-[#1c2128]/50 transition-colors cursor-pointer", isExpanded && "bg-[#1c2128]/30")}
                       onClick={() => setExpandedPos(isExpanded ? null : pos.id)}
                     >
-                      {/* Market + outcome pill + shares label (Polymarket layout) */}
+                      {/* Market + outcome pill + shares label (Polymarket layout).
+                          Title is a link to the game detail page on our site —
+                          powered by slug lookup since /positions doesn't give
+                          us an eventId. Falls back to a plain title when there's
+                          no slug. */}
                       <div className="col-span-4 min-w-0">
-                        <p className="text-[13px] text-[#e6edf3] font-medium leading-snug line-clamp-1">{pos.marketQuestion}</p>
+                        {pos.eventSlug ? (
+                          <Link
+                            href={`/sports/game?slug=${encodeURIComponent(pos.eventSlug)}`}
+                            onClick={(e) => e.stopPropagation()}
+                            className="text-[13px] text-[#e6edf3] font-medium leading-snug line-clamp-1 hover:text-[#58a6ff] hover:underline transition-colors"
+                          >
+                            {pos.marketQuestion}
+                          </Link>
+                        ) : (
+                          <p className="text-[13px] text-[#e6edf3] font-medium leading-snug line-clamp-1">{pos.marketQuestion}</p>
+                        )}
                         <div className="mt-1 flex items-center gap-2 flex-wrap">
                           <span className={cn(
                             "text-[10px] font-bold px-1.5 py-0.5 rounded",

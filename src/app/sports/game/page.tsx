@@ -225,22 +225,26 @@ function Scoreboard({ espn, title, gameTime }: { espn: ESPNScore | null; title: 
 /* ─── Inner Content (needs useSearchParams) ─── */
 function GameContent() {
   const searchParams = useSearchParams();
+  // Accept either `eventId` (from /sports list clicks) or `slug` (from
+  // portfolio row clicks — Polymarket /positions returns slug, not id).
   const eventId = searchParams.get("eventId");
+  const slug = searchParams.get("slug");
   const sport = searchParams.get("sport") || "";
+  const lookupKey = eventId ? `eventId=${eventId}` : slug ? `slug=${slug}` : "";
 
   const { data, isLoading, error } = useQuery<GameData>({
-    queryKey: ["sports-game", eventId],
+    queryKey: ["sports-game", eventId || slug],
     queryFn: async () => {
-      const res = await fetch(`/api/sports/game?eventId=${eventId}&sport=${sport}`);
+      const res = await fetch(`/api/sports/game?${lookupKey}&sport=${sport}`);
       if (!res.ok) throw new Error("Failed to load game");
       return res.json();
     },
-    enabled: !!eventId,
+    enabled: !!(eventId || slug),
     staleTime: 30_000,
     refetchInterval: 30_000, // Refresh every 30s for live scores
   });
 
-  if (!eventId) {
+  if (!eventId && !slug) {
     return (
       <div className="text-center py-16">
         <p className="text-[#484f58]">No game selected</p>
