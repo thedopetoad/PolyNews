@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { BuilderSigner } from "@polymarket/builder-signing-sdk";
 
+// Run this route in a non-US region to bypass Polymarket's geoblock.
+// The CLOB rejects ALL requests from US IPs — no builder bypass exists.
+// Frankfurt (fra1) is reliable and low-latency to Polymarket's infra.
+export const preferredRegion = "fra1";
+
 const CLOB_HOST = "https://clob.polymarket.com";
 
 /**
