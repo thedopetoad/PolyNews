@@ -8,6 +8,9 @@ import { BuilderConfig } from "@polymarket/builder-signing-sdk";
 import { deriveProxyAddress } from "@/lib/relay";
 import { buildApprovalTransactions, checkApprovals } from "@/lib/polymarket-approvals";
 import { useAuthStore } from "@/stores/use-auth-store";
+import { getMagic } from "@/lib/magic";
+import { createWalletClient, custom } from "viem";
+import { polygon } from "viem/chains";
 
 const RELAYER_URL = "https://relayer-v2.polymarket.com/";
 const POLYGON_CHAIN_ID = 137;
@@ -96,19 +99,29 @@ export function usePolymarketSetup() {
     setError(null);
 
     try {
-      // Get a fresh signer (handles stale walletClient after chain switch)
+      // Get a signer. For wallet users, wagmi's walletClient works.
+      // For Google/Magic users, wagmi may not have the connector attached
+      // yet — fall back to wrapping Magic's RPC provider directly.
       let signer = walletClient;
       if (!signer) {
         try {
           signer = await getWalletClientAction(wagmiConfig, { chainId: POLYGON_CHAIN_ID });
         } catch {
-          setError("Could not reach wallet. Make sure it's on Polygon.");
-          setStatus("not_ready");
-          return false;
+          // ignore — try Magic fallback below
+        }
+      }
+      if (!signer && googleAddress) {
+        const magic = getMagic();
+        if (magic?.rpcProvider) {
+          signer = createWalletClient({
+            account: googleAddress as `0x${string}`,
+            chain: polygon,
+            transport: custom(magic.rpcProvider),
+          }) as never;
         }
       }
       if (!signer) {
-        setError("Wallet signer unavailable");
+        setError("Could not reach wallet. If using Google login, refresh the page and try again.");
         setStatus("not_ready");
         return false;
       }

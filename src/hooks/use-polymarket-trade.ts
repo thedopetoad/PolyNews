@@ -9,6 +9,9 @@ import type { ApiKeyCreds } from "@polymarket/clob-client";
 import { BuilderConfig } from "@polymarket/builder-signing-sdk";
 import { deriveProxyAddress } from "@/lib/relay";
 import { useAuthStore } from "@/stores/use-auth-store";
+import { getMagic } from "@/lib/magic";
+import { createWalletClient, custom } from "viem";
+import { polygon } from "viem/chains";
 
 const CLOB_HOST = "https://clob.polymarket.com";
 const POLYGON_CHAIN_ID = 137;
@@ -117,19 +120,29 @@ export function usePolymarketTrade() {
       return { success: false, error: "Wallet not connected" };
     }
 
-    // The reactive walletClient from useWalletClient() can be stale after a
-    // chain switch or on initial load. Actively fetch a fresh one so the user
-    // doesn't see "Wallet not connected" when they clearly ARE connected.
+    // Get a signer. Try wagmi first (MetaMask/Phantom), fall back to
+    // Magic SDK's provider directly (Google login users where wagmi's
+    // connector hasn't fully attached).
     let signer = walletClient;
     if (!signer) {
       try {
         signer = await getWalletClientAction(wagmiConfig, { chainId: POLYGON_CHAIN_ID });
       } catch {
-        return { success: false, error: "Could not reach your wallet. Make sure it's unlocked and on Polygon." };
+        // ignore, try Magic fallback
+      }
+    }
+    if (!signer && googleAddress) {
+      const magic = getMagic();
+      if (magic?.rpcProvider) {
+        signer = createWalletClient({
+          account: googleAddress as `0x${string}`,
+          chain: polygon,
+          transport: custom(magic.rpcProvider),
+        }) as never;
       }
     }
     if (!signer) {
-      return { success: false, error: "Wallet signer unavailable. Try switching to Polygon in your wallet." };
+      return { success: false, error: "Could not reach wallet. If using Google login, refresh the page and try again." };
     }
 
     setPlacing(true);
