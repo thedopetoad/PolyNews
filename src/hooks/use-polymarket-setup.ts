@@ -189,13 +189,26 @@ export function usePolymarketSetup() {
 
       // Re-verify approvals onchain — the relayer may report success while some
       // approvals silently didn't go through. Only mark ready if real state confirms.
+      //
+      // Poll with retries: the relayer confirms as soon as ITS node sees the tx
+      // mined, but our public RPC may be a block or two behind. Without retries,
+      // we hit a race and report false failure even though the approvals landed.
       if (publicClient) {
         const verifyProxy = deriveProxyAddress(address);
-        const verify = await checkApprovals(publicClient, verifyProxy);
+        const maxAttempts = 6;
+        const delayMs = 2000; // Polygon block time ~2s
+        let verify = await checkApprovals(publicClient, verifyProxy);
+        let deployed = false;
+        for (let attempt = 0; attempt < maxAttempts; attempt++) {
+          const code = await publicClient.getCode({ address: verifyProxy });
+          deployed = !!code && code !== "0x";
+          if (verify.allApproved && deployed) break;
+          if (attempt === maxAttempts - 1) break;
+          await new Promise((r) => setTimeout(r, delayMs));
+          verify = await checkApprovals(publicClient, verifyProxy);
+        }
         setUsdcApproved(verify.usdcApproved);
         setTokensApproved(verify.tokensApproved);
-        const code = await publicClient.getCode({ address: verifyProxy });
-        const deployed = !!code && code !== "0x";
         setProxyDeployed(deployed);
         if (!verify.allApproved || !deployed) {
           setError("Approvals did not complete. Please try again.");
