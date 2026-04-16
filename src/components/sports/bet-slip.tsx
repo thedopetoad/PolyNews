@@ -10,6 +10,7 @@ import { BridgeDepositModal } from "@/components/portfolio/bridge-deposit-modal"
 import { EnableTradingModal } from "@/components/sports/enable-trading-modal";
 import { TradeProgress } from "@/components/sports/trade-progress";
 import { BetConfirmModal } from "@/components/sports/bet-confirm-modal";
+import { addPendingPosition } from "@/lib/pending-positions";
 import { formatOdds } from "@/lib/odds-format";
 import { useOddsFormat } from "@/stores/use-odds-format";
 import { useT } from "@/lib/i18n";
@@ -53,7 +54,7 @@ function abbrev(name: string): string {
 
 const QUICK_AMOUNTS = [1, 5, 10, 100];
 
-export function BetSlip({ eventTitle: _eventTitle, eventSlug: _eventSlug, eventEndDate: _eventEndDate, marketId, marketQuestion: _marketQuestion, outcomes, initialOutcomeIdx = 0, negRisk }: BetSlipProps) {
+export function BetSlip({ eventTitle, eventSlug: _eventSlug, eventEndDate: _eventEndDate, marketId, marketQuestion: _marketQuestion, outcomes, initialOutcomeIdx = 0, negRisk }: BetSlipProps) {
   const { address } = useUser();
   const { placeOrder, placing, error: tradeError, isOnPolygon } = usePolymarketTrade();
   const { status: setupStatus, isReady: tradingEnabled, refresh: refreshSetup } = usePolymarketSetup();
@@ -422,6 +423,20 @@ export function BetSlip({ eventTitle: _eventTitle, eventSlug: _eventSlug, eventE
             <TradeProgress
               txHashes={result.txHashes}
               label={`Settling your ${result.side === "BUY" ? "buy" : "sell"}…`}
+              onConfirmed={() => {
+                // Only BUYs create new positions for the skeleton to represent.
+                // SELLs are handled by the portfolio's closedLocally machinery.
+                if (result.side === "BUY" && selected && selected.tokenId) {
+                  addPendingPosition({
+                    tokenId: selected.tokenId,
+                    marketTitle: eventTitle,
+                    outcomeName: selected.name,
+                    shares,
+                    avgPrice: effectivePrice,
+                    side: "BUY",
+                  });
+                }
+              }}
             />
           )}
         </div>

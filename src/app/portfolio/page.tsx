@@ -15,6 +15,7 @@ import Link from "next/link";
 import { BridgeDepositModal } from "@/components/portfolio/bridge-deposit-modal";
 import { WithdrawModal } from "@/components/portfolio/withdraw-modal";
 import { TradeProgress } from "@/components/sports/trade-progress";
+import { loadPendingPositions, removePendingPosition, type PendingPosition } from "@/lib/pending-positions";
 import { PendingBridgeIndicator } from "@/components/portfolio/pending-bridge-indicator";
 import { DidYouSendModal } from "@/components/portfolio/did-you-send-modal";
 import { deriveProxyAddress } from "@/lib/relay";
@@ -156,6 +157,27 @@ export default function PortfolioPage() {
     refetchInterval: 30_000,
   });
 
+  // Pending BUYs whose onchain confirmation landed but /positions hasn't
+  // yet reflected them. Hydrated from localStorage on mount (so a user who
+  // places a trade then navigates to portfolio sees the skeleton even
+  // though this component just mounted). Cleared as /positions catches up
+  // OR when the TTL expires.
+  const [pendingPositions, setPendingPositions] = useState<PendingPosition[]>(() => loadPendingPositions());
+
+  // On mount: kick off aggressive polling so the pending skeletons don't
+  // linger any longer than needed.
+  useEffect(() => {
+    if (pendingPositions.length === 0) return;
+    const delays = [1500, 3500, 7000, 15000, 30000];
+    const timers = delays.map((d) => setTimeout(() => {
+      queryClient.invalidateQueries({ queryKey: ["polymarket-positions"] });
+      queryClient.invalidateQueries({ queryKey: ["polymarket-activity"] });
+    }, d));
+    return () => { timers.forEach(clearTimeout); };
+    // Only run when the pending-set identity changes, not on every refetch.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingPositions.length]);
+
   // Positions whose close has already settled onchain. Polymarket's /positions
   // data-api is eventually-consistent (10-30s lag after onchain settlement),
   // so we hide these locally until the API catches up.
@@ -230,6 +252,30 @@ export default function PortfolioPage() {
       _percentPnl: p.percentPnl,
       _currentValue: p.currentValue,
     }));
+
+  // When a pending position shows up in /positions, remove it from the
+  // pending list (both state and localStorage). This is what flips the
+  // skeleton row into the real row seamlessly.
+  useEffect(() => {
+    if (pendingPositions.length === 0) return;
+    if (!polyPositions) return;
+    const returnedIds = new Set(polyPositions.map((p) => p.asset || p.conditionId));
+    const arrived = pendingPositions.filter((p) => returnedIds.has(p.tokenId));
+    if (arrived.length > 0) {
+      for (const p of arrived) removePendingPosition(p.tokenId);
+      setPendingPositions((prev) => prev.filter((p) => !returnedIds.has(p.tokenId)));
+    }
+  }, [polyPositions, pendingPositions]);
+
+  // Sweep expired pending entries (TTL hit) every few seconds while the page
+  // is open — keeps the skeleton from sticking forever if /positions never
+  // produces a match (e.g. zero-fill edge cases).
+  useEffect(() => {
+    const t = setInterval(() => {
+      setPendingPositions(loadPendingPositions());
+    }, 5000);
+    return () => clearInterval(t);
+  }, []);
 
   // Once the /positions API catches up and stops returning a locally-closed
   // position, drop it from both state and localStorage so the filter doesn't
@@ -617,7 +663,7 @@ export default function PortfolioPage() {
             <div className="col-span-2 text-right">Action</div>
           </div>
 
-          {realPositions.length === 0 ? (
+          {realPositions.length === 0 && pendingPositions.length === 0 ? (
             <div className="text-center py-12">
               <p className="text-sm text-[#484f58]">No real positions yet</p>
               <p className="text-xs text-[#484f58] mt-1">
@@ -626,6 +672,12 @@ export default function PortfolioPage() {
             </div>
           ) : (
             <div className="divide-y divide-[#21262d]">
+              {/* Skeleton rows for trades that just settled onchain but
+                  haven't appeared in /positions yet. The shimmer pulse
+                  reassures the user the trade is in-flight. */}
+              {pendingPositions.map((p) => (
+                <PendingPositionRow key={p.tokenId} pending={p} />
+              ))}
               {realPositions.map((pos) => {
                 const ext = pos as typeof pos & { _curPrice?: number; _cashPnl?: number; _percentPnl?: number; _currentValue?: number };
                 const hasPoly = ext._curPrice !== undefined;
@@ -923,6 +975,49 @@ export default function PortfolioPage() {
           <TradeHistory address={address} />
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * Skeleton row for a trade that confirmed onchain but whose position
+ * hasn't yet appeared in Polymarket's /positions data-api (10-30s lag).
+ * Matches the grid layout of real position rows so the transition to the
+ * real row is seamless. Animated shimmer signals "in flight".
+ */
+function PendingPositionRow({ pending }: { pending: PendingPosition }) {
+  const cost = pending.shares * pending.avgPrice;
+  return (
+    <div className="grid grid-cols-12 gap-2 px-4 py-3 items-center animate-pulse">
+      <div className="col-span-3">
+        <p className="text-[13px] text-[#e6edf3] font-medium leading-snug line-clamp-1">{pending.marketTitle}</p>
+        <p className="text-[10px] text-[#484f58] mt-0.5 flex items-center gap-1.5">
+          <span className="inline-block w-1.5 h-1.5 rounded-full bg-[#58a6ff] animate-ping" />
+          Arriving…
+        </p>
+      </div>
+      <div className="col-span-2 text-right">
+        <span className="text-xs text-[#768390] tabular-nums">{Math.round(pending.avgPrice * 100)}¢</span>
+        <span className="text-[10px] text-[#484f58] mx-0.5">→</span>
+        <span className="text-xs text-[#484f58] tabular-nums">…</span>
+      </div>
+      <div className="col-span-2 text-right">
+        <span className="text-xs text-[#e6edf3] tabular-nums font-medium">{pending.shares.toFixed(2)}</span>
+      </div>
+      <div className="col-span-2 text-right">
+        <span className="text-xs text-[#484f58] tabular-nums">pending</span>
+      </div>
+      <div className="col-span-1 text-right">
+        <span className="text-xs text-[#e6edf3] tabular-nums font-medium">${cost.toFixed(2)}</span>
+      </div>
+      <div className="col-span-2 text-right">
+        <span className="inline-flex items-center gap-1.5 text-[10px] text-[#58a6ff] bg-[#58a6ff]/10 border border-[#58a6ff]/25 px-2 py-1 rounded">
+          <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="animate-spin">
+            <path d="M21 12a9 9 0 1 1-6.2-8.55" />
+          </svg>
+          Settling
+        </span>
+      </div>
     </div>
   );
 }

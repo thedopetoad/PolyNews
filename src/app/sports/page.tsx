@@ -939,15 +939,28 @@ function SportsContent() {
 
   // Auto-expand the category containing the currently-selected league so
   // the selection is always visible, without clobbering user-toggled state.
+  //
+  // CRUCIAL: this effect must NOT depend on expandedCats. If it did,
+  // collapsing a category (say Baseball while MLB is the selected league)
+  // would drop it from expandedCats, re-run this effect, and immediately
+  // re-add it — making the category impossible to collapse. Instead, we
+  // track the last selectedSport we auto-expanded for, and only act when
+  // it actually changes.
+  const lastAutoExpandedSportRef = useRef<string | null>(null);
   useEffect(() => {
     if (categories.length === 0) return;
+    if (lastAutoExpandedSportRef.current === selectedSport) return;
     const parent = categories.find((c) =>
       c.leagues.some((l) => l.code === selectedSport)
     );
-    if (parent && !expandedCats.has(parent.code)) {
-      setExpandedCats((prev) => new Set(prev).add(parent.code));
+    if (parent) {
+      setExpandedCats((prev) => {
+        if (prev.has(parent.code)) return prev;
+        return new Set(prev).add(parent.code);
+      });
     }
-  }, [selectedSport, categories, expandedCats]);
+    lastAutoExpandedSportRef.current = selectedSport;
+  }, [selectedSport, categories]);
 
   // ALL live games — one call to Polymarket's `live=true` filter, same
   // source that powers polymarket.com's Sports Live page. Each event
