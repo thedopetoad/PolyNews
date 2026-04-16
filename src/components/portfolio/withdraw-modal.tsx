@@ -69,6 +69,9 @@ export function WithdrawModal({ open, onOpenChange, usdcBalance, userAddress, on
   const [status, setStatus] = useState<Status>("idle");
   const [txHash, setTxHash] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // User explicitly accepted the "below bridge minimum" risk for this submit.
+  // Resets when they change amount or destination.
+  const [acceptBelowMin, setAcceptBelowMin] = useState(false);
 
   const isMagicUser = !!googleAddress;
   // Gate on connection state, not walletClient presence — the latter can race
@@ -90,8 +93,10 @@ export function WithdrawModal({ open, onOpenChange, usdcBalance, userAddress, on
     const amountNum = parseFloat(amount);
     if (!amountNum || amountNum <= 0) { setError("Enter a valid amount"); return; }
     if (amountNum > usdcBalance) { setError("Amount exceeds balance"); return; }
-    if (selectedDest.minUsd > 0 && amountNum < selectedDest.minUsd) {
-      setError(`Minimum withdraw to ${selectedDest.label.replace(" (same chain)", "")} is $${selectedDest.minUsd}. Below this, the bridge won't deliver your funds.`);
+    // Below bridge minimum — require explicit acknowledgment instead of a hard
+    // block, since some users may prefer to try rather than deposit more.
+    if (selectedDest.minUsd > 0 && amountNum < selectedDest.minUsd && !acceptBelowMin) {
+      setError(`Minimum withdraw to ${selectedDest.label.replace(" (same chain)", "")} is $${selectedDest.minUsd}. Check the acknowledgment box to proceed anyway.`);
       return;
     }
 
@@ -243,6 +248,7 @@ export function WithdrawModal({ open, onOpenChange, usdcBalance, userAddress, on
       setStatus("idle");
       setTxHash(null);
       setError(null);
+      setAcceptBelowMin(false);
     }
     onOpenChange(next);
   };
@@ -276,7 +282,7 @@ export function WithdrawModal({ open, onOpenChange, usdcBalance, userAddress, on
               {DEST_CHAINS.map((c) => (
                 <button
                   key={c.id}
-                  onClick={() => setDestChain(c.id)}
+                  onClick={() => { setDestChain(c.id); setAcceptBelowMin(false); }}
                   disabled={isProcessing}
                   className={`px-3 py-2 rounded-lg text-xs font-medium border transition-colors ${
                     destChain === c.id
@@ -319,7 +325,7 @@ export function WithdrawModal({ open, onOpenChange, usdcBalance, userAddress, on
               <input
                 type="number"
                 value={amount}
-                onChange={(e) => setAmount(e.target.value)}
+                onChange={(e) => { setAmount(e.target.value); setAcceptBelowMin(false); }}
                 placeholder="0.00"
                 step="0.01"
                 min="0"
@@ -329,7 +335,7 @@ export function WithdrawModal({ open, onOpenChange, usdcBalance, userAddress, on
                 }`}
               />
               <button
-                onClick={() => setAmount(usdcBalance.toFixed(2))}
+                onClick={() => { setAmount(usdcBalance.toFixed(2)); setAcceptBelowMin(false); }}
                 disabled={isProcessing}
                 className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] font-semibold text-[#58a6ff] hover:text-[#79c0ff] px-2 py-0.5 rounded bg-[#58a6ff]/10 disabled:opacity-50"
               >
@@ -337,12 +343,24 @@ export function WithdrawModal({ open, onOpenChange, usdcBalance, userAddress, on
               </button>
             </div>
             {belowMin && (
-              <p className="mt-1.5 text-[11px] text-[#d29922] flex items-start gap-1.5 leading-snug">
-                <WarningIcon />
-                <span>
-                  Below ${selectedDest.minUsd} the bridge won&apos;t deliver to {selectedDest.label.replace(" (same chain)", "")}. Your funds would get stuck.
-                </span>
-              </p>
+              <div className="mt-1.5 space-y-1.5">
+                <p className="text-[11px] text-[#d29922] flex items-start gap-1.5 leading-snug">
+                  <WarningIcon />
+                  <span>
+                    Below ${selectedDest.minUsd}, the bridge may not deliver to {selectedDest.label.replace(" (same chain)", "")}. Your funds could get stuck at the bridge address with no refund path. Safer to withdraw to Polygon first.
+                  </span>
+                </p>
+                <label className="flex items-start gap-1.5 text-[11px] text-[#d29922] cursor-pointer select-none leading-snug">
+                  <input
+                    type="checkbox"
+                    checked={acceptBelowMin}
+                    onChange={(e) => setAcceptBelowMin(e.target.checked)}
+                    disabled={isProcessing}
+                    className="mt-[1px] accent-[#d29922]"
+                  />
+                  <span>I understand this may not be delivered and accept the risk.</span>
+                </label>
+              </div>
             )}
           </div>
 
@@ -375,14 +393,19 @@ export function WithdrawModal({ open, onOpenChange, usdcBalance, userAddress, on
           {status !== "success" && (
             <button
               onClick={handleWithdraw}
-              disabled={isProcessing || !canWithdraw || belowMin}
-              className="w-full py-3 rounded-lg text-sm font-semibold bg-[#58a6ff] text-white hover:bg-[#4d8fea] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              disabled={isProcessing || !canWithdraw || (belowMin && !acceptBelowMin)}
+              className={`w-full py-3 rounded-lg text-sm font-semibold text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                belowMin && acceptBelowMin
+                  ? "bg-[#d29922] hover:bg-[#bb8317]"
+                  : "bg-[#58a6ff] hover:bg-[#4d8fea]"
+              }`}
             >
               {status === "signing" ? "Sign in wallet..." :
                status === "submitting" ? "Setting up bridge..." :
                status === "polling" ? "Confirming on-chain..." :
                !canWithdraw ? "Connect wallet to withdraw" :
-               belowMin ? `Minimum $${selectedDest.minUsd} to ${selectedDest.label.replace(" (same chain)", "")}` :
+               belowMin && !acceptBelowMin ? `Check box to withdraw below $${selectedDest.minUsd}` :
+               belowMin ? "Withdraw anyway (risky)" :
                "Withdraw"}
             </button>
           )}
