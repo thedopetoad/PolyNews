@@ -25,7 +25,7 @@ interface EnableTradingModalProps {
  * user only signs once.
  */
 export function EnableTradingModal({ open, onOpenChange }: EnableTradingModalProps) {
-  const { enableTrading, isApproving, error, status } = usePolymarketSetup();
+  const { enableTrading, isApproving, error, status, proxyDeployed, usdcApproved, tokensApproved } = usePolymarketSetup();
   const [dismissed, setDismissed] = useState(false);
 
   if (!open || dismissed) return null;
@@ -67,28 +67,28 @@ export function EnableTradingModal({ open, onOpenChange }: EnableTradingModalPro
           </p>
         </div>
 
-        {/* Steps */}
+        {/* Steps — each reflects actual on-chain status */}
         <div className="space-y-3 mb-6">
           <Step
             num={1}
             title="Deploy Proxy Wallet"
-            desc="Smart contract wallet that holds your USDC.e and executes trades."
-            done={status === "ready"}
-            active={isApproving}
+            desc={proxyDeployed ? "✓ Already deployed — your proxy wallet is live on Polygon." : "Smart contract wallet that holds your USDC.e and executes trades."}
+            done={proxyDeployed}
+            active={isApproving && !proxyDeployed}
           />
           <Step
             num={2}
             title="Approve USDC.e"
-            desc="Allow Polymarket's 4 exchange contracts to trade your stablecoin."
-            done={status === "ready"}
-            active={isApproving}
+            desc={usdcApproved ? "✓ Already approved on all 4 exchange contracts." : "Allow Polymarket's 4 exchange contracts to trade your stablecoin."}
+            done={usdcApproved}
+            active={isApproving && !usdcApproved}
           />
           <Step
             num={3}
             title="Approve Outcome Tokens"
-            desc="Allow the exchange contracts to move your position tokens."
-            done={status === "ready"}
-            active={isApproving}
+            desc={tokensApproved ? "✓ Already approved on all 3 exchange contracts." : "Allow the exchange contracts to move your position tokens."}
+            done={tokensApproved}
+            active={isApproving && !tokensApproved}
           />
         </div>
 

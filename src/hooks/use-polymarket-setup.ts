@@ -40,10 +40,14 @@ export function usePolymarketSetup() {
 
   const [status, setStatus] = useState<SetupStatus>("checking");
   const [error, setError] = useState<string | null>(null);
+  // Granular step status for the Enable Trading modal
+  const [proxyDeployed, setProxyDeployed] = useState(false);
+  const [usdcApproved, setUsdcApproved] = useState(false);
+  const [tokensApproved, setTokensApproved] = useState(false);
 
   const proxyAddress = address ? deriveProxyAddress(address) : undefined;
 
-  // Check approval status on mount and when address changes
+  // Check approval + deployment status on mount and when address changes
   useEffect(() => {
     if (!proxyAddress || !publicClient) {
       setStatus("not_ready");
@@ -53,10 +57,23 @@ export function usePolymarketSetup() {
     let cancelled = false;
     setStatus("checking");
 
-    checkApprovals(publicClient, proxyAddress).then((result) => {
+    (async () => {
+      // Check if proxy is deployed (has contract code)
+      let deployed = false;
+      try {
+        const code = await publicClient.getCode({ address: proxyAddress });
+        deployed = !!code && code !== "0x";
+      } catch {}
       if (cancelled) return;
-      setStatus(result.allApproved ? "ready" : "not_ready");
-    }).catch(() => {
+      setProxyDeployed(deployed);
+
+      // Check approvals
+      const result = await checkApprovals(publicClient, proxyAddress);
+      if (cancelled) return;
+      setUsdcApproved(result.usdcApproved);
+      setTokensApproved(result.tokensApproved);
+      setStatus(result.allApproved && deployed ? "ready" : "not_ready");
+    })().catch(() => {
       if (!cancelled) setStatus("not_ready");
     });
 
@@ -131,5 +148,8 @@ export function usePolymarketSetup() {
     enableTrading,
     isReady: status === "ready",
     isApproving: status === "approving",
+    proxyDeployed,
+    usdcApproved,
+    tokensApproved,
   };
 }
