@@ -45,6 +45,13 @@ interface BetSlipProps {
    * clicking a different card outcome flips the slip to match.
    */
   initialOutcomeIdx?: number;
+  /**
+   * Fires when the user clicks a different outcome chip inside the slip.
+   * The parent uses this to sync its own outer "odds" buttons with the
+   * slip's selection so the highlighted market card always matches
+   * what the bet slip is about to trade.
+   */
+  onOutcomeChange?: (idx: number) => void;
   negRisk?: boolean;
 }
 
@@ -56,7 +63,7 @@ function abbrev(name: string): string {
 
 const QUICK_AMOUNTS = [1, 5, 10, 100];
 
-export function BetSlip({ eventTitle, eventSlug: _eventSlug, eventEndDate: _eventEndDate, marketId, marketQuestion: _marketQuestion, outcomes, initialOutcomeIdx = 0, negRisk }: BetSlipProps) {
+export function BetSlip({ eventTitle, eventSlug: _eventSlug, eventEndDate: _eventEndDate, marketId, marketQuestion: _marketQuestion, outcomes, initialOutcomeIdx = 0, onOutcomeChange, negRisk }: BetSlipProps) {
   const { address } = useUser();
   const { placeOrder, placing, error: tradeError, isOnPolygon } = usePolymarketTrade();
   const { status: setupStatus, isReady: tradingEnabled, refresh: refreshSetup } = usePolymarketSetup();
@@ -285,7 +292,7 @@ export function BetSlip({ eventTitle, eventSlug: _eventSlug, eventEndDate: _even
           return (
             <button
               key={o.name}
-              onClick={() => { setSelectedOutcome(i); setResult(null); setAmount(""); }}
+              onClick={() => { setSelectedOutcome(i); setResult(null); setAmount(""); onOutcomeChange?.(i); }}
               className={cn(
                 "flex-1 py-2 rounded-lg text-xs font-semibold tabular-nums transition-all border flex flex-col items-center",
                 selectedOutcome === i

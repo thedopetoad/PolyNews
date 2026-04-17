@@ -215,6 +215,11 @@ function MarketSection({ title, markets, volume, eventTitle, eventSlug, eventEnd
             marketQuestion={selectedMarket.question}
             outcomes={betOutcomes}
             initialOutcomeIdx={selectedOutcomeIdx ?? 0}
+            // Keep the big outer odds buttons in sync when the user clicks
+            // a chip inside the slip — without this, the outer ring stays
+            // stuck on the original click and users see two different
+            // outcomes highlighted at once.
+            onOutcomeChange={(idx) => setSelectedOutcomeIdx(idx)}
             negRisk={negRisk}
           />
         </div>
