@@ -48,24 +48,35 @@ GitHub-triggered deploy with stale code. Always commit + push instead.
 
 ### Airdrop (/airdrop)
 Single gold-themed hub for the AIRDROP (paper) token — virality loop +
-paper trading + leaderboards + earning. Tab state is synced to `?tab=`.
+paper trading + leaderboards + earning. Tab state is local useState
+with URL sync (router.replace on click + useEffect on param change).
 
-- **Leaderboard tab**: 3 cards side-by-side. All-Time (sum of grants
-  with referral counts shown), Weekly Referrals (new signups this ISO
-  week), Weekly Gainers (sum of grants in current week). Prize pills
-  per card (🥇🥈🥉), admin-editable from /admin.
-- **Portfolio tab**: AIRDROP balance card (net + available + in positions)
-  and a hand-rolled SVG PnL chart reconstructed from the immutable
-  ledger (grants + trades). Positions/History sub-tabs; positions
-  expand inline to show price chart, Close button → confirm dialog
-  → sells at live CLOB mid.
+- **Leaderboard tab**: 3 cards in order *Weekly Referrals | All-Time |
+  Biggest Gainers*. All-Time is bragging-rights only (no cash prize,
+  no pills). Weekly cards show 🥇🥈🥉 prize pills rendered as `$N`
+  from numeric settings values (empty/0/unparsable → "TBD"). Rank
+  computation: All-Time = users.balance + sum(open paper position
+  value at entry price), so leaderboard matches the Portfolio card
+  number exactly.
+- **Portfolio tab**: balance card (full-width 2-col: totals left,
+  referral call-out right with code + copy + friend count) + Positions
+  / History sub-tabs. Positions expand inline to show price chart,
+  Close button → confirm dialog → sells at live CLOB mid. PnL chart
+  was removed per product call.
 - **Trade tab**: reuses the TradableMarketsTab component exported from
   /trade/page.tsx (BTC 5-min + AI consensus + sports markets).
-- **Earn tab**: daily claim (+100), referral card (5000 per friend),
-  weekly goals (5 min news watch = 500, 5 paper trades = 500), one-time
-  boosts (first real deposit = 2500, first sports trade = 1000).
+- **Earn tab**: Referral card up top (virality primary), then a grid
+  of circular-progress tiles — Daily claim, Watch 5min news, 5 paper
+  trades, First real deposit, First sports bet. No top total banner
+  (it duplicated Portfolio tab).
 
-Weekly goals reset Monday 00:00 UTC via `isoWeekKey()` (`src/lib/week.ts`).
+Week semantics diverge intentionally:
+- **Weekly GOALS** (news watch, paper trades) reset Mon 00:00 UTC via
+  `isoWeekKey()`. Unchanged from the original design.
+- **Weekly LEADERBOARDS** (Referrals, Biggest Gainers) reset Mon 17:00
+  UTC (= 9am PST / 10am PDT) via `prizeWeekKey()` — matches the
+  leaderboard-payout cron cadence.
+
 News-watch progress comes from the `news_watch_heartbeats` table; the
 News page pings `/api/airdrop/news-heartbeat` every 15s via the
 `useNewsHeartbeat` hook, server dedupes by 15s bucket.
@@ -90,36 +101,80 @@ next refactor.
 - `/api/news`, `/api/user`, `/api/user/referrals`
 
 ### Airdrop endpoints (all live at /api/airdrop/*)
-- `/api/airdrop` (POST) — legacy: daily claim, signup claim, apply-referral
-- `/api/airdrop/me` (GET) — full dashboard payload for the Earn tab
-  (totals, weekly progress, one-time boost flags, daily claim status)
+- `/api/airdrop` (POST) — legacy: daily claim, signup claim (dead —
+  auto-granted at /api/user POST now), apply-referral
+- `/api/airdrop/me` (GET) — dashboard payload for the Earn tab +
+  Portfolio card referral count. totalAirdrop = net worth (balance +
+  positions at entry price), totalGranted = sum of airdrops ledger
 - `/api/airdrop/leaderboard?type=total|weeklyReferrals|weeklyGainers`
-- `/api/airdrop/history` — PnL chart: balance reconstructed from ledger
+  — total ranks by net worth, weekly branches filter by
+  `createdAt >= prizeWeekStart` (not the ISO airdrops.weekKey)
 - `/api/airdrop/claim-weekly` (POST) — weekly goal claim (news_watch |
   paper_trades). Idempotent via airdrops(userId, source, weekKey).
 - `/api/airdrop/claim-one-time` (POST) — first_deposit | first_sports_trade.
   Atomic: only grants if the flag on `users` is still false.
-- `/api/airdrop/news-heartbeat` (POST) — 15s bucket ping from the News page.
-- `/api/admin/prizes` (GET/POST) — 9 leaderboard prize strings. Gated
-  by requireAdmin(). `/api/settings/public` exposes them unauth.
+- `/api/airdrop/news-heartbeat` (POST) — 15s bucket ping from News page.
+
+### Payout endpoints + cron
+- `/api/cron/weekly-snapshot` (GET) — Vercel Cron hits this Mon 17:00 UTC.
+  REQUIRES `CRON_SECRET` env var; 503 if unset, 401 on wrong secret.
+  Shared logic lives in `src/lib/airdrop-snapshot.ts`.
+- `/api/admin/snapshot-now` (POST) — admin-triggered snapshot, calls
+  the same shared lib directly (no HTTP loop). Gated by Phantom
+  session cookie.
+- `/api/admin/payouts` (GET) — list all prize_payouts rows, newest
+  week first, joined with display name. Read-only (mark-paid was
+  removed — admin tracks sends externally).
+- `/api/admin/prizes` (GET/POST) — 6 numeric prize amounts (2 weekly
+  boards × 3 places). All-Time has no prize. Empty or ≤0 renders TBD.
+- `/api/settings/public` (GET) — public read of the 6 prize amounts
+  for the leaderboard UI pills. Cached 60s.
+
+### Vercel Cron
+`vercel.json` configures `0 17 * * 1` → `/api/cron/weekly-snapshot`.
+Cron drift up to 59 minutes is tolerated by shifting the reference
+point back 1 hour when computing the just-ended prize week.
 
 ## Database (Neon PostgreSQL)
 Tables: users, positions, trades, airdrops, consensus_cache, youtube_stream_cache,
-referrals, news_watch_heartbeats, settings
+referrals, news_watch_heartbeats, settings, prize_payouts
 
-- `airdrops.week_key` — nullable ISO week ("2026-W16"). Forward-only
-  queries mean old rows with NULL are fine. Weekly leaderboards and
-  weekly-goal idempotency both use this.
+- `airdrops.week_key` — ISO-week string. Used ONLY for weekly-goal
+  idempotency (`claim-weekly` enforces unique source+weekKey per user).
+  Leaderboards now filter by `createdAt` timestamp instead, using
+  `prizeWeekStart()` (Mon 17:00 UTC) for the boundary.
 - `news_watch_heartbeats (userId, bucket)` — unique index. 20 distinct
   15-second buckets in a single week = 5-minute news-watch goal complete.
-- `settings` — key/value. Used for admin-editable leaderboard prize
-  strings (keys: `airdrop_prize_total_{1,2,3}`, etc.).
+- `settings` — key/value. Numeric prize amounts (keys:
+  `airdrop_prize_weeklyRef_{1,2,3}` and `airdrop_prize_weeklyGain_{1,2,3}`).
+- `prize_payouts` — per-winner snapshot. (weekKey, leaderboard, place)
+  unique. UI reads this on /admin; cron writes it each Monday.
+  `status/txHash/paidAt/paidBy` columns exist but are unused —
+  mark-paid flow was removed. Keep for potential audit.
 - `users.first_deposit_bonus_paid` / `first_sports_trade_bonus_paid` —
   one-time boost flags. Claim endpoint uses atomic UPDATE WHERE flag=false.
+
+## Virality loop (IMPORTANT)
+New user signup (`/api/user` POST) auto-grants:
+1. `users.balance = STARTING_BALANCE` (1000 AIRDROP — this IS the signup bonus,
+   not an additional one).
+2. `hasSignupAirdrop: true` on insert so legacy `/api/airdrop` signup path
+   can't double-credit.
+3. If `referredBy` was passed: referrer gets +5000 AIRDROP credited to
+   balance, airdrops ledger row, and a `referrals` table row.
+
+Previous bug: the legacy `/api/airdrop` POST signup handler had the
+referrer-payout logic, but NO UI in production called it. Referrers
+silently earned $0 until commit a03548c moved the payout into /api/user
+POST directly. A one-shot backfill paid out the 5 referral pairs that
+had slipped through.
 
 ## Environment Variables
 - DATABASE_URL, OPENAI_API_KEY, YOUTUBE_API_KEY
 - NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID, NEXT_PUBLIC_WEB3AUTH_CLIENT_ID
+- **CRON_SECRET** — required for the Monday payout cron. If unset,
+  `/api/cron/weekly-snapshot` returns 503 and no automated snapshots
+  happen. Admin can still trigger via "Snapshot now" button on /admin.
 
 ## Important Notes
 - Market discovery is self-healing — new markets auto-surface as old ones resolve
@@ -149,6 +204,24 @@ referrals, news_watch_heartbeats, settings
   `src/lib/admin-auth.ts`: 4HHN3zLhVuUcfXuw8MofXLARnQwLgzVhHdPDcBWBiEVT).
 - Session = HMAC-signed HttpOnly cookie, 24h TTL. Phantom trust is
   re-checked on page load — revoking trust logs the admin out.
-- Admin dashboard includes the **Leaderboard Prize Editor** — 9 free-form
-  text fields for the 3 boards × 3 places. Empty field → leaderboard
-  shows "TBD" pill. Set these after boss approves the giveaway budget.
+
+Admin dashboard cards:
+1. **Stats grid** — users / airdrops / trades / suspicious.
+2. **Prize editor** — 6 numeric prize amounts (2 weekly boards ×
+   3 places). All-Time has no prize. Numbers render as $N pills on
+   leaderboard. Empty or 0 → TBD.
+3. **Leaderboard Payouts** — collapsible cards grouped by week.
+   Latest week auto-expands. Per row: winner name, EOA, proxy address
+   (copy button), amount. Per week: "Copy manifest" button dumps a
+   boss-friendly text block. Mark-paid flow was removed — admin
+   tracks USDC.e sends externally.
+4. **Snapshot now** button — triggers the snapshot logic manually
+   via Phantom auth (no dependency on CRON_SECRET).
+5. Airdrop Breakdown, suspicious accounts, etc. (pre-existing).
+
+Payout workflow (custody-free):
+- Monday 17:00 UTC cron OR admin clicks "Snapshot now" → rows inserted
+  into prize_payouts with pending status.
+- Admin clicks "Copy manifest" for the relevant week, pastes to boss.
+- Boss sends USDC.e from his own wallet to each proxy address.
+- We never hold user funds. No private keys in env.
