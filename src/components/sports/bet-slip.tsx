@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 import { useUser } from "@/hooks/use-user";
 import { usePolymarketTrade } from "@/hooks/use-polymarket-trade";
@@ -69,6 +70,7 @@ export function BetSlip({ eventTitle, eventSlug: _eventSlug, eventEndDate: _even
   const { placeOrder, placing, error: tradeError, isOnPolygon } = usePolymarketTrade();
   const { status: setupStatus, isReady: tradingEnabled, refresh: refreshSetup } = usePolymarketSetup();
   const { switchChain } = useSwitchChain();
+  const queryClient = useQueryClient();
   const { format } = useOddsFormat();
 
   // Funds live in the Polymarket proxy wallet (derived from the EOA), not
@@ -235,6 +237,19 @@ export function BetSlip({ eventTitle, eventSlug: _eventSlug, eventEndDate: _even
       if (side === "SELL" && selected.tokenId && heldShares > 0 && shares >= heldShares - 0.01) {
         addClosedPosition(selected.tokenId);
       }
+      // Aggressive refetches on both sides — covers the partial-sell case
+      // where we DON'T hide the row (user still has shares): the portfolio's
+      // share count / cost / value / to-win columns all read from
+      // /positions, so invalidating speeds up the reflection of the
+      // remaining balance. Also hits the bet slip's own positions-lookup
+      // so the "N.NN shares" label under the SELL outcome updates promptly.
+      [500, 2000, 5000, 10000, 20000].forEach((d) =>
+        setTimeout(() => {
+          queryClient.invalidateQueries({ queryKey: ["polymarket-positions"] });
+          queryClient.invalidateQueries({ queryKey: ["polymarket-positions-lookup"] });
+          queryClient.invalidateQueries({ queryKey: ["polymarket-activity"] });
+        }, d),
+      );
       if (res.transactionHashes && res.transactionHashes[0]) {
         addPendingActivity({
           txHash: res.transactionHashes[0],
