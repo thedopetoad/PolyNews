@@ -101,9 +101,17 @@ export default function PortfolioPage() {
 
   // Fetch REAL positions from Polymarket's data API (source of truth).
   // No DB fallback — if the data API says 0 positions, that's the truth.
+  // Polymarket /positions response shape. Fields sit at the TOP LEVEL —
+  // earlier we wrongly nested `slug` under a `market` object, so every
+  // position came through with eventSlug === null and the title-click Link
+  // silently fell back to a plain <p>.  We want `eventSlug` specifically
+  // (event, not market) because /api/sports/game?slug= resolves against
+  // Gamma's /events endpoint.
   interface PolyPosition {
     title: string;
-    market: { slug: string; question: string };
+    slug: string;           // market slug
+    eventSlug?: string;     // event slug (what we want for the sports page link)
+    eventId?: string;
     outcome: string;
     size: number;
     avgPrice: number;
@@ -243,13 +251,15 @@ export default function PortfolioPage() {
       id: p.asset || p.conditionId,
       userId: address || "",
       marketId: p.conditionId,
-      marketQuestion: p.title || p.market?.question || "",
+      marketQuestion: p.title || "",
       outcome: p.outcome || "Yes",
       shares: p.size,
       avgPrice: p.avgPrice,
       clobTokenId: p.asset || null,
       marketEndDate: null,
-      eventSlug: p.market?.slug || null,
+      // Prefer eventSlug (real event) over slug (market). Falls back to
+      // slug because for simple binary sports markets the two are equal.
+      eventSlug: p.eventSlug || p.slug || null,
       tradeType: "real" as const,
       clobOrderId: null,
       createdAt: "",
@@ -539,15 +549,17 @@ export default function PortfolioPage() {
               : "border-[#21262d] hover:border-[#30363d] cursor-pointer"
           )}
         >
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0">
-              <p className="text-[10px] text-[#484f58] uppercase tracking-wider">Total Portfolio</p>
-              <p className="text-3xl font-bold text-white tabular-nums">{formatUsd(usdcBal + realPositionsValue)}</p>
-            </div>
-            <div className="text-right flex-shrink-0">
-              <p className="text-[10px] text-[#484f58] uppercase tracking-wider">Available to trade</p>
-              <p className="text-base font-bold text-[#58a6ff] tabular-nums">{formatUsd(usdcBal)}</p>
-            </div>
+          {/* Labels row — kept on one line at top so they sit at the same
+              vertical as the labels on the Paper and P&L cards. Numbers
+              line below, baseline-aligned so the big $ and the small $ sit
+              on the same visual baseline. */}
+          <div className="flex items-center justify-between mb-1">
+            <p className="text-[10px] text-[#484f58] uppercase tracking-wider">Total Portfolio</p>
+            <p className="text-[10px] text-[#484f58] uppercase tracking-wider">Available to trade</p>
+          </div>
+          <div className="flex items-baseline justify-between">
+            <p className="text-3xl font-bold text-white tabular-nums">{formatUsd(usdcBal + realPositionsValue)}</p>
+            <p className="text-base font-bold text-[#58a6ff] tabular-nums">{formatUsd(usdcBal)}</p>
           </div>
           <div className="flex gap-2 mt-3" onClick={(e) => e.stopPropagation()}>
             <button
