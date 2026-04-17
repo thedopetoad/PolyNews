@@ -1,8 +1,6 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { useAccount } from "wagmi";
-import { useAuthStore } from "@/stores/use-auth-store";
 import {
   Shield,
   Users,
@@ -12,13 +10,13 @@ import {
   RefreshCw,
   Globe,
   Activity,
+  LogOut,
 } from "lucide-react";
 
-const ADMIN_ADDRESSES = [
-  "0xfbeefb072f368803b33ba5c529f2f6762941b282", // Owner wallet
-  "0x6f4e9f64d68abd067fbb1a2f62d21a1b01f190b1", // Team wallet
-  "0xcf0b29d5c0ceede01543eb28400fdcb5034bc0fe", // Dan's wallet
-];
+// The single Solana Phantom wallet allowed into admin. Must match
+// ADMIN_SOLANA_PUBKEY on the server. If you ever rotate this, update
+// both places — there's no runtime configuration.
+const ADMIN_SOLANA_PUBKEY = "4HHN3zLhVuUcfXuw8MofXLARnQwLgzVhHdPDcBWBiEVT";
 
 interface AdminData {
   stats: {
@@ -144,12 +142,32 @@ function ReasonBadge({ reason }: { reason: string }) {
   );
 }
 
+// Window shim for Phantom's injected Solana provider.
+interface PhantomSolana {
+  isPhantom?: boolean;
+  publicKey?: { toString(): string };
+  connect: (opts?: { onlyIfTrusted?: boolean }) => Promise<{ publicKey: { toString(): string } }>;
+  signMessage: (msg: Uint8Array, encoding?: "utf8") => Promise<{ signature: Uint8Array }>;
+}
+declare global {
+  interface Window {
+    solana?: PhantomSolana;
+    phantom?: { solana?: PhantomSolana };
+  }
+}
+function getPhantomSolana(): PhantomSolana | null {
+  if (typeof window === "undefined") return null;
+  const provider = window.phantom?.solana ?? window.solana;
+  return provider?.isPhantom ? provider : null;
+}
+
 export default function AdminPage() {
-  const { address } = useAccount();
-  const googleAddress = useAuthStore((s) => s.googleAddress);
-  const connectedAddress = (address || googleAddress)?.toLowerCase();
-  const isAdmin =
-    !!connectedAddress && ADMIN_ADDRESSES.includes(connectedAddress);
+  // `authed` is true once the server has confirmed our admin cookie via
+  // /api/admin/me. Gate all admin data fetches on this.
+  const [authed, setAuthed] = useState<boolean | null>(null); // null = checking
+  const [authedPubkey, setAuthedPubkey] = useState<string | null>(null);
+  const [signingIn, setSigningIn] = useState(false);
+  const [signInError, setSignInError] = useState<string | null>(null);
 
   const [data, setData] = useState<AdminData | null>(null);
   const [loading, setLoading] = useState(false);
@@ -168,16 +186,109 @@ export default function AdminPage() {
   } | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
 
+  // On mount: ask the server whether we already have a valid admin cookie.
+  // If yes, skip the sign-in screen entirely.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/admin/me", { credentials: "include" });
+        if (cancelled) return;
+        if (res.ok) {
+          const data = await res.json();
+          setAuthed(true);
+          setAuthedPubkey(data.pubkey || null);
+        } else {
+          setAuthed(false);
+        }
+      } catch {
+        if (!cancelled) setAuthed(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  // Phantom Solana sign-in flow:
+  //   1. GET /api/admin/login?step=nonce → server returns a challenge message
+  //   2. phantom.signMessage(message) → returns 64-byte ed25519 signature
+  //   3. POST /api/admin/login with { message, signature, publicKey }
+  //   4. Server verifies + sets HttpOnly cookie; we re-check /me
+  const signInWithPhantom = async () => {
+    setSignInError(null);
+    const phantom = getPhantomSolana();
+    if (!phantom) {
+      setSignInError("Phantom not detected. Install the Phantom browser extension.");
+      return;
+    }
+    setSigningIn(true);
+    try {
+      // Connect first — this is the user-facing permission popup
+      const connect = await phantom.connect();
+      const publicKey = connect.publicKey.toString();
+      if (publicKey !== ADMIN_SOLANA_PUBKEY) {
+        setSignInError(`This wallet is not authorized. Connected: ${publicKey.slice(0, 8)}…${publicKey.slice(-4)}`);
+        setSigningIn(false);
+        return;
+      }
+
+      // Fetch the challenge message
+      const nonceRes = await fetch("/api/admin/login?step=nonce");
+      if (!nonceRes.ok) {
+        setSignInError("Could not get challenge from server");
+        setSigningIn(false);
+        return;
+      }
+      const { message } = await nonceRes.json();
+
+      // Sign with Phantom (Solana ed25519)
+      const msgBytes = new TextEncoder().encode(message);
+      const { signature } = await phantom.signMessage(msgBytes, "utf8");
+
+      // Convert signature to base64 for transport
+      let bin = "";
+      for (let i = 0; i < signature.length; i++) bin += String.fromCharCode(signature[i]);
+      const signatureB64 = btoa(bin);
+
+      // Submit for verification + cookie issue
+      const res = await fetch("/api/admin/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ message, signature: signatureB64, publicKey }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        setSignInError(err.error || "Sign-in failed");
+        setSigningIn(false);
+        return;
+      }
+      setAuthed(true);
+      setAuthedPubkey(publicKey);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Sign-in failed";
+      setSignInError(msg.includes("User rejected") ? "Signature cancelled" : msg);
+    } finally {
+      setSigningIn(false);
+    }
+  };
+
+  const logout = async () => {
+    try {
+      await fetch("/api/admin/login", { method: "DELETE", credentials: "include" });
+    } catch {}
+    setAuthed(false);
+    setAuthedPubkey(null);
+    setData(null);
+  };
+
   const fetchAdmin = useCallback(async () => {
-    if (!connectedAddress) return;
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch("/api/admin", {
-        headers: { Authorization: `Bearer ${connectedAddress}` },
-      });
+      const res = await fetch("/api/admin", { credentials: "include" });
       if (!res.ok) {
-        setError(res.status === 403 ? "Access denied" : "Failed to load data");
+        setError(res.status === 403 ? "Access denied — re-sign in" : "Failed to load data");
+        if (res.status === 403) setAuthed(false);
         return;
       }
       setData(await res.json());
@@ -186,38 +297,35 @@ export default function AdminPage() {
     } finally {
       setLoading(false);
     }
-  }, [connectedAddress]);
+  }, []);
 
   useEffect(() => {
-    if (isAdmin) fetchAdmin();
-  }, [isAdmin, fetchAdmin]);
+    if (authed === true) fetchAdmin();
+  }, [authed, fetchAdmin]);
 
   const fetchUserDetail = useCallback(async (userId: string) => {
-    if (!connectedAddress) return;
     if (selectedUserId === userId) { setSelectedUserId(null); setUserDetail(null); return; }
     setSelectedUserId(userId);
     setDetailLoading(true);
     try {
       const res = await fetch("/api/admin", {
         method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${connectedAddress}` },
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({ action: "getUserDetails", userId }),
       });
       if (res.ok) setUserDetail(await res.json());
     } catch {}
     setDetailLoading(false);
-  }, [connectedAddress, selectedUserId]);
+  }, [selectedUserId]);
 
   const adminAction = async (action: string, userId: string, balance?: number) => {
-    if (!connectedAddress) return;
     setActionLoading(true);
     try {
       const res = await fetch("/api/admin", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${connectedAddress}`,
-        },
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({ action, userId, balance }),
       });
       if (res.ok) {
@@ -229,22 +337,48 @@ export default function AdminPage() {
     setActionLoading(false);
   };
 
-  // Not connected or not admin
-  if (!connectedAddress || !isAdmin) {
+  // While we're checking the cookie, show nothing flashy
+  if (authed === null) {
     return (
       <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-24 text-center">
-        <Shield className="w-16 h-16 text-[#f85149] mx-auto mb-4" />
-        <h1 className="text-2xl font-bold text-white mb-2">Access Denied</h1>
-        <p className="text-[#768390]">
-          {!connectedAddress
-            ? "Connect an authorized wallet to access the admin dashboard."
-            : `Your wallet is not authorized to view this page.`}
-        </p>
-        {connectedAddress && (
-          <p className="text-[#484f58] text-xs mt-3 font-mono">
-            Connected as: {connectedAddress}
+        <RefreshCw className="w-8 h-8 text-[#58a6ff] mx-auto mb-4 animate-spin" />
+      </div>
+    );
+  }
+
+  // Sign-in screen — shown until Phantom successfully authenticates
+  if (!authed) {
+    return (
+      <div className="max-w-md mx-auto px-4 sm:px-6 lg:px-8 py-24">
+        <div className="rounded-xl border border-[#30363d] bg-[#161b22] p-8 text-center">
+          <Shield className="w-12 h-12 text-[#58a6ff] mx-auto mb-3" />
+          <h1 className="text-xl font-bold text-white mb-1">Admin sign-in</h1>
+          <p className="text-sm text-[#768390] mb-6">
+            Sign a message with your Phantom wallet to continue. Only the
+            authorized admin pubkey is accepted.
           </p>
-        )}
+          <button
+            onClick={signInWithPhantom}
+            disabled={signingIn}
+            className="inline-flex items-center justify-center gap-2 w-full px-4 py-2.5 rounded-lg text-sm font-semibold bg-[#ab9ff2] text-[#0d1117] hover:bg-[#c4b9ff] disabled:opacity-50 transition-colors"
+          >
+            {signingIn ? (
+              <>
+                <RefreshCw className="w-4 h-4 animate-spin" /> Signing…
+              </>
+            ) : (
+              "Sign in with Phantom"
+            )}
+          </button>
+          {signInError && (
+            <p className="mt-4 text-xs text-[#f85149] bg-[#f85149]/10 px-3 py-2 rounded-md">
+              {signInError}
+            </p>
+          )}
+          <p className="mt-6 text-[10px] text-[#484f58] font-mono break-all">
+            Authorized pubkey: {ADMIN_SOLANA_PUBKEY}
+          </p>
+        </div>
       </div>
     );
   }
@@ -277,15 +411,30 @@ export default function AdminPage() {
         <div className="flex items-center gap-3">
           <Shield className="w-6 h-6 text-[#58a6ff]" />
           <h1 className="text-2xl font-bold text-white">Admin Dashboard</h1>
+          {authedPubkey && (
+            <span className="hidden sm:inline text-[10px] font-mono text-[#484f58] ml-2">
+              {authedPubkey.slice(0, 4)}…{authedPubkey.slice(-4)}
+            </span>
+          )}
         </div>
-        <button
-          onClick={fetchAdmin}
-          disabled={loading}
-          className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-[#21262d] text-[#768390] hover:text-white text-sm transition-colors disabled:opacity-50"
-        >
-          <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
-          Refresh
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={fetchAdmin}
+            disabled={loading}
+            className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-[#21262d] text-[#768390] hover:text-white text-sm transition-colors disabled:opacity-50"
+          >
+            <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
+            Refresh
+          </button>
+          <button
+            onClick={logout}
+            title="Sign out"
+            className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-[#21262d] text-[#768390] hover:text-[#f85149] text-sm transition-colors"
+          >
+            <LogOut className="w-4 h-4" />
+            <span className="hidden sm:inline">Sign out</span>
+          </button>
+        </div>
       </div>
 
       {/* Stats Grid */}
@@ -421,7 +570,8 @@ export default function AdminPage() {
                             try {
                               const res = await fetch("/api/admin", {
                                 method: "POST",
-                                headers: { "Content-Type": "application/json", Authorization: `Bearer ${connectedAddress}` },
+                                headers: { "Content-Type": "application/json" },
+                                credentials: "include",
                                 body: JSON.stringify({ action: "migrateAccounts", userIds: ip.userIds }),
                               });
                               if (res.ok) {

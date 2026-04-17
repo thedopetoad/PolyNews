@@ -1,21 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb, users, airdrops, trades, positions, referrals } from "@/db";
 import { sql, desc, gt, count, eq } from "drizzle-orm";
+import { requireAdmin } from "@/lib/admin-auth";
 
-// Only these addresses can access the admin dashboard
-const ADMIN_ADDRESSES = [
-  "0xfbeefb072f368803b33ba5c529f2f6762941b282", // Owner wallet
-  "0x6f4e9f64d68abd067fbb1a2f62d21a1b01f190b1", // Team wallet
-  "0xcf0b29d5c0ceede01543eb28400fdcb5034bc0fe", // Dan's wallet
-];
-
+// Gate: cookie-signed HMAC session from /api/admin/login (which verifies
+// a Phantom Solana signature from the single hardcoded admin pubkey).
+// Previous gate was an address-list on the Authorization header — easily
+// spoofable since the address wasn't signature-verified.
 function isAdmin(request: NextRequest): boolean {
-  const token = request.headers
-    .get("authorization")
-    ?.replace("Bearer ", "")
-    .trim()
-    .toLowerCase();
-  return !!token && ADMIN_ADDRESSES.includes(token);
+  return requireAdmin(request) !== null;
 }
 
 // GET /api/admin - Full admin dashboard data
