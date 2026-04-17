@@ -179,24 +179,13 @@ export async function POST(request: NextRequest) {
     }
 
     const referralCode = generateReferralCode();
-
-    // Fresh account creation now ALSO:
-    //   1. Auto-credits the signup airdrop (STARTING_BALANCE stays at
-    //      1000 and the signup bonus adds another 1000 for a total of
-    //      2000). Previously only /api/airdrop POST {type:"signup"}
-    //      granted this, but nothing in the UI ever triggered that
-    //      endpoint, so users silently missed the bonus.
-    //   2. Pays the 5000-AIRDROP referral bonus to the referrer the
-    //      instant the referred user signs up. Before this change the
-    //      bonus was gated on the referred user clicking a signup-
-    //      claim button that no longer existed, so the entire
-    //      virality loop was silently broken.
-    // The flag `hasSignupAirdrop: true` is set on insert so the legacy
-    // /api/airdrop POST {type:"signup"} path returns "already claimed"
-    // if anything still calls it.
-    const signupAmount = AIRDROP_AMOUNTS.signup;
     const weekKey = isoWeekKey();
 
+    // STARTING_BALANCE IS the signup bonus — there isn't an additional
+    // bonus on top of it. Set `hasSignupAirdrop: true` on insert so the
+    // legacy /api/airdrop POST {type:"signup"} path (still importable)
+    // returns "already claimed" if anything stale calls it and can't
+    // accidentally double-credit.
     const [newUser] = await db
       .insert(users)
       .values({
@@ -206,24 +195,17 @@ export async function POST(request: NextRequest) {
         walletAddress: walletAddress ? walletAddress.toLowerCase() : null,
         referralCode,
         referredBy: referredBy || null,
-        balance: STARTING_BALANCE + signupAmount,
+        balance: STARTING_BALANCE,
         hasSignupAirdrop: true,
         signupIp: ip,
       })
       .returning();
 
-    // Log the signup grant in the airdrops ledger — weekly "Biggest
-    // Gainers" reads from here, and admin analytics benefit from the
-    // breakdown-by-source.
-    await db.insert(airdrops).values({
-      id: generateSecureId(),
-      userId: normalizedId,
-      source: "signup",
-      amount: signupAmount,
-      weekKey,
-    });
-
-    // Pay the referrer bonus + record the referral pair.
+    // Pay the referrer bonus + record the referral pair. THIS is the
+    // bit that was silently broken before: the payout used to be gated
+    // behind the referred user clicking a signup-claim button that no
+    // longer existed. Firing it directly on signup restores the
+    // virality loop.
     if (referredBy) {
       const [referrer] = await db
         .select({ id: users.id })
