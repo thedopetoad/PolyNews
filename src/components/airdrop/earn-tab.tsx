@@ -82,6 +82,16 @@ export function AirdropEarnTab() {
       {/* Daily claim */}
       <DailyClaimCard claimed={me.dailyClaim.claimed} address={address!} onClaimed={refetch} />
 
+      {/* Referral card — hoisted above the rest because referrals are the
+          biggest AIRDROP multiplier and the primary virality lever. */}
+      <ReferralCard
+        code={me.referralCode}
+        count={me.referralCount}
+        referredBy={me.referredBy}
+        userId={address!}
+        onApplied={refetch}
+      />
+
       {/* Weekly goals */}
       <section>
         <h2 className="text-sm font-semibold text-[#f5c542] mb-2">Weekly goals</h2>
@@ -133,15 +143,6 @@ export function AirdropEarnTab() {
           />
         </div>
       </section>
-
-      {/* Referral card — the virality loop */}
-      <ReferralCard
-        code={me.referralCode}
-        count={me.referralCount}
-        referredBy={me.referredBy}
-        userId={address!}
-        onApplied={refetch}
-      />
     </div>
   );
 }

@@ -67,19 +67,38 @@ export async function GET(request: NextRequest) {
     // Every user starts at STARTING_BALANCE (1000). Start the chart
     // at createdAt so the first point matches the user's account birth.
     let balance = STARTING_BALANCE;
-    const points: { t: number; balance: number }[] = [
+    const rawPoints: { t: number; balance: number }[] = [
       { t: user.createdAt.getTime(), balance },
     ];
 
     for (const ev of events) {
       if (ev.kind === "grant") balance += ev.amount;
       else balance += ev.delta;
-      points.push({ t: ev.t, balance: Math.round(balance * 100) / 100 });
+      rawPoints.push({ t: ev.t, balance: Math.round(balance * 100) / 100 });
     }
 
     // Always include a "now" point with the authoritative db balance —
     // so rounding drift from the reconstruction doesn't leave a gap.
-    points.push({ t: Date.now(), balance: Math.round(user.balance * 100) / 100 });
+    rawPoints.push({ t: Date.now(), balance: Math.round(user.balance * 100) / 100 });
+
+    // Final sort by time. Events come back from the DB pre-sorted, but
+    // createdAt can fall between two same-millisecond grants (e.g. the
+    // signup airdrop inserted right after the user row) and the "now"
+    // pin is always last. Sorting guarantees the polyline walks left-
+    // to-right and never zigzags back on itself.
+    rawPoints.sort((a, b) => a.t - b.t);
+
+    // Dedupe points with the same timestamp — keep the last one so the
+    // "after this instant" balance wins. Prevents the chart from drawing
+    // a vertical spike when two events share a millisecond.
+    const points: { t: number; balance: number }[] = [];
+    for (const p of rawPoints) {
+      if (points.length && points[points.length - 1].t === p.t) {
+        points[points.length - 1] = p;
+      } else {
+        points.push(p);
+      }
+    }
 
     // Open-position "frozen" value at last-traded price (not live — the
     // portfolio page will hydrate live prices separately).

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getDb, users, airdrops, trades, newsWatchHeartbeats } from "@/db";
+import { getDb, users, airdrops, trades, newsWatchHeartbeats, positions } from "@/db";
 import { eq, and, sql, gte, count } from "drizzle-orm";
 import { getAuthenticatedUser } from "@/lib/auth";
 import { isoWeekKey, isoWeekStart } from "@/lib/week";
@@ -32,12 +32,27 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "User not found" }, { status: 404 });
     }
 
-    // Total lifetime airdrop
+    // Total lifetime airdrop (sum of grants). This is interesting but
+    // NOT the number we show as "Your AIRDROP total" — that should match
+    // the Portfolio tab (balance + open-position value at entry price).
     const [totalRow] = await db
       .select({ total: sql<number>`COALESCE(SUM(${airdrops.amount}), 0)`.as("total") })
       .from(airdrops)
       .where(eq(airdrops.userId, authedUser));
-    const totalAirdrop = Math.round(Number(totalRow?.total || 0));
+    const totalGranted = Math.round(Number(totalRow?.total || 0));
+
+    // Open paper-position value at entry price. Live prices aren't fetched
+    // here (that would slow the endpoint); the Portfolio tab hydrates live
+    // prices separately. Entry-price value matches what the Portfolio balance
+    // card shows when prices haven't streamed in yet, so the two tabs agree.
+    const openPositions = await db
+      .select({ shares: positions.shares, avgPrice: positions.avgPrice, tradeType: positions.tradeType })
+      .from(positions)
+      .where(eq(positions.userId, authedUser));
+    const openPositionValue = openPositions
+      .filter((p) => p.tradeType !== "real")
+      .reduce((s, p) => s + p.shares * p.avgPrice, 0);
+    const netWorth = Math.round(user.balance + openPositionValue);
 
     // News watch progress this week (in seconds; each bucket = 15s)
     const [newsRow] = await db
@@ -68,8 +83,13 @@ export async function GET(request: NextRequest) {
       .where(eq(users.referredBy, user.referralCode));
 
     return NextResponse.json({
-      totalAirdrop,
+      // "totalAirdrop" is the headline number — net worth (balance +
+      // open positions), so Earn and Portfolio tabs show the same thing.
+      totalAirdrop: netWorth,
+      // Kept for future use (e.g. "you've earned N grants over all time").
+      totalGranted,
       balance: user.balance,
+      openPositionValue: Math.round(openPositionValue),
       referralCode: user.referralCode,
       referralCount: Number(refRow?.count || 0),
       referredBy: user.referredBy,
