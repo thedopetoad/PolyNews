@@ -1081,11 +1081,19 @@ function SportsContent() {
     }
   }, [view]);
 
-  // Auto-select the top visible game for the bet slip when nothing is
-  // selected yet. Works for both Live and Upcoming views so the bet slip
-  // is never empty when there's a game on screen.
+  // Auto-select the top visible game for the DESKTOP bet slip sidebar
+  // so it's never empty while there's a game on screen. CRITICAL: skip
+  // this on mobile — on mobile the same selectedBet opens a bottom-sheet
+  // modal that covers the viewport and locks body scroll; auto-selecting
+  // would pop the sheet the moment the page loads AND re-pop it every
+  // time the user closes it (since the effect re-fires when
+  // selectedBet → null), making the sports page unusable.
   useEffect(() => {
     if (selectedBet) return;
+    if (typeof window !== "undefined") {
+      const mq = window.matchMedia("(max-width: 1023px)");
+      if (mq.matches) return; // mobile — wait for explicit tap
+    }
     let firstEvent: SportEvent | undefined;
     if (view === "live") {
       firstEvent = liveByLeagueSorted[0]?.events[0];
