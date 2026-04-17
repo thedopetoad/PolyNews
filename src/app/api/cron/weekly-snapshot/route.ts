@@ -34,14 +34,18 @@ export async function GET(request: NextRequest) {
 
   try {
     const db = getDb();
-    // Snapshot the JUST-ENDED week. Subtract a second so a cron that
-    // fires slightly before 17:00 UTC still picks up the right week,
-    // and one that fires slightly after still captures the previous
-    // week (not the one that started a blink ago).
-    const oneSecBeforeNow = new Date(Date.now() - 1000);
-    const endedWeekStart = prizeWeekStart(oneSecBeforeNow);
+    // Snapshot the JUST-ENDED prize week. We shift the reference
+    // point back 1 HOUR rather than 1 second so cron drift up to ~59
+    // minutes still captures the right week. Anything more-than-an-
+    // hour-late is a Vercel incident we'd deal with manually anyway.
+    //
+    // Example: cron fires at Mon 17:02 UTC (2 min late). 1 hour back
+    // = Mon 16:02 UTC, whose prize week started last Monday 17:00.
+    // That's the week that just ended — correct.
+    const oneHourBeforeNow = new Date(Date.now() - 3600_000);
+    const endedWeekStart = prizeWeekStart(oneHourBeforeNow);
     const endedWeekEnd = new Date(endedWeekStart.getTime() + 7 * 86400 * 1000 - 1);
-    const weekKey = prizeWeekKey(oneSecBeforeNow);
+    const weekKey = prizeWeekKey(oneHourBeforeNow);
 
     // Pull prize amounts from settings. Values are numeric strings;
     // parse and skip non-positive entries.
