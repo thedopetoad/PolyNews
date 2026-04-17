@@ -18,6 +18,7 @@ import { TradeProgress } from "@/components/sports/trade-progress";
 import { SellPositionModal } from "@/components/portfolio/sell-position-modal";
 import { loadPendingPositions, removePendingPosition, type PendingPosition } from "@/lib/pending-positions";
 import { addPendingActivity, loadPendingActivity, removePendingActivity, type PendingActivity } from "@/lib/pending-activity";
+import { addClosedPosition, loadClosedPositions, removeClosedPosition } from "@/lib/closed-positions";
 import { PendingBridgeIndicator } from "@/components/portfolio/pending-bridge-indicator";
 import { DidYouSendModal } from "@/components/portfolio/did-you-send-modal";
 import { deriveProxyAddress } from "@/lib/relay";
@@ -193,55 +194,36 @@ export default function PortfolioPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingPositions.length]);
 
-  // Positions whose close has already settled onchain. Polymarket's /positions
-  // data-api is eventually-consistent (10-30s lag after onchain settlement),
-  // so we hide these locally until the API catches up.
-  //
-  // Persisted to localStorage with a TTL so a page reload within the lag
-  // window still hides them (previous version was in-memory only, so
-  // reloading brought the stale row right back). Entries are removed either
-  // (a) when /positions stops returning the ID, or (b) when the TTL expires
-  // — whichever comes first. 2min TTL is well outside the worst observed
-  // lag (~30s) but short enough to not stick if something goes wrong.
-  const CLOSED_STORAGE_KEY = "polystream-closed-positions";
-  const CLOSED_TTL_MS = 120_000;
-  const [closedLocally, setClosedLocally] = useState<Set<string>>(() => {
-    if (typeof window === "undefined") return new Set();
-    try {
-      const raw = localStorage.getItem(CLOSED_STORAGE_KEY);
-      if (!raw) return new Set();
-      const entries = JSON.parse(raw) as Record<string, number>;
-      const now = Date.now();
-      const live = new Set<string>();
-      for (const [id, expiresAt] of Object.entries(entries)) {
-        if (expiresAt > now) live.add(id);
-      }
-      return live;
-    } catch {
-      return new Set();
-    }
-  });
+  // Positions whose close has already settled onchain. Shared with the
+  // bet slip via src/lib/closed-positions.ts so a full-close SELL from
+  // /sports/game also hides the row here immediately. 2min TTL, same
+  // entries cleared when /positions stops returning them.
+  const [closedLocally, setClosedLocally] = useState<Set<string>>(() => loadClosedPositions());
 
-  // Helper that both sets the in-memory Set AND writes to localStorage.
-  // Use this instead of setClosedLocally directly wherever we add IDs.
+  // Wrapper that both writes to the shared store AND refreshes local state.
+  // Everywhere we used addClosedLocal(id) previously still works.
   const addClosedLocal = (id: string) => {
+    addClosedPosition(id);
     setClosedLocally((prev) => {
       const next = new Set(prev);
       next.add(id);
-      try {
-        const rawExisting = localStorage.getItem(CLOSED_STORAGE_KEY);
-        const existing = rawExisting ? (JSON.parse(rawExisting) as Record<string, number>) : {};
-        existing[id] = Date.now() + CLOSED_TTL_MS;
-        // Drop expired entries opportunistically so the store doesn't grow.
-        const now = Date.now();
-        for (const [k, v] of Object.entries(existing)) {
-          if (v <= now) delete existing[k];
-        }
-        localStorage.setItem(CLOSED_STORAGE_KEY, JSON.stringify(existing));
-      } catch {}
       return next;
     });
   };
+
+  // Listen for writes from OTHER places (bet slip on game view, Sell modal).
+  // `storage` event only fires cross-tab, so we also poll localStorage every
+  // few seconds to catch same-tab writes — cheaper than lifting the store
+  // to a global zustand/context and good enough for a portfolio page.
+  useEffect(() => {
+    const syncFromStorage = () => setClosedLocally(loadClosedPositions());
+    window.addEventListener("storage", syncFromStorage);
+    const t = setInterval(syncFromStorage, 2500);
+    return () => {
+      window.removeEventListener("storage", syncFromStorage);
+      clearInterval(t);
+    };
+  }, []);
 
   // Real positions — Polymarket data API only, no DB fallback
   const realPositions = (polyPositions || [])
@@ -350,14 +332,7 @@ export default function PortfolioPage() {
         for (const id of gone) next.delete(id);
         return next;
       });
-      try {
-        const rawExisting = localStorage.getItem(CLOSED_STORAGE_KEY);
-        if (rawExisting) {
-          const existing = JSON.parse(rawExisting) as Record<string, number>;
-          for (const id of gone) delete existing[id];
-          localStorage.setItem(CLOSED_STORAGE_KEY, JSON.stringify(existing));
-        }
-      } catch {}
+      for (const id of gone) removeClosedPosition(id);
     }
   }, [polyPositions, closedLocally]);
 

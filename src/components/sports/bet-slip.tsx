@@ -12,6 +12,7 @@ import { TradeProgress } from "@/components/sports/trade-progress";
 import { BetConfirmModal } from "@/components/sports/bet-confirm-modal";
 import { addPendingPosition } from "@/lib/pending-positions";
 import { addPendingActivity } from "@/lib/pending-activity";
+import { addClosedPosition } from "@/lib/closed-positions";
 import { formatOdds } from "@/lib/odds-format";
 import { useOddsFormat } from "@/stores/use-odds-format";
 import { useUserPosition } from "@/hooks/use-user-position";
@@ -225,6 +226,14 @@ export function BetSlip({ eventTitle, eventSlug: _eventSlug, eventEndDate: _even
           avgPrice: effectivePrice,
           side: "BUY",
         });
+      }
+      // Full-close detection on SELL: if the user sold all (or substantially
+      // all) of their held shares, the portfolio row should hide immediately
+      // instead of waiting for /positions to catch up. Writes to the shared
+      // closed-positions store so the portfolio filters it on its next read
+      // (mount or storage event).
+      if (side === "SELL" && selected.tokenId && heldShares > 0 && shares >= heldShares - 0.01) {
+        addClosedPosition(selected.tokenId);
       }
       if (res.transactionHashes && res.transactionHashes[0]) {
         addPendingActivity({
