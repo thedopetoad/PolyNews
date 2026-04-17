@@ -44,6 +44,9 @@ export const AIRDROP_AMOUNTS = {
   daily: 100,
   referralBonus: 5000,
   referralFirstTrade: 250,
+  weeklyGoal: 500, // news-watch-weekly, paper-trades-weekly
+  firstDeposit: 2500,
+  firstSportsTrade: 1000,
 } as const;
 
 export const STARTING_BALANCE = 1000;

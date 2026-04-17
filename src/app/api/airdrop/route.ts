@@ -3,6 +3,7 @@ import { getDb, users, airdrops, referrals } from "@/db";
 import { eq, and, sql } from "drizzle-orm";
 import { getAuthenticatedUser, generateSecureId } from "@/lib/auth";
 import { AIRDROP_AMOUNTS } from "@/lib/constants";
+import { isoWeekKey } from "@/lib/week";
 
 // POST /api/airdrop - Claim an airdrop
 export async function POST(request: NextRequest) {
@@ -125,11 +126,13 @@ export async function POST(request: NextRequest) {
     }
 
     // Record airdrop
+    const weekKey = isoWeekKey();
     await db.insert(airdrops).values({
       id: generateSecureId(),
       userId: normalizedUserId,
       source: type,
       amount,
+      weekKey,
     });
 
     // Handle referral bonus on signup
@@ -158,6 +161,7 @@ export async function POST(request: NextRequest) {
           userId: referrer.id,
           source: "referral",
           amount: AIRDROP_AMOUNTS.referralBonus,
+          weekKey,
         });
       }
     }
