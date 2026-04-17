@@ -151,6 +151,11 @@ export function useUser() {
       queryClient.invalidateQueries({ queryKey: ["user", address] });
       queryClient.invalidateQueries({ queryKey: ["positions", address] });
       queryClient.invalidateQueries({ queryKey: ["trades", address] });
+      // Also invalidate the Airdrop Earn tab payload so the weekly
+      // paper-trades progress ring advances immediately instead of
+      // waiting up to 30s for the next poll. No-op if the user isn't
+      // on /airdrop — invalidating an uncached key is free.
+      queryClient.invalidateQueries({ queryKey: ["airdrop-me", address] });
     },
   });
 
@@ -187,6 +192,8 @@ export function useUser() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["user", address] });
+      // Flip the Earn tab's Daily claim ring immediately.
+      queryClient.invalidateQueries({ queryKey: ["airdrop-me", address] });
     },
   });
 
