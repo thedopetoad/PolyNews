@@ -14,7 +14,6 @@ type WeeklyRefRow = { rank: number; id: string; displayName: string | null; coun
 type WeeklyGainRow = { rank: number; id: string; displayName: string | null; gain: number };
 
 interface PrizeMap {
-  total: (string | null)[];
   weeklyReferrals: (string | null)[];
   weeklyGainers: (string | null)[];
 }
@@ -26,12 +25,12 @@ function usePrizes(): PrizeMap {
       const res = await fetch("/api/settings/public", { cache: "no-store" });
       if (!res.ok) throw new Error("prizes fetch failed");
       const json = (await res.json()) as { prizes?: PrizeMap };
-      return json.prizes ?? { total: [null, null, null], weeklyReferrals: [null, null, null], weeklyGainers: [null, null, null] };
+      return json.prizes ?? { weeklyReferrals: [null, null, null], weeklyGainers: [null, null, null] };
     },
     staleTime: 60_000,
     refetchInterval: 120_000,
   });
-  return data ?? { total: [null, null, null], weeklyReferrals: [null, null, null], weeklyGainers: [null, null, null] };
+  return data ?? { weeklyReferrals: [null, null, null], weeklyGainers: [null, null, null] };
 }
 
 const RANK_GLYPH: Record<number, string> = { 1: "🥇", 2: "🥈", 3: "🥉" };
@@ -75,10 +74,31 @@ export function LeaderboardTab() {
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+      {/* Weekly Referrals first — the virality board, pays weekly. */}
+      <LeaderCard
+        title="Weekly Referrals"
+        subtitle="Most new signups this week."
+        prizes={prizes.weeklyReferrals}
+        isLoading={weeklyRefQuery.isLoading}
+        error={weeklyRefQuery.error}
+        rows={weeklyRefQuery.data?.leaderboard ?? []}
+        renderRow={(row, i) => (
+          <Row
+            key={`wref-${i}`}
+            rank={row.rank}
+            id={row.id}
+            displayName={row.displayName}
+            isMe={row.id === address}
+            right={<span className="text-sm font-semibold text-[#f5c542] tabular-nums">{row.count}</span>}
+          />
+        )}
+      />
+
+      {/* All-Time in the middle — bragging rights board, no cash prize. */}
       <LeaderCard
         title="All-Time Airdrop"
         subtitle="Biggest AIRDROP holders. Referrals drive the board."
-        prizes={prizes.total}
+        prizes={null}
         isLoading={totalQuery.isLoading}
         error={totalQuery.error}
         rows={totalQuery.data?.leaderboard ?? []}
@@ -95,25 +115,6 @@ export function LeaderboardTab() {
                 <span className="text-[10px] text-[#d4a843]/70">{row.referralCount} referrals</span>
               </div>
             }
-          />
-        )}
-      />
-
-      <LeaderCard
-        title="Weekly Referrals"
-        subtitle="Most new signups this week."
-        prizes={prizes.weeklyReferrals}
-        isLoading={weeklyRefQuery.isLoading}
-        error={weeklyRefQuery.error}
-        rows={weeklyRefQuery.data?.leaderboard ?? []}
-        renderRow={(row, i) => (
-          <Row
-            key={`wref-${i}`}
-            rank={row.rank}
-            id={row.id}
-            displayName={row.displayName}
-            isMe={row.id === address}
-            right={<span className="text-sm font-semibold text-[#f5c542] tabular-nums">{row.count}</span>}
           />
         )}
       />
@@ -143,11 +144,21 @@ export function LeaderboardTab() {
 interface LeaderCardProps<T> {
   title: string;
   subtitle: string;
-  prizes: (string | null)[];
+  // null = board doesn't have a cash prize (All-Time). Array of strings =
+  // USDC numeric amounts (e.g. "25") from the settings table; rendered
+  // with "$" prefix, or "TBD" when missing / 0 / unparsable.
+  prizes: (string | null)[] | null;
   isLoading: boolean;
   error: unknown;
   rows: T[];
   renderRow: (row: T, i: number) => React.ReactNode;
+}
+
+function formatPrizePill(value: string | null | undefined): string {
+  if (!value) return "TBD";
+  const n = parseInt(value.replace(/[^\d]/g, ""), 10);
+  if (!Number.isFinite(n) || n <= 0) return "TBD";
+  return `$${n}`;
 }
 
 function LeaderCard<T>({ title, subtitle, prizes, isLoading, error, rows, renderRow }: LeaderCardProps<T>) {
@@ -156,21 +167,23 @@ function LeaderCard<T>({ title, subtitle, prizes, isLoading, error, rows, render
       <div className="p-4 border-b border-[#d4a843]/20 bg-gradient-to-r from-[#d4a843]/10 to-transparent">
         <h3 className="text-base font-bold bg-gradient-to-r from-[#f5c542] to-[#d4a843] bg-clip-text text-transparent">{title}</h3>
         <p className="text-xs text-[#adbac7]/70 mt-0.5">{subtitle}</p>
-        <div className="flex gap-1.5 mt-2">
-          {prizes.slice(0, 3).map((p, i) => (
-            <span
-              key={i}
-              className={cn(
-                "text-[10px] px-2 py-0.5 rounded-full border font-medium",
-                i === 0 && "border-[#f5c542]/50 text-[#f5c542] bg-[#f5c542]/10",
-                i === 1 && "border-[#d4a843]/40 text-[#d4a843] bg-[#d4a843]/10",
-                i === 2 && "border-[#a07828]/40 text-[#a07828] bg-[#a07828]/10",
-              )}
-            >
-              {RANK_GLYPH[i + 1]} {p || "TBD"}
-            </span>
-          ))}
-        </div>
+        {prizes && (
+          <div className="flex gap-1.5 mt-2">
+            {prizes.slice(0, 3).map((p, i) => (
+              <span
+                key={i}
+                className={cn(
+                  "text-[10px] px-2 py-0.5 rounded-full border font-medium",
+                  i === 0 && "border-[#f5c542]/50 text-[#f5c542] bg-[#f5c542]/10",
+                  i === 1 && "border-[#d4a843]/40 text-[#d4a843] bg-[#d4a843]/10",
+                  i === 2 && "border-[#a07828]/40 text-[#a07828] bg-[#a07828]/10",
+                )}
+              >
+                {RANK_GLYPH[i + 1]} {formatPrizePill(p)}
+              </span>
+            ))}
+          </div>
+        )}
       </div>
       <div className="divide-y divide-[#21262d]">
         {isLoading ? (

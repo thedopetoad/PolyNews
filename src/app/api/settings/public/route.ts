@@ -7,14 +7,13 @@ import { inArray } from "drizzle-orm";
 // Returns the subset of `settings` that's safe for anonymous clients.
 // Today this is the admin-editable leaderboard prize amounts.
 //
-// Prize keys, one per (board, place):
-//   airdrop_prize_total_1       airdrop_prize_total_2       airdrop_prize_total_3
+// Prize keys for the two cash-prize weekly boards (All-Time has no
+// prize — bragging rights only):
 //   airdrop_prize_weeklyRef_1   airdrop_prize_weeklyRef_2   airdrop_prize_weeklyRef_3
 //   airdrop_prize_weeklyGain_1  airdrop_prize_weeklyGain_2  airdrop_prize_weeklyGain_3
 //
-// Missing rows → null → UI renders "TBD". Admin sets them from /admin.
+// Values are numeric strings ("25" = $25). Missing or <=0 → UI shows "TBD".
 const PRIZE_KEYS = [
-  "airdrop_prize_total_1", "airdrop_prize_total_2", "airdrop_prize_total_3",
   "airdrop_prize_weeklyRef_1", "airdrop_prize_weeklyRef_2", "airdrop_prize_weeklyRef_3",
   "airdrop_prize_weeklyGain_1", "airdrop_prize_weeklyGain_2", "airdrop_prize_weeklyGain_3",
 ] as const;
@@ -31,7 +30,6 @@ export async function GET() {
 
     return NextResponse.json({
       prizes: {
-        total: [pick("airdrop_prize_total_1"), pick("airdrop_prize_total_2"), pick("airdrop_prize_total_3")],
         weeklyReferrals: [pick("airdrop_prize_weeklyRef_1"), pick("airdrop_prize_weeklyRef_2"), pick("airdrop_prize_weeklyRef_3")],
         weeklyGainers: [pick("airdrop_prize_weeklyGain_1"), pick("airdrop_prize_weeklyGain_2"), pick("airdrop_prize_weeklyGain_3")],
       },

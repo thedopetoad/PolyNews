@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb, users, airdrops, positions } from "@/db";
-import { sql, eq, and, gte, inArray, isNotNull } from "drizzle-orm";
+import { sql, and, gte, inArray, isNotNull } from "drizzle-orm";
 import { getAuthenticatedUser } from "@/lib/auth";
-import { isoWeekKey, isoWeekStart } from "@/lib/week";
+import { prizeWeekStart } from "@/lib/week";
 
 // GET /api/airdrop/leaderboard?type=total|weeklyReferrals|weeklyGainers
 //
@@ -19,8 +19,9 @@ export async function GET(request: NextRequest) {
   try {
     const db = getDb();
     const authedUser = getAuthenticatedUser(request);
-    const currentWeek = isoWeekKey();
-    const weekStart = isoWeekStart();
+    // Weekly leaderboards anchor on Monday 17:00 UTC (= 9am PST)
+    // so the "reset" matches the payout-snapshot cron cadence.
+    const weekStart = prizeWeekStart();
 
     // Mask every id except the caller's own, so users can locate
     // themselves but can't dox others.
@@ -149,14 +150,17 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ leaderboard });
     }
 
-    // weeklyGainers: sum of airdrops in the current ISO week
+    // weeklyGainers: sum of airdrops granted since the last prize-week
+    // reset (Mon 17:00 UTC). Filter by createdAt timestamp rather than
+    // the legacy airdrops.weekKey column — weekKey is ISO week (Mon
+    // 00:00 UTC) which drifts 17 hours from the prize-week boundary.
     const weekRows = await db
       .select({
         userId: airdrops.userId,
         gain: sql<number>`SUM(${airdrops.amount})`.as("gain"),
       })
       .from(airdrops)
-      .where(eq(airdrops.weekKey, currentWeek))
+      .where(gte(airdrops.createdAt, weekStart))
       .groupBy(airdrops.userId)
       .orderBy(sql`gain DESC`)
       .limit(50);

@@ -7,10 +7,11 @@ import { cn } from "@/lib/utils";
 // (so toad can write "$25", "TBD", "0.01 ETH", etc.). Empty string
 // on save deletes the row → UI falls back to "TBD" pill.
 
-const PRIZE_BOARDS: { id: "total" | "weeklyRef" | "weeklyGain"; label: string; subtitle: string }[] = [
-  { id: "total", label: "All-Time Airdrop", subtitle: "Rewarded at Monday 00:00 UTC roll" },
-  { id: "weeklyRef", label: "Weekly Referrals", subtitle: "Rewarded at Monday 00:00 UTC roll" },
-  { id: "weeklyGain", label: "Biggest Gainers", subtitle: "Rewarded at Monday 00:00 UTC roll" },
+// All-Time has no cash prize per product decision — bragging rights
+// board only. The two weekly boards pay out each Monday at 17:00 UTC.
+const PRIZE_BOARDS: { id: "weeklyRef" | "weeklyGain"; label: string; subtitle: string }[] = [
+  { id: "weeklyRef", label: "Weekly Referrals", subtitle: "Snapshot Mon 9am PST" },
+  { id: "weeklyGain", label: "Biggest Gainers", subtitle: "Snapshot Mon 9am PST" },
 ];
 
 export function PrizeEditor() {
@@ -77,7 +78,7 @@ export function PrizeEditor() {
       {loading ? (
         <p className="text-xs text-[#768390] text-center py-4">Loading…</p>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           {PRIZE_BOARDS.map((b) => (
             <div key={b.id} className="bg-[#0d1117] border border-[#21262d] rounded p-3">
               <p className="text-xs font-semibold text-[#f5c542]">{b.label}</p>
@@ -88,10 +89,14 @@ export function PrizeEditor() {
                 return (
                   <div key={place} className="flex items-center gap-2 mt-1.5">
                     <span className="w-6 text-sm">{glyph}</span>
+                    <span className="text-xs text-[#484f58]">$</span>
                     <input
+                      type="number"
+                      min="0"
+                      step="1"
                       value={values[key] ?? ""}
                       onChange={(e) => setValues((prev) => ({ ...prev, [key]: e.target.value }))}
-                      placeholder="TBD"
+                      placeholder="0"
                       className="flex-1 bg-[#161b22] border border-[#21262d] rounded px-2 py-1 text-xs text-white placeholder:text-[#484f58] focus:outline-none focus:border-[#d4a843]/50"
                     />
                   </div>
@@ -102,7 +107,7 @@ export function PrizeEditor() {
         </div>
       )}
       <p className="text-[10px] text-[#484f58] mt-2">
-        Free text — write anything like &ldquo;$25&rdquo; or &ldquo;0.01 ETH&rdquo;. Empty a field to reset it to &ldquo;TBD&rdquo;.
+        Whole USD amounts only — rendered as &ldquo;$25&rdquo; pill on the leaderboard. Empty or 0 shows &ldquo;TBD&rdquo;. The Monday cron uses these numbers to snapshot payout amounts for that week&rsquo;s winners.
       </p>
     </div>
   );

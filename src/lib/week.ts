@@ -29,3 +29,59 @@ export function heartbeatBucket(date: Date = new Date()): string {
   const bucketIndex = Math.floor(date.getTime() / 15000);
   return `${isoWeekKey(date)}-${bucketIndex}`;
 }
+
+// ─────────────────────────────────────────────────────────────
+// Prize-week helpers — used by the weekly leaderboards and the
+// Monday-cron payout snapshot.
+//
+// Prize week boundary: Monday 17:00 UTC (= 9am PST / 10am PDT).
+// Uses UTC literally; during US DST the local-time clock shifts by
+// an hour but the UTC anchor stays stable. This is what Vercel Cron
+// expresses with `0 17 * * 1`.
+//
+// Week key is the ISO date of the Monday the week started on, e.g.
+// "2026-04-13" — readable, sortable, no ambiguity.
+// ─────────────────────────────────────────────────────────────
+
+export function prizeWeekStart(date: Date = new Date()): Date {
+  const d = new Date(date.getTime());
+  const dayOfWeek = d.getUTCDay(); // 0 = Sun, 1 = Mon, ..., 6 = Sat
+  const h = d.getUTCHours();
+
+  let daysBack: number;
+  if (dayOfWeek === 1 && h < 17) {
+    // Monday, but before 17:00 UTC — previous week's reset was 7 days ago
+    daysBack = 7;
+  } else if (dayOfWeek === 1) {
+    // Monday, 17:00 or later — this Monday's reset
+    daysBack = 0;
+  } else {
+    // Tue..Sun — walk back to the last Monday
+    daysBack = (dayOfWeek + 6) % 7;
+  }
+
+  d.setUTCDate(d.getUTCDate() - daysBack);
+  d.setUTCHours(17, 0, 0, 0);
+  return d;
+}
+
+export function prizeWeekKey(date: Date = new Date()): string {
+  const start = prizeWeekStart(date);
+  const y = start.getUTCFullYear();
+  const m = String(start.getUTCMonth() + 1).padStart(2, "0");
+  const d = String(start.getUTCDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+/**
+ * Human-readable date range for a given prize-week key. Pass the
+ * output of `prizeWeekKey()` (or any Monday-YYYY-MM-DD string) and
+ * get back { start, end } dates you can format however the UI wants.
+ * End = start + 6 days 23:59:59.
+ */
+export function prizeWeekRange(weekKey: string): { start: Date; end: Date } {
+  const [y, mo, d] = weekKey.split("-").map(Number);
+  const start = new Date(Date.UTC(y, mo - 1, d, 17, 0, 0, 0));
+  const end = new Date(start.getTime() + 7 * 86400 * 1000 - 1);
+  return { start, end };
+}
