@@ -17,6 +17,7 @@ import { WithdrawModal } from "@/components/portfolio/withdraw-modal";
 import { TradeProgress } from "@/components/sports/trade-progress";
 import { SellPositionModal } from "@/components/portfolio/sell-position-modal";
 import { loadPendingPositions, removePendingPosition, type PendingPosition } from "@/lib/pending-positions";
+import { addPendingActivity, loadPendingActivity, removePendingActivity, type PendingActivity } from "@/lib/pending-activity";
 import { PendingBridgeIndicator } from "@/components/portfolio/pending-bridge-indicator";
 import { DidYouSendModal } from "@/components/portfolio/did-you-send-modal";
 import { deriveProxyAddress } from "@/lib/relay";
@@ -164,6 +165,11 @@ export default function PortfolioPage() {
   // though this component just mounted). Cleared as /positions catches up
   // OR when the TTL expires.
   const [pendingPositions, setPendingPositions] = useState<PendingPosition[]>(() => loadPendingPositions());
+  // Same idea for /activity lag: trades that just confirmed onchain but
+  // haven't shown up in Polymarket's /activity data-api yet. Rendered as
+  // skeleton rows in the History tab until /activity returns the matching
+  // tx hash. 3min TTL inside the store.
+  const [pendingActivity, setPendingActivity] = useState<PendingActivity[]>(() => loadPendingActivity());
 
   // On mount: kick off aggressive polling so the pending skeletons don't
   // linger any longer than needed.
@@ -279,13 +285,42 @@ export default function PortfolioPage() {
 
   // Sweep expired pending entries (TTL hit) every few seconds while the page
   // is open — keeps the skeleton from sticking forever if /positions never
-  // produces a match (e.g. zero-fill edge cases).
+  // produces a match (e.g. zero-fill edge cases). Same for activity.
   useEffect(() => {
     const t = setInterval(() => {
       setPendingPositions(loadPendingPositions());
+      setPendingActivity(loadPendingActivity());
     }, 5000);
     return () => clearInterval(t);
   }, []);
+
+  // When a pending activity entry shows up in /activity (matched by tx
+  // hash), remove it from state + storage so the skeleton disappears.
+  useEffect(() => {
+    if (pendingActivity.length === 0) return;
+    if (!polyActivity) return;
+    const returnedHashes = new Set(polyActivity.map((a) => a.transactionHash?.toLowerCase()));
+    const arrived = pendingActivity.filter((p) => returnedHashes.has(p.txHash.toLowerCase()));
+    if (arrived.length > 0) {
+      for (const p of arrived) removePendingActivity(p.txHash);
+      setPendingActivity((prev) =>
+        prev.filter((p) => !returnedHashes.has(p.txHash.toLowerCase())),
+      );
+    }
+  }, [polyActivity, pendingActivity]);
+
+  // When pendingActivity goes from empty → populated (user just closed a
+  // position from elsewhere and came back to portfolio), kick the same
+  // aggressive refetch cadence against /activity.
+  useEffect(() => {
+    if (pendingActivity.length === 0) return;
+    const delays = [1500, 3500, 7000, 15000, 30000];
+    const timers = delays.map((d) => setTimeout(() => {
+      queryClient.invalidateQueries({ queryKey: ["polymarket-activity"] });
+    }, d));
+    return () => { timers.forEach(clearTimeout); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingActivity.length]);
 
   // Once the /positions API catches up and stops returning a locally-closed
   // position, drop it from both state and localStorage so the filter doesn't
@@ -324,7 +359,6 @@ export default function PortfolioPage() {
   // Tab state
   const [tab, setTab] = useState<"positions" | "history">("positions");
   // Expandable position + close
-  const [expandedPos, setExpandedPos] = useState<string | null>(null);
   const [closingPos, setClosingPos] = useState<string | null>(null);
   const [closeResult, setCloseResult] = useState<{ id: string; msg: string; ok: boolean; txHashes?: string[] } | null>(null);
   // Position currently being sold through the slider modal. null = modal closed.
@@ -336,6 +370,7 @@ export default function PortfolioPage() {
     shares: number;
     avgPrice: number;
     currentPrice: number;
+    eventSlug: string | null;
   } | null>(null);
   const { placeOrder, placing: placingOrder } = usePolymarketTrade();
   const queryClient = useQueryClient();
@@ -508,14 +543,10 @@ export default function PortfolioPage() {
             <div className="min-w-0">
               <p className="text-[10px] text-[#484f58] uppercase tracking-wider">Total Portfolio</p>
               <p className="text-3xl font-bold text-white tabular-nums">{formatUsd(usdcBal + realPositionsValue)}</p>
-              <p className="text-[11px] text-[#484f58] mt-1">
-                Cash + open positions · Held on Polymarket
-              </p>
             </div>
             <div className="text-right flex-shrink-0">
               <p className="text-[10px] text-[#484f58] uppercase tracking-wider">Available to trade</p>
               <p className="text-base font-bold text-[#58a6ff] tabular-nums">{formatUsd(usdcBal)}</p>
-              <span className="inline-block mt-0.5 text-[9px] text-[#3fb950] bg-[#3fb950]/10 px-1.5 py-0.5 rounded font-medium">USDC.e</span>
             </div>
           </div>
           <div className="flex gap-2 mt-3" onClick={(e) => e.stopPropagation()}>
@@ -772,7 +803,6 @@ export default function PortfolioPage() {
                 const value = hasPoly && ext._currentValue !== undefined ? ext._currentValue : pos.shares * livePrice;
                 const pnl = hasPoly && ext._cashPnl !== undefined ? ext._cashPnl : (livePrice - pos.avgPrice) * pos.shares;
                 const pnlPct = hasPoly && ext._percentPnl !== undefined ? ext._percentPnl : (pos.avgPrice > 0 ? ((livePrice - pos.avgPrice) / pos.avgPrice) * 100 : 0);
-                const isExpanded = expandedPos === pos.id;
                 const isClosing = closingPos === pos.id;
                 const result = closeResult?.id === pos.id ? closeResult : null;
                 // Close has been submitted and (usually) matched by the CLOB,
@@ -782,10 +812,7 @@ export default function PortfolioPage() {
 
                 return (
                   <div key={pos.id} className={cn(settling && "opacity-60")}>
-                    <div
-                      className={cn("grid grid-cols-12 gap-2 px-4 py-3 items-center hover:bg-[#1c2128]/50 transition-colors cursor-pointer", isExpanded && "bg-[#1c2128]/30")}
-                      onClick={() => setExpandedPos(isExpanded ? null : pos.id)}
-                    >
+                    <div className="grid grid-cols-12 gap-2 px-4 py-3 items-center hover:bg-[#1c2128]/50 transition-colors">
                       {/* Market + outcome pill + shares label (Polymarket layout).
                           Title is a link to the game detail page on our site —
                           powered by slug lookup since /positions doesn't give
@@ -795,10 +822,11 @@ export default function PortfolioPage() {
                         {pos.eventSlug ? (
                           <Link
                             href={`/sports/game?slug=${encodeURIComponent(pos.eventSlug)}`}
-                            onClick={(e) => e.stopPropagation()}
-                            className="text-[13px] text-[#e6edf3] font-medium leading-snug line-clamp-1 hover:text-[#58a6ff] hover:underline transition-colors"
+                            className="group inline-block max-w-full"
                           >
-                            {pos.marketQuestion}
+                            <span className="text-[13px] text-[#e6edf3] font-medium leading-snug line-clamp-1 group-hover:text-[#58a6ff] group-hover:underline transition-colors">
+                              {pos.marketQuestion}
+                            </span>
                           </Link>
                         ) : (
                           <p className="text-[13px] text-[#e6edf3] font-medium leading-snug line-clamp-1">{pos.marketQuestion}</p>
@@ -839,7 +867,7 @@ export default function PortfolioPage() {
                         </div>
                       </div>
                       {/* ACTION = Sell button that opens the Polymarket-style modal */}
-                      <div className="col-span-2 text-right" onClick={(e) => e.stopPropagation()}>
+                      <div className="col-span-2 text-right">
                         <button
                           disabled={isClosing || settling}
                           onClick={() => {
@@ -856,6 +884,7 @@ export default function PortfolioPage() {
                               shares: pos.shares,
                               avgPrice: pos.avgPrice,
                               currentPrice: livePrice,
+                              eventSlug: pos.eventSlug,
                             });
                           }}
                           className={cn(
@@ -869,24 +898,7 @@ export default function PortfolioPage() {
                         </button>
                       </div>
                     </div>
-                    {/* Expanded details */}
-                    {isExpanded && (
-                      <div className="px-4 py-3 bg-[#0d1117] border-t border-[#21262d] space-y-2">
-                        <div className="flex gap-6 text-xs text-[#768390]">
-                          <span>Bought at: <span className="text-[#e6edf3]">{Math.round(pos.avgPrice * 100)}¢</span></span>
-                          <span>Current: <span className="text-[#e6edf3]">{Math.round(livePrice * 100)}¢</span></span>
-                          <span>Shares: <span className="text-[#e6edf3]">{pos.shares.toFixed(2)}</span></span>
-                          <span>Cost: <span className="text-[#e6edf3]">{formatUsd(pos.shares * pos.avgPrice)}</span></span>
-                          <span>Value: <span className="text-[#e6edf3]">{formatUsd(value)}</span></span>
-                        </div>
-                        {pos.eventSlug && (
-                          <a href={`https://polymarket.com/event/${pos.eventSlug}`} target="_blank" rel="noopener noreferrer" className="text-[10px] text-[#58a6ff] hover:underline">
-                            View on Polymarket →
-                          </a>
-                        )}
-                      </div>
-                    )}
-                    {/* Close result — shown in both collapsed and expanded states */}
+                    {/* Close result */}
                     {result && (
                       <div className="px-4 py-2 bg-[#0d1117] border-t border-[#21262d] space-y-2">
                         <p className={cn("text-xs font-medium", result.ok ? "text-[#3fb950]" : "text-[#f85149]")}>{result.msg}</p>
@@ -898,6 +910,20 @@ export default function PortfolioPage() {
                               // Onchain settled — persist the hide and kick off
                               // refetches until /positions catches up.
                               addClosedLocal(pos.id);
+                              // Drop a pending-activity entry so the History
+                              // tab shows a skeleton row until /activity
+                              // reflects this sell.
+                              if (result.txHashes && result.txHashes[0]) {
+                                addPendingActivity({
+                                  txHash: result.txHashes[0],
+                                  side: "SELL",
+                                  marketTitle: pos.marketQuestion,
+                                  outcomeName: pos.outcome,
+                                  shares: pos.shares,
+                                  price: livePrice,
+                                  usdcSize: pos.shares * livePrice,
+                                });
+                              }
                               // Polymarket's /positions data-api lags onchain
                               // state by 10-30s. Retry at 2s, 5s, 10s, 20s.
                               [2000, 5000, 10000, 20000].forEach((delay) =>
@@ -931,6 +957,7 @@ export default function PortfolioPage() {
           avgPrice={sellingPos.avgPrice}
           currentPrice={sellingPos.currentPrice}
           placing={placingOrder || closingPos === sellingPos.id}
+          marketHref={sellingPos.eventSlug ? `/sports/game?slug=${encodeURIComponent(sellingPos.eventSlug)}` : undefined}
           onCashOut={(sharesToSell) =>
             executeSell({
               posId: sellingPos.id,
@@ -1016,7 +1043,7 @@ export default function PortfolioPage() {
             <div className="col-span-2 text-right">When</div>
             <div className="col-span-1 text-right">Tx</div>
           </div>
-          {!polyActivity || polyActivity.length === 0 ? (
+          {(!polyActivity || polyActivity.length === 0) && pendingActivity.length === 0 ? (
             <div className="text-center py-12">
               <div className="text-4xl mb-3">📜</div>
               <p className="text-sm font-medium text-[#e6edf3]">No trades yet</p>
@@ -1026,7 +1053,13 @@ export default function PortfolioPage() {
             </div>
           ) : (
             <div className="divide-y divide-[#21262d]">
-              {polyActivity.map((a, i) => {
+              {/* Pending in-flight trades — shown above the real list with a
+                  shimmer and "Settling onchain…" label until /activity
+                  returns the matching tx hash. */}
+              {pendingActivity.map((p) => (
+                <PendingActivityRow key={p.txHash} pending={p} />
+              ))}
+              {(polyActivity || []).map((a, i) => {
                 const when = new Date(a.timestamp * 1000);
                 const elapsed = Date.now() - a.timestamp * 1000;
                 const hours = elapsed / 3600000;
@@ -1138,6 +1171,58 @@ function PendingPositionRow({ pending }: { pending: PendingPosition }) {
           </svg>
           Settling
         </span>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Skeleton history row for an in-flight trade — the tx confirmed onchain
+ * but Polymarket's /activity data-api hasn't caught up. Matches the real
+ * history row's 12-col layout so swap-in is seamless when /activity
+ * returns the entry.
+ */
+function PendingActivityRow({ pending }: { pending: PendingActivity }) {
+  return (
+    <div className="grid grid-cols-12 gap-2 px-4 py-3 items-center animate-pulse">
+      <div className="col-span-1">
+        <span className={cn(
+          "text-[10px] font-bold px-1.5 py-0.5 rounded",
+          pending.side === "BUY" ? "bg-[#3fb950]/15 text-[#3fb950]" : "bg-[#f85149]/15 text-[#f85149]"
+        )}>
+          {pending.side}
+        </span>
+      </div>
+      <div className="col-span-4">
+        <p className="text-[13px] text-[#e6edf3] font-medium leading-snug line-clamp-1">{pending.marketTitle}</p>
+        <p className="text-[10px] text-[#58a6ff] mt-0.5 flex items-center gap-1.5">
+          <span className="inline-block w-1.5 h-1.5 rounded-full bg-[#58a6ff] animate-ping" />
+          Settling onchain…
+        </p>
+      </div>
+      <div className="col-span-2 text-right">
+        <span className="text-xs text-[#e6edf3] tabular-nums font-medium">{pending.shares.toFixed(2)}</span>
+      </div>
+      <div className="col-span-2 text-right">
+        <span className="text-xs text-[#e6edf3] tabular-nums font-medium">{Math.round(pending.price * 100)}¢</span>
+        <span className="text-[10px] text-[#484f58] ml-1 tabular-nums">${pending.usdcSize.toFixed(2)}</span>
+      </div>
+      <div className="col-span-2 text-right">
+        <span className="text-[11px] text-[#768390] tabular-nums">just now</span>
+      </div>
+      <div className="col-span-1 text-right">
+        <a
+          href={`https://polygonscan.com/tx/${pending.txHash}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          title={`View ${pending.txHash.slice(0, 10)}… on Polygonscan`}
+          className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium text-[#58a6ff] bg-[#58a6ff]/10 hover:bg-[#58a6ff]/20 transition-colors tabular-nums"
+        >
+          {pending.txHash.slice(0, 6)}
+          <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M7 17L17 7M10 7h7v7" />
+          </svg>
+        </a>
       </div>
     </div>
   );

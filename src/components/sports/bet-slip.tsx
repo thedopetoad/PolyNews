@@ -11,6 +11,7 @@ import { EnableTradingModal } from "@/components/sports/enable-trading-modal";
 import { TradeProgress } from "@/components/sports/trade-progress";
 import { BetConfirmModal } from "@/components/sports/bet-confirm-modal";
 import { addPendingPosition } from "@/lib/pending-positions";
+import { addPendingActivity } from "@/lib/pending-activity";
 import { formatOdds } from "@/lib/odds-format";
 import { useOddsFormat } from "@/stores/use-odds-format";
 import { useUserPosition } from "@/hooks/use-user-position";
@@ -530,6 +531,20 @@ export function BetSlip({ eventTitle, eventSlug: _eventSlug, eventEndDate: _even
                     shares,
                     avgPrice: effectivePrice,
                     side: "BUY",
+                  });
+                }
+                // Both buys AND sells should show in History. Add a pending
+                // activity entry keyed by tx hash — history tab renders a
+                // skeleton row until /activity catches up.
+                if (result.txHashes && result.txHashes[0] && selected) {
+                  addPendingActivity({
+                    txHash: result.txHashes[0],
+                    side: result.side ?? "BUY",
+                    marketTitle: eventTitle,
+                    outcomeName: selected.name,
+                    shares,
+                    price: effectivePrice,
+                    usdcSize: result.side === "SELL" ? proceedsUsd : amountNum,
                   });
                 }
               }}

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { cn } from "@/lib/utils";
 
 /**
@@ -26,6 +27,7 @@ export function SellPositionModal({
   currentPrice,
   onCashOut,
   placing,
+  marketHref,
 }: {
   open: boolean;
   onClose: () => void;
@@ -37,6 +39,12 @@ export function SellPositionModal({
   /** Called with the share count to sell. Modal closes after. */
   onCashOut: (sharesToSell: number) => void;
   placing: boolean;
+  /**
+   * If provided, "Edit order" turns into a link to this URL — typically
+   * /sports/game?slug={eventSlug} so the user jumps to the full bet slip
+   * on the market page. When absent, the button just closes the modal.
+   */
+  marketHref?: string;
 }) {
   const [pct, setPct] = useState(100);
 
@@ -132,15 +140,27 @@ export function SellPositionModal({
             </div>
           </div>
 
-          {/* Actions */}
+          {/* Actions. Edit order is a link when we have a market URL so the
+              user jumps to the full bet slip on the sports page; otherwise
+              it just closes the modal. */}
           <div className="grid grid-cols-2 gap-2">
-            <button
-              onClick={onClose}
-              disabled={placing}
-              className="py-3 rounded-lg text-sm font-semibold bg-transparent border border-[#30363d] text-[#c9d1d9] hover:bg-[#21262d] transition-colors disabled:opacity-50"
-            >
-              Edit order
-            </button>
+            {marketHref && !placing ? (
+              <Link
+                href={marketHref}
+                onClick={onClose}
+                className="py-3 rounded-lg text-sm font-semibold bg-transparent border border-[#30363d] text-[#c9d1d9] hover:bg-[#21262d] transition-colors text-center"
+              >
+                Edit order
+              </Link>
+            ) : (
+              <button
+                onClick={onClose}
+                disabled={placing}
+                className="py-3 rounded-lg text-sm font-semibold bg-transparent border border-[#30363d] text-[#c9d1d9] hover:bg-[#21262d] transition-colors disabled:opacity-50"
+              >
+                Edit order
+              </button>
+            )}
             <button
               onClick={() => {
                 if (sharesToSell > 0) onCashOut(sharesToSell);
