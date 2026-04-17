@@ -6,6 +6,7 @@ import { usePositionLivePrices } from "@/hooks/use-live-prices";
 import { LoginButton } from "@/components/layout/login-modal";
 import { MiniPriceChart } from "@/components/mini-price-chart";
 import { cn } from "@/lib/utils";
+import { useT } from "@/lib/i18n";
 import type { DbPosition } from "@/hooks/use-user";
 import { AIRDROP_AMOUNTS } from "@/lib/constants";
 import {
@@ -27,6 +28,7 @@ import { Button } from "@/components/ui/button";
 
 export function AirdropPortfolioTab() {
   const { address, isConnected, user, positions, trades, executeTrade, isTrading } = useUser();
+  const { t } = useT();
   const [innerTab, setInnerTab] = useState<"positions" | "history">("positions");
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [pendingClose, setPendingClose] = useState<{ pos: DbPosition; livePrice: number } | null>(null);
@@ -114,8 +116,8 @@ export function AirdropPortfolioTab() {
   if (!isConnected) {
     return (
       <div className="rounded-lg border border-[#d4a843]/25 bg-gradient-to-b from-[#d4a843]/5 via-[#161b22] to-[#161b22] p-10 text-center">
-        <p className="text-[#d4a843] font-semibold mb-2">Log in to see your AIRDROP portfolio</p>
-        <p className="text-xs text-[#768390] mb-4">Connect a wallet or sign in with Google.</p>
+        <p className="text-[#d4a843] font-semibold mb-2">{t.airdrop.earn.loggedOutTitle}</p>
+        <p className="text-xs text-[#768390] mb-4">{t.airdrop.earn.loggedOutHint}</p>
         <div className="inline-block"><LoginButton /></div>
       </div>
     );
@@ -193,7 +195,7 @@ export function AirdropPortfolioTab() {
         {/* Left: balance totals */}
         <div className="flex flex-col">
           <div className="flex items-center justify-between mb-1">
-            <p className="text-[10px] text-[#d4a843]/70 uppercase tracking-wider">Airdrop Portfolio</p>
+            <p className="text-[10px] text-[#d4a843]/70 uppercase tracking-wider">{t.airdrop.portfolioCard.header}</p>
             <span className="text-[10px] text-[#f5c542] bg-[#f5c542]/10 border border-[#f5c542]/20 px-1.5 py-0.5 rounded font-medium">AIRDROP</span>
           </div>
           <p className="text-4xl font-bold bg-gradient-to-r from-[#f5c542] to-[#d4a843] bg-clip-text text-transparent tabular-nums leading-none">
@@ -201,13 +203,13 @@ export function AirdropPortfolioTab() {
           </p>
           <div className="flex gap-6 mt-auto pt-4">
             <div>
-              <p className="text-[10px] text-[#d4a843]/60 uppercase tracking-wider">Available to trade</p>
+              <p className="text-[10px] text-[#d4a843]/60 uppercase tracking-wider">{t.airdrop.portfolioCard.availableToTrade}</p>
               <p className="text-sm font-semibold text-white tabular-nums mt-0.5">
                 {paperBalance.toLocaleString(undefined, { maximumFractionDigits: 0 })}
               </p>
             </div>
             <div>
-              <p className="text-[10px] text-[#d4a843]/60 uppercase tracking-wider">In positions</p>
+              <p className="text-[10px] text-[#d4a843]/60 uppercase tracking-wider">{t.airdrop.portfolioCard.inPositions}</p>
               <p className="text-sm font-semibold text-white tabular-nums mt-0.5">
                 {paperPositionValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}
               </p>
@@ -218,19 +220,19 @@ export function AirdropPortfolioTab() {
         {/* Right: referral call-out */}
         <div className="flex flex-col border-t md:border-t-0 md:border-l border-[#d4a843]/20 pt-4 md:pt-0 md:pl-6">
           <div className="flex items-start justify-between mb-1 gap-2">
-            <p className="text-[10px] text-[#d4a843]/70 uppercase tracking-wider">Your referrals</p>
+            <p className="text-[10px] text-[#d4a843]/70 uppercase tracking-wider">{t.airdrop.portfolioCard.yourReferrals}</p>
             <span className="text-[10px] text-[#f5c542] bg-[#f5c542]/10 border border-[#f5c542]/20 px-1.5 py-0.5 rounded font-medium whitespace-nowrap">
-              +{AIRDROP_AMOUNTS.referralBonus.toLocaleString()} each
+              +{AIRDROP_AMOUNTS.referralBonus.toLocaleString()} {t.airdrop.portfolioCard.each}
             </span>
           </div>
           <div className="flex items-baseline gap-2 leading-none">
             <p className="text-4xl font-bold text-white tabular-nums">
               {referralCount ?? "—"}
             </p>
-            <p className="text-xs text-[#d4a843]/70">{(referralCount ?? 0) === 1 ? "friend" : "friends"}</p>
+            <p className="text-xs text-[#d4a843]/70">{(referralCount ?? 0) === 1 ? t.airdrop.portfolioCard.friend : t.airdrop.portfolioCard.friends}</p>
           </div>
           <p className="text-[11px] text-[#adbac7]/70 mt-2 leading-snug">
-            Share your code to climb the leaderboard — referrals are the biggest AIRDROP win.
+            {t.airdrop.portfolioCard.shareCopy}
           </p>
           {user?.referralCode && (
             <div className="mt-auto pt-3 flex items-center gap-2">
@@ -242,7 +244,7 @@ export function AirdropPortfolioTab() {
                 onClick={copyRefCode}
                 className="text-xs font-semibold bg-[#d4a843]/20 text-[#f5c542] border border-[#d4a843]/30 px-3 py-1.5 rounded hover:bg-[#d4a843]/30 whitespace-nowrap"
               >
-                {copiedRef ? "Copied!" : "Copy"}
+                {copiedRef ? t.airdrop.portfolioCard.copied : t.airdrop.portfolioCard.copy}
               </button>
             </div>
           )}
@@ -259,7 +261,7 @@ export function AirdropPortfolioTab() {
               innerTab === "positions" ? "text-white border-b-2 border-[#58a6ff]" : "text-[#768390] hover:text-[#adbac7]",
             )}
           >
-            Positions
+            {t.airdrop.positions.tabPositions}
           </button>
           <button
             onClick={() => setInnerTab("history")}
@@ -268,28 +270,26 @@ export function AirdropPortfolioTab() {
               innerTab === "history" ? "text-white border-b-2 border-[#58a6ff]" : "text-[#768390] hover:text-[#adbac7]",
             )}
           >
-            History
+            {t.airdrop.positions.tabHistory}
           </button>
         </div>
 
         {innerTab === "positions" && (
           <div className="rounded-lg border border-[#21262d] bg-[#161b22] overflow-hidden">
             <div className="grid grid-cols-12 gap-2 px-4 py-2.5 text-[10px] text-[#484f58] uppercase tracking-wider border-b border-[#21262d]">
-              <div className="col-span-4">Market</div>
-              <div className="col-span-2 text-right">Avg → Now</div>
-              <div className="col-span-1 text-right">Traded</div>
-              <div className="col-span-1 text-right">To win</div>
-              <div className="col-span-2 text-right">Value</div>
-              <div className="col-span-2 text-right">Action</div>
+              <div className="col-span-4">{t.airdrop.positions.market}</div>
+              <div className="col-span-2 text-right">{t.airdrop.positions.avgNow}</div>
+              <div className="col-span-1 text-right">{t.airdrop.positions.traded}</div>
+              <div className="col-span-1 text-right">{t.airdrop.positions.toWin}</div>
+              <div className="col-span-2 text-right">{t.airdrop.positions.value}</div>
+              <div className="col-span-2 text-right">{t.airdrop.positions.action}</div>
             </div>
 
             {paperPositions.length === 0 ? (
               <div className="text-center py-12">
-                <p className="text-sm text-[#adbac7]">No positions yet</p>
+                <p className="text-sm text-[#adbac7]">{t.airdrop.positions.emptyTitle}</p>
                 <p className="text-xs text-[#484f58] mt-2">
-                  Head to the{" "}
-                  <a href="/airdrop?tab=trade" className="text-[#58a6ff] hover:underline">Airdrop Trade tab</a>
-                  {" "}to place one with AIRDROP.
+                  <a href="/airdrop?tab=trade" className="text-[#58a6ff] hover:underline">→ {t.airdrop.tabs.trade}</a>
                 </p>
               </div>
             ) : (

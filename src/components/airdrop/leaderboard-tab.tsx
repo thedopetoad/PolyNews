@@ -3,6 +3,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useUser } from "@/hooks/use-user";
 import { cn } from "@/lib/utils";
+import { useT } from "@/lib/i18n";
 
 // Three leaderboards rendered side-by-side (or stacked on mobile).
 // Data comes from /api/airdrop/leaderboard?type=... and refetches
@@ -38,6 +39,7 @@ const RANK_GLYPH: Record<number, string> = { 1: "🥇", 2: "🥈", 3: "🥉" };
 export function LeaderboardTab() {
   const { address } = useUser();
   const prizes = usePrizes();
+  const { t } = useT();
 
   const totalQuery = useQuery<{ leaderboard: TotalRow[] }>({
     queryKey: ["airdrop-leaderboard", "total", address],
@@ -76,8 +78,9 @@ export function LeaderboardTab() {
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
       {/* Weekly Referrals first — the virality board, pays weekly. */}
       <LeaderCard
-        title="Weekly Referrals"
-        subtitle="Most new signups this week."
+        title={t.airdrop.leaderboard.weeklyReferralsTitle}
+        subtitle={t.airdrop.leaderboard.weeklyReferralsSubtitle}
+        resetSubtext={t.airdrop.leaderboard.resetsSubtext}
         prizes={prizes.weeklyReferrals}
         isLoading={weeklyRefQuery.isLoading}
         error={weeklyRefQuery.error}
@@ -96,8 +99,8 @@ export function LeaderboardTab() {
 
       {/* All-Time in the middle — bragging rights board, no cash prize. */}
       <LeaderCard
-        title="All-Time Airdrop"
-        subtitle="Biggest AIRDROP holders. Referrals drive the board."
+        title={t.airdrop.leaderboard.allTimeTitle}
+        subtitle={t.airdrop.leaderboard.allTimeSubtitle}
         prizes={null}
         isLoading={totalQuery.isLoading}
         error={totalQuery.error}
@@ -112,7 +115,7 @@ export function LeaderboardTab() {
             right={
               <div className="flex flex-col items-end">
                 <span className="text-sm font-semibold text-[#f5c542] tabular-nums">{row.total.toLocaleString()}</span>
-                <span className="text-[10px] text-[#d4a843]/70">{row.referralCount} referrals</span>
+                <span className="text-[10px] text-[#d4a843]/70">{row.referralCount} {t.airdrop.leaderboard.referrals}</span>
               </div>
             }
           />
@@ -120,8 +123,9 @@ export function LeaderboardTab() {
       />
 
       <LeaderCard
-        title="Biggest Gainers"
-        subtitle="Most AIRDROP earned this week."
+        title={t.airdrop.leaderboard.biggestGainersTitle}
+        subtitle={t.airdrop.leaderboard.biggestGainersSubtitle}
+        resetSubtext={t.airdrop.leaderboard.resetsSubtext}
         prizes={prizes.weeklyGainers}
         isLoading={weeklyGainQuery.isLoading}
         error={weeklyGainQuery.error}
@@ -148,6 +152,9 @@ interface LeaderCardProps<T> {
   // USDC numeric amounts (e.g. "25") from the settings table; rendered
   // with "$" prefix, or "TBD" when missing / 0 / unparsable.
   prizes: (string | null)[] | null;
+  // Optional "resets Mon 9am PST" flavor under the subtitle. Passed
+  // in so it can be localized by the caller.
+  resetSubtext?: string;
   isLoading: boolean;
   error: unknown;
   rows: T[];
@@ -161,12 +168,22 @@ function formatPrizePill(value: string | null | undefined): string {
   return `$${n}`;
 }
 
-function LeaderCard<T>({ title, subtitle, prizes, isLoading, error, rows, renderRow }: LeaderCardProps<T>) {
+function LeaderCard<T>({ title, subtitle, prizes, resetSubtext, isLoading, error, rows, renderRow }: LeaderCardProps<T>) {
+  const { t } = useT();
   return (
     <div className="rounded-lg border border-[#d4a843]/25 bg-gradient-to-b from-[#d4a843]/10 via-[#161b22] to-[#161b22] overflow-hidden">
       <div className="p-4 border-b border-[#d4a843]/20 bg-gradient-to-r from-[#d4a843]/10 to-transparent">
         <h3 className="text-base font-bold bg-gradient-to-r from-[#f5c542] to-[#d4a843] bg-clip-text text-transparent">{title}</h3>
         <p className="text-xs text-[#adbac7]/70 mt-0.5">{subtitle}</p>
+        {resetSubtext && (
+          <p className="text-[10px] text-[#d4a843]/60 mt-0.5 flex items-center gap-1">
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="10" />
+              <polyline points="12 6 12 12 16 14" />
+            </svg>
+            {resetSubtext}
+          </p>
+        )}
         {prizes && (
           <div className="flex gap-1.5 mt-2">
             {prizes.slice(0, 3).map((p, i) => (
@@ -187,11 +204,11 @@ function LeaderCard<T>({ title, subtitle, prizes, isLoading, error, rows, render
       </div>
       <div className="divide-y divide-[#21262d]">
         {isLoading ? (
-          <div className="p-6 text-center text-xs text-[#768390]">Loading...</div>
+          <div className="p-6 text-center text-xs text-[#768390]">{t.airdrop.leaderboard.loading}</div>
         ) : error ? (
-          <div className="p-6 text-center text-xs text-[#f85149]">Failed to load</div>
+          <div className="p-6 text-center text-xs text-[#f85149]">{t.airdrop.leaderboard.loadError}</div>
         ) : rows.length === 0 ? (
-          <div className="p-6 text-center text-xs text-[#768390]">Nobody here yet — be the first.</div>
+          <div className="p-6 text-center text-xs text-[#768390]">{t.airdrop.leaderboard.emptyState}</div>
         ) : (
           rows.slice(0, 20).map((row, i) => renderRow(row, i))
         )}
@@ -213,6 +230,7 @@ function Row({
   isMe: boolean;
   right: React.ReactNode;
 }) {
+  const { t } = useT();
   return (
     <div
       className={cn(
@@ -234,7 +252,7 @@ function Row({
       <div className="flex-1 min-w-0">
         <p className="text-sm text-[#e6edf3] truncate">
           {displayName || id}
-          {isMe && <span className="ml-2 text-[10px] text-[#f5c542] bg-[#f5c542]/10 px-1.5 py-0.5 rounded">you</span>}
+          {isMe && <span className="ml-2 text-[10px] text-[#f5c542] bg-[#f5c542]/10 px-1.5 py-0.5 rounded">{t.airdrop.leaderboard.you}</span>}
         </p>
         {displayName && <p className="text-[10px] text-[#768390] truncate">{id}</p>}
       </div>

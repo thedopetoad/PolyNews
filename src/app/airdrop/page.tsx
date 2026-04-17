@@ -1,8 +1,9 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { cn } from "@/lib/utils";
+import { useT } from "@/lib/i18n";
 import { LoginButton } from "@/components/layout/login-modal";
 import { ParticleBackground } from "@/components/ai/particle-background";
 import { LeaderboardTab } from "@/components/airdrop/leaderboard-tab";
@@ -11,20 +12,25 @@ import { AirdropTradeTab } from "@/components/airdrop/trade-tab";
 import { AirdropEarnTab } from "@/components/airdrop/earn-tab";
 
 type Tab = "leaderboard" | "portfolio" | "trade" | "earn";
-const TABS: { key: Tab; label: string }[] = [
-  { key: "leaderboard", label: "Leaderboard" },
-  { key: "portfolio", label: "Portfolio" },
-  { key: "trade", label: "Trade" },
-  { key: "earn", label: "Earn" },
-];
+const TAB_KEYS: Tab[] = ["leaderboard", "portfolio", "trade", "earn"];
 
 function resolveInitialTab(raw: string | null): Tab {
-  return (TABS.find((t) => t.key === raw)?.key ?? "earn") as Tab;
+  return (TAB_KEYS.find((t) => t === raw) ?? "earn") as Tab;
 }
 
 function AirdropPageInner() {
   const router = useRouter();
   const params = useSearchParams();
+  const { t } = useT();
+  const tabs = useMemo(
+    () => [
+      { key: "leaderboard" as const, label: t.airdrop.tabs.leaderboard },
+      { key: "portfolio" as const, label: t.airdrop.tabs.portfolio },
+      { key: "trade" as const, label: t.airdrop.tabs.trade },
+      { key: "earn" as const, label: t.airdrop.tabs.earn },
+    ],
+    [t],
+  );
 
   // Local state drives the UI. URL stays in sync so deep-links and
   // back/forward work, but tab switching never depends on the URL
@@ -61,10 +67,10 @@ function AirdropPageInner() {
             </div>
             <div>
               <h1 className="text-2xl font-bold bg-gradient-to-r from-[#f5c542] via-[#d4a843] to-[#a07828] bg-clip-text text-transparent">
-                Airdrop
+                {t.airdrop.title}
               </h1>
               <p className="text-sm text-[#d4a843]/70 mt-0.5">
-                Earn AIRDROP. Trade AIRDROP. Climb the boards. Win real cash.
+                {t.airdrop.subtitle}
               </p>
             </div>
           </div>
@@ -73,19 +79,19 @@ function AirdropPageInner() {
 
         {/* Tabs — gold active state */}
         <div className="flex border-b border-[#21262d] mb-6 overflow-x-auto">
-          {TABS.map((t) => (
+          {tabs.map((tb) => (
             <button
-              key={t.key}
+              key={tb.key}
               type="button"
-              onClick={() => setTab(t.key)}
+              onClick={() => setTab(tb.key)}
               className={cn(
                 "px-4 py-2.5 text-sm font-medium transition-colors whitespace-nowrap",
-                tab === t.key
+                tab === tb.key
                   ? "text-white border-b-2 border-[#d4a843] shadow-[inset_0_-10px_20px_-12px_rgba(212,168,67,0.4)]"
                   : "text-[#768390] hover:text-[#d4a843]/80",
               )}
             >
-              {t.label}
+              {tb.label}
             </button>
           ))}
         </div>
