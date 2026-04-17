@@ -210,6 +210,33 @@ export function BetSlip({ eventTitle, eventSlug: _eventSlug, eventEndDate: _even
         txHashes: res.transactionHashes,
         side,
       });
+      // Fire side-effects immediately on success instead of waiting for
+      // TradeProgress.onConfirmed. The CLOB response doesn't always
+      // include tx hashes — when it doesn't, TradeProgress wouldn't
+      // render and the pending-position + pending-activity entries
+      // would never be written, leaving the portfolio/history stale
+      // until a natural refetch.
+      if (side === "BUY" && selected.tokenId) {
+        addPendingPosition({
+          tokenId: selected.tokenId,
+          marketTitle: eventTitle,
+          outcomeName: selected.name,
+          shares,
+          avgPrice: effectivePrice,
+          side: "BUY",
+        });
+      }
+      if (res.transactionHashes && res.transactionHashes[0]) {
+        addPendingActivity({
+          txHash: res.transactionHashes[0],
+          side,
+          marketTitle: eventTitle,
+          outcomeName: selected.name,
+          shares,
+          price: effectivePrice,
+          usdcSize: side === "SELL" ? proceedsUsd : amountNum,
+        });
+      }
       setAmount("");
       setConfirmOpen(false);
     } else {
@@ -519,43 +546,26 @@ export function BetSlip({ eventTitle, eventSlug: _eventSlug, eventEndDate: _even
         placing={placing}
       />
 
-      {/* Result / Error */}
+      {/* Result / Error — settling indicator always shows on success,
+          even when CLOB didn't return tx hashes. Side-effects
+          (addPendingPosition / addPendingActivity) already fired in
+          placeTrade, so this block is purely presentational. */}
       {result && result.success && (
         <div className="space-y-2">
           <p className="text-xs font-medium text-center text-[#3fb950]">{result.msg}</p>
-          {result.txHashes && result.txHashes.length > 0 && (
+          {result.txHashes && result.txHashes.length > 0 ? (
             <TradeProgress
               txHashes={result.txHashes}
               label={`Settling your ${result.side === "BUY" ? "buy" : "sell"}…`}
-              onConfirmed={() => {
-                // Only BUYs create new positions for the skeleton to represent.
-                // SELLs are handled by the portfolio's closedLocally machinery.
-                if (result.side === "BUY" && selected && selected.tokenId) {
-                  addPendingPosition({
-                    tokenId: selected.tokenId,
-                    marketTitle: eventTitle,
-                    outcomeName: selected.name,
-                    shares,
-                    avgPrice: effectivePrice,
-                    side: "BUY",
-                  });
-                }
-                // Both buys AND sells should show in History. Add a pending
-                // activity entry keyed by tx hash — history tab renders a
-                // skeleton row until /activity catches up.
-                if (result.txHashes && result.txHashes[0] && selected) {
-                  addPendingActivity({
-                    txHash: result.txHashes[0],
-                    side: result.side ?? "BUY",
-                    marketTitle: eventTitle,
-                    outcomeName: selected.name,
-                    shares,
-                    price: effectivePrice,
-                    usdcSize: result.side === "SELL" ? proceedsUsd : amountNum,
-                  });
-                }
-              }}
             />
+          ) : (
+            // Fallback when CLOB omitted transactionsHashes.
+            <div className="rounded-lg px-3 py-2 text-xs border bg-[#58a6ff]/10 border-[#58a6ff]/30 text-[#58a6ff] flex items-center gap-2">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="animate-spin flex-shrink-0">
+                <path d="M21 12a9 9 0 1 1-6.2-8.55" />
+              </svg>
+              <span>Settling your {result.side === "BUY" ? "buy" : "sell"}… Polymarket will reflect this shortly.</span>
+            </div>
           )}
         </div>
       )}
