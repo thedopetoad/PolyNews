@@ -64,7 +64,7 @@ function AirdropPageInner() {
                 Airdrop
               </h1>
               <p className="text-sm text-[#d4a843]/70 mt-0.5">
-                Earn AIRDROP. Climb the boards. Win real cash.
+                Earn AIRDROP. Trade AIRDROP. Climb the boards. Win real cash.
               </p>
             </div>
           </div>

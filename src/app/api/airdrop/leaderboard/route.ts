@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getDb, users, airdrops } from "@/db";
+import { getDb, users, airdrops, positions } from "@/db";
 import { sql, eq, and, gte, inArray, isNotNull } from "drizzle-orm";
 import { getAuthenticatedUser } from "@/lib/auth";
 import { isoWeekKey, isoWeekStart } from "@/lib/week";
@@ -32,57 +32,72 @@ export async function GET(request: NextRequest) {
           : id.slice(0, 8) + "...";
 
     if (type === "total") {
-      // Total lifetime airdrop per user, top 50, with referral count.
-      const totals = await db
-        .select({
-          userId: airdrops.userId,
-          total: sql<number>`SUM(${airdrops.amount})`.as("total"),
-        })
-        .from(airdrops)
-        .groupBy(airdrops.userId)
-        .orderBy(sql`total DESC`)
-        .limit(50);
-
-      // Attach displayName + referralCode, then count referrals per user.
-      const userIds = totals.map((r) => r.userId);
-      if (userIds.length === 0) {
-        return NextResponse.json({ leaderboard: [] });
-      }
-
-      const userRows = await db
+      // Rank EVERY user by net AIRDROP worth = users.balance + sum of
+      // open paper-position entry value. This matches what users see as
+      // "Your AIRDROP Portfolio" on the Portfolio tab, so rankings line
+      // up with the number in the card. (The earlier version summed the
+      // airdrops grant ledger, which excluded STARTING_BALANCE + trade
+      // P&L — meaning a user with 2K in their wallet could be missing
+      // from the leaderboard entirely.)
+      const allUsers = await db
         .select({
           id: users.id,
           displayName: users.displayName,
           referralCode: users.referralCode,
+          balance: users.balance,
+        })
+        .from(users);
+
+      if (allUsers.length === 0) return NextResponse.json({ leaderboard: [] });
+
+      // Open paper position value per user — entry price (live prices
+      // would slow this endpoint). Matches /api/airdrop/me's net-worth
+      // calculation for consistency.
+      const posRows = await db
+        .select({
+          userId: positions.userId,
+          tradeType: positions.tradeType,
+          shares: positions.shares,
+          avgPrice: positions.avgPrice,
+        })
+        .from(positions);
+      const positionValueByUser = new Map<string, number>();
+      for (const p of posRows) {
+        if (p.tradeType === "real") continue;
+        positionValueByUser.set(
+          p.userId,
+          (positionValueByUser.get(p.userId) || 0) + p.shares * p.avgPrice,
+        );
+      }
+
+      // Referral counts — one query over all referredBy values.
+      const refCountRows = await db
+        .select({
+          code: users.referredBy,
+          count: sql<number>`COUNT(*)`.as("count"),
         })
         .from(users)
-        .where(inArray(users.id, userIds));
-
-      const userMap = new Map(userRows.map((u) => [u.id, u]));
-      const codes = userRows.map((u) => u.referralCode);
-
-      const refCountRows = codes.length
-        ? await db
-          .select({
-            code: users.referredBy,
-            count: sql<number>`COUNT(*)`.as("count"),
-          })
-          .from(users)
-          .where(and(isNotNull(users.referredBy), inArray(users.referredBy, codes)))
-          .groupBy(users.referredBy)
-        : [];
+        .where(isNotNull(users.referredBy))
+        .groupBy(users.referredBy);
       const refCounts = new Map(refCountRows.map((r) => [r.code, Number(r.count)]));
 
-      const leaderboard = totals.map((row, i) => {
-        const u = userMap.get(row.userId);
-        return {
-          rank: i + 1,
-          id: maskId(row.userId),
-          displayName: u?.displayName ?? null,
-          total: Math.round(Number(row.total) || 0),
-          referralCount: u?.referralCode ? refCounts.get(u.referralCode) ?? 0 : 0,
-        };
-      });
+      const ranked = allUsers
+        .map((u) => ({
+          id: u.id,
+          displayName: u.displayName,
+          referralCode: u.referralCode,
+          netWorth: Math.round(u.balance + (positionValueByUser.get(u.id) || 0)),
+        }))
+        .sort((a, b) => b.netWorth - a.netWorth)
+        .slice(0, 50);
+
+      const leaderboard = ranked.map((u, i) => ({
+        rank: i + 1,
+        id: maskId(u.id),
+        displayName: u.displayName ?? null,
+        total: u.netWorth,
+        referralCount: u.referralCode ? refCounts.get(u.referralCode) ?? 0 : 0,
+      }));
 
       return NextResponse.json({ leaderboard });
     }

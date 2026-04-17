@@ -6,7 +6,6 @@ import { usePositionLivePrices } from "@/hooks/use-live-prices";
 import { LoginButton } from "@/components/layout/login-modal";
 import { MiniPriceChart } from "@/components/mini-price-chart";
 import { cn } from "@/lib/utils";
-import { PnlChart } from "./pnl-chart";
 import type { DbPosition } from "@/hooks/use-user";
 import {
   Dialog,
@@ -164,35 +163,29 @@ export function AirdropPortfolioTab() {
         </DialogContent>
       </Dialog>
 
-      {/* Top row: AIRDROP balance card + PnL chart */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {/* Balance card */}
-        <div className="rounded-lg border border-[#d4a843]/25 bg-gradient-to-b from-[#d4a843]/10 via-[#161b22] to-[#161b22] p-5 flex flex-col">
-          <div className="flex items-center justify-between mb-1">
-            <p className="text-[10px] text-[#d4a843]/70 uppercase tracking-wider">Airdrop Portfolio</p>
-            <span className="text-[10px] text-[#f5c542] bg-[#f5c542]/10 border border-[#f5c542]/20 px-1.5 py-0.5 rounded font-medium">AIRDROP</span>
+      {/* AIRDROP balance card — full width (PnL chart removed per request) */}
+      <div className="rounded-lg border border-[#d4a843]/25 bg-gradient-to-b from-[#d4a843]/10 via-[#161b22] to-[#161b22] p-5 flex flex-col">
+        <div className="flex items-center justify-between mb-1">
+          <p className="text-[10px] text-[#d4a843]/70 uppercase tracking-wider">Airdrop Portfolio</p>
+          <span className="text-[10px] text-[#f5c542] bg-[#f5c542]/10 border border-[#f5c542]/20 px-1.5 py-0.5 rounded font-medium">AIRDROP</span>
+        </div>
+        <p className="text-3xl font-bold bg-gradient-to-r from-[#f5c542] to-[#d4a843] bg-clip-text text-transparent tabular-nums">
+          {paperTotal.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+        </p>
+        <div className="flex gap-6 mt-4">
+          <div>
+            <p className="text-[10px] text-[#d4a843]/60 uppercase tracking-wider">Available to trade</p>
+            <p className="text-sm font-semibold text-white tabular-nums mt-0.5">
+              {paperBalance.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+            </p>
           </div>
-          <p className="text-3xl font-bold bg-gradient-to-r from-[#f5c542] to-[#d4a843] bg-clip-text text-transparent tabular-nums">
-            {paperTotal.toLocaleString(undefined, { maximumFractionDigits: 0 })}
-          </p>
-          <div className="flex gap-6 mt-4">
-            <div>
-              <p className="text-[10px] text-[#d4a843]/60 uppercase tracking-wider">Available to trade</p>
-              <p className="text-sm font-semibold text-white tabular-nums mt-0.5">
-                {paperBalance.toLocaleString(undefined, { maximumFractionDigits: 0 })}
-              </p>
-            </div>
-            <div>
-              <p className="text-[10px] text-[#d4a843]/60 uppercase tracking-wider">In positions</p>
-              <p className="text-sm font-semibold text-white tabular-nums mt-0.5">
-                {paperPositionValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}
-              </p>
-            </div>
+          <div>
+            <p className="text-[10px] text-[#d4a843]/60 uppercase tracking-wider">In positions</p>
+            <p className="text-sm font-semibold text-white tabular-nums mt-0.5">
+              {paperPositionValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+            </p>
           </div>
         </div>
-
-        {/* PnL chart */}
-        <PnlChart />
       </div>
 
       {/* Positions / History tabs */}

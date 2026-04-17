@@ -49,7 +49,7 @@ export function Navbar() {
                   key={link.href}
                   href={link.href}
                   className={cn(
-                    "relative px-3 py-1.5 rounded-md text-[13px] font-medium transition-colors flex items-center gap-1.5",
+                    "px-3 py-1.5 rounded-md text-[13px] font-medium transition-colors",
                     pathname === link.href
                       ? "text-white"
                       : "text-[#768390] hover:text-white",
@@ -58,12 +58,6 @@ export function Navbar() {
                   )}
                 >
                   {label}
-                  {isAirdrop && (
-                    <span
-                      className="h-1.5 w-1.5 rounded-full bg-[#f5c542] shadow-[0_0_6px_rgba(245,197,66,0.8)] animate-pulse"
-                      aria-hidden
-                    />
-                  )}
                 </Link>
               );
             })}
@@ -91,20 +85,15 @@ export function Navbar() {
                       href={link.href}
                       onClick={() => setOpen(false)}
                       className={cn(
-                        "px-3 py-2.5 rounded-md text-sm flex items-center gap-2",
+                        "px-3 py-2.5 rounded-md text-sm",
                         pathname === link.href
                           ? "text-white bg-[#1c2128]"
                           : "text-[#768390] hover:text-white",
+                        isAirdrop && "hover:text-[#f5c542]",
                         isAirdrop && pathname === link.href && "text-[#f5c542]",
                       )}
                     >
                       {label}
-                      {isAirdrop && (
-                        <span
-                          className="h-1.5 w-1.5 rounded-full bg-[#f5c542] shadow-[0_0_6px_rgba(245,197,66,0.8)]"
-                          aria-hidden
-                        />
-                      )}
                     </Link>
                   );
                 })}
