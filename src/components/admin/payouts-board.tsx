@@ -4,14 +4,16 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { cn } from "@/lib/utils";
 
 // Admin Payouts board. Shows every prize_payouts row grouped by week,
-// newest first. Each row exposes:
-//   - copy proxy address
-//   - copy a full per-week manifest (boss can paste into any wallet)
-//   - mark as paid (with optional tx hash)
+// newest first. Per user direction:
+//   - Mark-paid flow removed (admin tracks sends outside the system).
+//   - Each week starts COLLAPSED — click the header to expand.
+//   - Latest week auto-expands on first load so the current payout is
+//     visible without a click.
+//   - "Copy manifest" sits on the collapsed card too, so you can grab
+//     the manifest for any past week without expanding.
 //
-// Reads from GET /api/admin/payouts, writes via POST /api/admin/payouts.
-// A "Snapshot now" button calls POST /api/admin/snapshot-now to fire
-// the cron logic on demand (useful before Monday rolls).
+// Reads from GET /api/admin/payouts. Manually triggers a new snapshot
+// via POST /api/admin/snapshot-now (gated by Phantom admin cookie).
 
 type Payout = {
   id: string;
@@ -23,10 +25,6 @@ type Payout = {
   eoa: string;
   proxyAddress: string;
   amountUsdc: number;
-  status: "pending" | "paid";
-  txHash: string | null;
-  paidAt: string | null;
-  paidBy: string | null;
   createdAt: string;
 };
 
@@ -62,7 +60,6 @@ function buildManifest(rows: Payout[], weekKey: string): string {
       lines.push(`  ${PLACE_GLYPH[r.place] ?? `#${r.place}`} ${r.displayName ?? r.eoa.slice(0, 10) + "…"}`);
       lines.push(`     Proxy:  ${r.proxyAddress}`);
       lines.push(`     Amount: ${r.amountUsdc} USDC.e`);
-      if (r.status === "paid") lines.push(`     Status: PAID${r.txHash ? ` (${r.txHash})` : ""}`);
     }
     lines.push("");
   }
@@ -73,10 +70,10 @@ export function PayoutsBoard() {
   const [payouts, setPayouts] = useState<Payout[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [msg, setMsg] = useState<string | null>(null);
-  const [markingId, setMarkingId] = useState<string | null>(null);
   const [snapshotBusy, setSnapshotBusy] = useState(false);
-  const [txInputs, setTxInputs] = useState<Record<string, string>>({});
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  const [expandedWeeks, setExpandedWeeks] = useState<Set<string>>(new Set());
+  const [didInitialExpand, setDidInitialExpand] = useState(false);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -106,6 +103,23 @@ export function PayoutsBoard() {
       .sort((a, b) => (a.weekKey < b.weekKey ? 1 : -1));
   }, [payouts]);
 
+  // Auto-expand the most recent week once data arrives. Only runs the
+  // first time — if admin collapses that week we respect their choice.
+  useEffect(() => {
+    if (didInitialExpand || byWeek.length === 0) return;
+    setExpandedWeeks(new Set([byWeek[0].weekKey]));
+    setDidInitialExpand(true);
+  }, [byWeek, didInitialExpand]);
+
+  const toggleWeek = (weekKey: string) => {
+    setExpandedWeeks((prev) => {
+      const next = new Set(prev);
+      if (next.has(weekKey)) next.delete(weekKey);
+      else next.add(weekKey);
+      return next;
+    });
+  };
+
   const copy = async (text: string, key: string) => {
     try {
       await navigator.clipboard.writeText(text);
@@ -116,25 +130,6 @@ export function PayoutsBoard() {
     }
   };
 
-  const markPaid = async (id: string) => {
-    setMarkingId(id);
-    setMsg(null);
-    try {
-      const r = await fetch("/api/admin/payouts", {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id, status: "paid", txHash: txInputs[id]?.trim() || null }),
-      });
-      if (!r.ok) throw new Error("mark-paid failed");
-      await refresh();
-    } catch {
-      setMsg("Mark-paid failed");
-    } finally {
-      setMarkingId(null);
-    }
-  };
-
   const snapshotNow = async () => {
     setSnapshotBusy(true);
     setMsg(null);
@@ -142,8 +137,8 @@ export function PayoutsBoard() {
       const r = await fetch("/api/admin/snapshot-now", { method: "POST", credentials: "include" });
       const data = await r.json();
       if (!r.ok) throw new Error("snapshot failed");
-      const added = data?.forwarded?.payoutRowsInserted ?? 0;
-      setMsg(added > 0 ? `Snapshot added ${added} payout row${added === 1 ? "" : "s"}.` : "Snapshot ran — no new rows (already snapshotted or no winners).");
+      const added = data?.payoutRowsInserted ?? 0;
+      setMsg(added > 0 ? `Snapshot added ${added} payout row${added === 1 ? "" : "s"}.` : "Snapshot ran — no new rows (already snapshotted or no winners with amounts set).");
       await refresh();
     } catch {
       setMsg("Snapshot failed");
@@ -183,92 +178,81 @@ export function PayoutsBoard() {
           No payouts yet. Click &ldquo;Snapshot now&rdquo; to generate one from current standings, or wait for Monday.
         </p>
       ) : (
-        <div className="space-y-4">
+        <div className="space-y-2">
           {byWeek.map(({ weekKey, rows }) => {
-            const anyPending = rows.some((r) => r.status === "pending");
+            const isExpanded = expandedWeeks.has(weekKey);
             return (
-              <div key={weekKey} className="bg-[#0d1117] border border-[#21262d] rounded">
-                <div className="flex items-center justify-between px-3 py-2 border-b border-[#21262d]">
-                  <div>
-                    <p className="text-xs font-semibold text-white">{weekKey}</p>
-                    <p className="text-[10px] text-[#768390]">{formatRange(weekKey)}</p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className={cn(
-                      "text-[10px] px-2 py-0.5 rounded border",
-                      anyPending
-                        ? "text-[#d4a843] border-[#d4a843]/30 bg-[#d4a843]/10"
-                        : "text-[#3fb950] border-[#3fb950]/30 bg-[#3fb950]/10",
-                    )}>
-                      {anyPending ? "Pending" : "All paid"}
-                    </span>
-                    <button
-                      onClick={() => copy(buildManifest(rows, weekKey), `manifest-${weekKey}`)}
-                      className="text-[10px] font-semibold bg-[#d4a843]/15 text-[#f5c542] border border-[#d4a843]/30 px-2.5 py-1 rounded hover:bg-[#d4a843]/25"
+              <div key={weekKey} className="bg-[#0d1117] border border-[#21262d] rounded overflow-hidden">
+                {/* Collapsible header — clicking anywhere toggles except the
+                    action buttons (which stopPropagation). */}
+                <button
+                  type="button"
+                  onClick={() => toggleWeek(weekKey)}
+                  className="w-full flex items-center justify-between gap-3 px-3 py-2 hover:bg-[#1c2128]/60 transition-colors"
+                >
+                  <div className="flex items-center gap-2 min-w-0">
+                    <svg
+                      className={cn("w-3 h-3 text-[#484f58] transition-transform shrink-0", isExpanded && "rotate-90")}
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
                     >
-                      {copiedKey === `manifest-${weekKey}` ? "Copied manifest!" : "Copy manifest"}
-                    </button>
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                    </svg>
+                    <div className="text-left min-w-0">
+                      <p className="text-xs font-semibold text-white">{weekKey}</p>
+                      <p className="text-[10px] text-[#768390]">{formatRange(weekKey)} · {rows.length} winner{rows.length === 1 ? "" : "s"}</p>
+                    </div>
                   </div>
-                </div>
-                <div className="divide-y divide-[#21262d]">
-                  {rows.map((r) => (
-                    <div key={r.id} className="px-3 py-2.5 grid grid-cols-12 gap-2 items-center">
-                      <div className="col-span-2 text-xs">
-                        <div className="text-[#f5c542]">{BOARD_LABEL[r.leaderboard]}</div>
-                        <div className="text-[10px] text-[#768390]">{PLACE_GLYPH[r.place]} #{r.place}</div>
-                      </div>
-                      <div className="col-span-2 text-xs">
-                        <div className="text-white truncate">{r.displayName ?? "(no name)"}</div>
-                        <div className="text-[10px] text-[#484f58] truncate">{r.eoa.slice(0, 6)}…{r.eoa.slice(-4)}</div>
-                      </div>
-                      <div className="col-span-4 text-xs min-w-0">
-                        <div className="flex items-center gap-2">
-                          <code className="text-[10px] text-[#adbac7] bg-[#161b22] px-1.5 py-0.5 rounded truncate block flex-1 min-w-0">{r.proxyAddress}</code>
-                          <button
-                            onClick={() => copy(r.proxyAddress, `proxy-${r.id}`)}
-                            className="text-[10px] bg-[#21262d] text-[#adbac7] hover:text-white px-2 py-1 rounded shrink-0"
-                          >
-                            {copiedKey === `proxy-${r.id}` ? "Copied" : "Copy"}
-                          </button>
+                  <div
+                    onClick={(e) => { e.stopPropagation(); copy(buildManifest(rows, weekKey), `manifest-${weekKey}`); }}
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        copy(buildManifest(rows, weekKey), `manifest-${weekKey}`);
+                      }
+                    }}
+                    className="text-[10px] font-semibold bg-[#d4a843]/15 text-[#f5c542] border border-[#d4a843]/30 px-2.5 py-1 rounded hover:bg-[#d4a843]/25 shrink-0"
+                  >
+                    {copiedKey === `manifest-${weekKey}` ? "Copied manifest!" : "Copy manifest"}
+                  </div>
+                </button>
+
+                {/* Expanded body */}
+                {isExpanded && (
+                  <div className="divide-y divide-[#21262d] border-t border-[#21262d]">
+                    {rows.map((r) => (
+                      <div key={r.id} className="px-3 py-2.5 grid grid-cols-12 gap-2 items-center">
+                        <div className="col-span-3 text-xs">
+                          <div className="text-[#f5c542]">{BOARD_LABEL[r.leaderboard]}</div>
+                          <div className="text-[10px] text-[#768390]">{PLACE_GLYPH[r.place]} #{r.place}</div>
                         </div>
-                      </div>
-                      <div className="col-span-1 text-xs font-semibold text-[#f5c542] tabular-nums">${r.amountUsdc}</div>
-                      <div className="col-span-3 text-right">
-                        {r.status === "paid" ? (
-                          <div className="text-[10px]">
-                            <span className="text-[#3fb950] font-semibold">PAID</span>
-                            {r.txHash && (
-                              <a
-                                href={`https://polygonscan.com/tx/${r.txHash}`}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="ml-2 text-[#58a6ff] hover:underline"
-                              >
-                                tx
-                              </a>
-                            )}
-                          </div>
-                        ) : (
-                          <div className="flex items-center gap-1.5 justify-end">
-                            <input
-                              value={txInputs[r.id] ?? ""}
-                              onChange={(e) => setTxInputs((prev) => ({ ...prev, [r.id]: e.target.value }))}
-                              placeholder="tx hash (optional)"
-                              className="w-32 bg-[#161b22] border border-[#21262d] rounded px-1.5 py-1 text-[10px] text-white placeholder:text-[#484f58]"
-                            />
+                        <div className="col-span-2 text-xs">
+                          <div className="text-white truncate">{r.displayName ?? "(no name)"}</div>
+                          <div className="text-[10px] text-[#484f58] truncate">{r.eoa.slice(0, 6)}…{r.eoa.slice(-4)}</div>
+                        </div>
+                        <div className="col-span-5 text-xs min-w-0">
+                          <div className="flex items-center gap-2">
+                            <code className="text-[10px] text-[#adbac7] bg-[#161b22] px-1.5 py-0.5 rounded truncate block flex-1 min-w-0">{r.proxyAddress}</code>
                             <button
-                              onClick={() => markPaid(r.id)}
-                              disabled={markingId === r.id}
-                              className="text-[10px] font-semibold bg-[#3fb950]/15 text-[#3fb950] border border-[#3fb950]/30 px-2 py-1 rounded hover:bg-[#3fb950]/25 disabled:opacity-50"
+                              onClick={() => copy(r.proxyAddress, `proxy-${r.id}`)}
+                              className="text-[10px] bg-[#21262d] text-[#adbac7] hover:text-white px-2 py-1 rounded shrink-0"
                             >
-                              {markingId === r.id ? "…" : "Mark paid"}
+                              {copiedKey === `proxy-${r.id}` ? "Copied" : "Copy"}
                             </button>
                           </div>
-                        )}
+                        </div>
+                        <div className="col-span-2 text-right">
+                          <span className="text-xs font-semibold text-[#f5c542] tabular-nums">${r.amountUsdc}</span>
+                          <span className="text-[10px] text-[#484f58] ml-1">USDC.e</span>
+                        </div>
                       </div>
-                    </div>
-                  ))}
-                </div>
+                    ))}
+                  </div>
+                )}
               </div>
             );
           })}

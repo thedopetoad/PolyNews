@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb, users, prizePayouts } from "@/db";
-import { eq, inArray, desc } from "drizzle-orm";
+import { inArray, desc } from "drizzle-orm";
 import { requireAdmin } from "@/lib/admin-auth";
 
-// GET  /api/admin/payouts — list every payout row ever (newest week first).
-// POST /api/admin/payouts — { id, status: "paid", txHash?: string } → flip a row to paid.
+// GET /api/admin/payouts — list every snapshotted payout row (newest
+// week first). The admin UI only READS this data; actual USDC sends
+// happen externally (boss's wallet). Mark-paid was removed per
+// product call — admin tracks sends outside the system.
 
 export async function GET(request: NextRequest) {
   const admin = requireAdmin(request);
@@ -37,46 +39,12 @@ export async function GET(request: NextRequest) {
       eoa: r.eoa,
       proxyAddress: r.proxyAddress,
       amountUsdc: r.amountUsdc,
-      status: r.status,
-      txHash: r.txHash,
-      paidAt: r.paidAt ? r.paidAt.toISOString() : null,
-      paidBy: r.paidBy,
       createdAt: r.createdAt.toISOString(),
     }));
 
     return NextResponse.json({ payouts });
   } catch (err) {
     console.error("Admin payouts GET error:", err);
-    return NextResponse.json({ error: "Database error" }, { status: 500 });
-  }
-}
-
-export async function POST(request: NextRequest) {
-  const admin = requireAdmin(request);
-  if (!admin) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
-  try {
-    const body = await request.json();
-    const { id, status, txHash } = body as { id?: string; status?: string; txHash?: string };
-    if (!id || status !== "paid") {
-      return NextResponse.json({ error: "Invalid payload" }, { status: 400 });
-    }
-
-    const db = getDb();
-    const trimmedHash = txHash && typeof txHash === "string" ? txHash.trim() : null;
-    await db
-      .update(prizePayouts)
-      .set({
-        status: "paid",
-        txHash: trimmedHash || null,
-        paidAt: new Date(),
-        paidBy: admin.pubkey,
-      })
-      .where(eq(prizePayouts.id, id));
-
-    return NextResponse.json({ ok: true });
-  } catch (err) {
-    console.error("Admin payouts POST error:", err);
     return NextResponse.json({ error: "Database error" }, { status: 500 });
   }
 }
