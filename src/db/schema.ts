@@ -4,6 +4,7 @@ import {
   timestamp,
   real,
   boolean,
+  integer,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
 
@@ -97,6 +98,39 @@ export const settings = pgTable("settings", {
   value: text("value").notNull(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
+
+// Audit log + action queue for leaderboard prize payouts. Each row is
+// a frozen snapshot of one winner: week, board, place, user, amount,
+// and the CREATE2-derived proxy address at snapshot time.
+//
+// Workflow:
+//   1. Monday 17:00 UTC cron reads weekly leaderboard winners +
+//      settings.airdrop_prize_* amounts, inserts rows (status=pending).
+//   2. Admin copies proxy addresses from /admin, boss sends USDC.e
+//      externally (no keys in our system).
+//   3. Admin flips status=paid and optionally records the tx hash.
+//
+// week_key is the Monday ISO date (e.g. "2026-04-13"). Unique by
+// (week_key, leaderboard, place) so a cron re-run can't double-insert.
+export const prizePayouts = pgTable(
+  "prize_payouts",
+  {
+    id: text("id").primaryKey(),
+    weekKey: text("week_key").notNull(),
+    leaderboard: text("leaderboard").notNull(), // "weeklyRef" | "weeklyGain"
+    place: integer("place").notNull(), // 1, 2, 3
+    userId: text("user_id").notNull().references(() => users.id),
+    eoa: text("eoa").notNull(),
+    proxyAddress: text("proxy_address").notNull(),
+    amountUsdc: real("amount_usdc").notNull(),
+    status: text("status").notNull().default("pending"), // "pending" | "paid"
+    txHash: text("tx_hash"),
+    paidAt: timestamp("paid_at"),
+    paidBy: text("paid_by"), // admin pubkey that clicked "mark paid"
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => [uniqueIndex("prize_payouts_week_board_place_idx").on(table.weekKey, table.leaderboard, table.place)]
+);
 
 // Canonical news feed cache — ensures all users see the same headlines
 export const newsCache = pgTable("news_cache", {
