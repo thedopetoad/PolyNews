@@ -12,6 +12,7 @@ import {
   Activity,
   LogOut,
 } from "lucide-react";
+import { PrizeEditor } from "@/components/admin/prize-editor";
 
 // The single Solana Phantom wallet allowed into admin. Must match
 // ADMIN_SOLANA_PUBKEY on the server. If you ever rotate this, update
@@ -527,6 +528,9 @@ export default function AdminPage() {
           color="text-[#f85149]"
         />
       </div>
+
+      {/* Leaderboard prize editor */}
+      <PrizeEditor />
 
       {/* Airdrop Breakdown */}
       {data.airdropBreakdown.length > 0 && (
