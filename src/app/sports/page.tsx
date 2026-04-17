@@ -717,6 +717,7 @@ function GameCard({ event, index, sport, expanded, onToggle, onSelectBet }: { ev
 
   return (
     <div
+      id={`gamecard-${event.id}`}
       className={cn(
         "rounded-lg border bg-[#161b22] overflow-hidden animate-fade-in-up transition-all duration-200 cursor-pointer",
         isLive ? "border-[#f85149]/30 hover:shadow-[0_0_20px_rgba(248,81,73,0.1)]" : "border-[#21262d] hover:border-[#30363d] hover:shadow-[0_0_20px_rgba(88,166,255,0.08)]",
@@ -899,13 +900,34 @@ interface SelectedBet {
   negRisk?: boolean;
 }
 
+/**
+ * Polymarket event slugs usually start with a sport code ("mlb-…",
+ * "nba-…"). Use that prefix to jump the user to the right league tab
+ * when arriving from a portfolio deep-link. Returns null for slugs that
+ * don't match any known sport — caller should leave selectedSport as-is.
+ */
+const SPORT_FROM_SLUG_PREFIX = /^(mlb|nba|ncaab|nfl|ncaaf|nhl|mls|epl|laliga|ucl|uel|wnba|tennis|cricket|golf|mma|ufc|rugby)\b/i;
+function detectSportFromSlug(slug: string): string | null {
+  const m = slug.match(SPORT_FROM_SLUG_PREFIX);
+  return m ? m[1].toLowerCase() : null;
+}
+
 function SportsContent() {
   const searchParams = useSearchParams();
-  const initialSport = searchParams.get("sport") || "mlb";
+  // Deep-link support: /sports?slug=<eventSlug> opens the right league +
+  // view + auto-scrolls + pre-selects the bet slip for that market. Used
+  // from portfolio row clicks and the Sell modal's Edit Order button.
+  const urlSlug = searchParams.get("slug");
+  const initialSport = searchParams.get("sport")
+    || (urlSlug ? detectSportFromSlug(urlSlug) : null)
+    || "mlb";
   const [selectedSport, setSelectedSport] = useState<string>(initialSport);
   const [view, setView] = useState<"live" | "upcoming">("upcoming");
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [selectedBet, setSelectedBet] = useState<SelectedBet | null>(null);
+  // Once we find the event with urlSlug and scroll to it we set this so
+  // the scroll/select logic doesn't fire again on every data refresh.
+  const highlightedSlugRef = useRef<string | null>(null);
   // Which sidebar categories are expanded. Starts empty; the category
   // containing the currently-selected league is auto-expanded by effect
   // below so users always see their selection in context.
@@ -1110,6 +1132,75 @@ function SportsContent() {
       negRisk: firstEvent.negRisk,
     });
   }, [liveByLeagueSorted, upcomingEvents, view, selectedBet]);
+
+  // Deep-link handler: when /sports?slug=X is hit (from portfolio row
+  // click or Sell modal's Edit order), find that event among live +
+  // upcoming events once they've loaded, switch to the correct view,
+  // populate the bet slip, and smooth-scroll the card into view.
+  //
+  // Uses a ref instead of state so re-triggers don't fire on every
+  // react-query refetch. The guard is on the slug itself so navigating
+  // to a *different* slug later still works.
+  useEffect(() => {
+    if (!urlSlug) return;
+    if (highlightedSlugRef.current === urlSlug) return;
+
+    // Search live first, then upcoming — if we find it in live, flip the
+    // view so the user sees the card they're after.
+    let hit: SportEvent | undefined;
+    let hitView: "live" | "upcoming" | null = null;
+    for (const group of liveByLeagueSorted) {
+      const found = group.events.find((e) => e.slug === urlSlug);
+      if (found) { hit = found; hitView = "live"; break; }
+    }
+    if (!hit) {
+      hit = upcomingEvents.find((e) => e.slug === urlSlug);
+      if (hit) hitView = "upcoming";
+    }
+    if (!hit || !hitView) return;
+
+    highlightedSlugRef.current = urlSlug;
+
+    // Switch view if needed. The view-change effect elsewhere clears
+    // selectedBet whenever view flips — so if we also set selectedBet
+    // synchronously it'd be wiped right after. Schedule the bet-slip
+    // update on a microtask so it lands AFTER that clear runs.
+    const needsViewSwitch = hitView !== view;
+    if (needsViewSwitch) setView(hitView);
+
+    const { moneyline } = extractKeyMarkets(hit);
+    if (moneyline) {
+      const [teamA, teamB] = parseTeams(hit.title);
+      const nextBet = {
+        eventTitle: hit.title,
+        eventSlug: hit.slug,
+        eventEndDate: hit.endDate,
+        marketId: moneyline.id,
+        marketQuestion: hit.title,
+        outcomes: moneyline.outcomes.map((name, i) => ({
+          name: name || (i === 0 ? teamA : teamB),
+          price: moneyline.prices[i] || 0,
+          tokenId: moneyline.clobTokenIds[i] || "",
+        })),
+        negRisk: hit.negRisk,
+      };
+      if (needsViewSwitch) setTimeout(() => setSelectedBet(nextBet), 0);
+      else setSelectedBet(nextBet);
+    }
+    // Expand + scroll. Delay to let React paint the view switch first.
+    setExpandedId(hit.id);
+    setTimeout(() => {
+      const el = document.getElementById(`gamecard-${hit!.id}`);
+      if (el) {
+        el.scrollIntoView({ behavior: "smooth", block: "center" });
+        // Brief ring pulse so the user's eye lands on the right card.
+        el.classList.add("ring-2", "ring-[#58a6ff]", "ring-offset-2", "ring-offset-[#0d1117]");
+        setTimeout(() => {
+          el.classList.remove("ring-2", "ring-[#58a6ff]", "ring-offset-2", "ring-offset-[#0d1117]");
+        }, 1800);
+      }
+    }, 120);
+  }, [urlSlug, liveByLeagueSorted, upcomingEvents, view]);
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
