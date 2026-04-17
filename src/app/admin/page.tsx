@@ -186,26 +186,88 @@ export default function AdminPage() {
   } | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
 
-  // On mount: ask the server whether we already have a valid admin cookie.
-  // If yes, skip the sign-in screen entirely.
+  // On mount: verify the session TWO ways.
+  //   1. Cookie check — the server-side HMAC session is still valid.
+  //   2. Wallet check — Phantom is still actively trusting this dApp with
+  //      the admin pubkey. If the user revoked trust in Phantom's settings
+  //      AFTER signing in, the cookie alone can't tell us; we'd stay
+  //      "logged in" for 24h until TTL. Adding the wallet check closes
+  //      that gap — phantom.connect({ onlyIfTrusted: true }) silently
+  //      succeeds iff the user still trusts us, else throws.
+  //   If wallet check fails, nuke the cookie server-side so next visit
+  //   starts clean. Behaves like the intuitive "disconnected wallet = not
+  //   logged in" mental model.
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
         const res = await fetch("/api/admin/me", { credentials: "include" });
         if (cancelled) return;
-        if (res.ok) {
-          const data = await res.json();
-          setAuthed(true);
-          setAuthedPubkey(data.pubkey || null);
-        } else {
+        if (!res.ok) {
           setAuthed(false);
+          return;
+        }
+        const data = await res.json();
+        // Verify Phantom still trusts us.
+        const phantom = getPhantomSolana();
+        if (!phantom) {
+          // Phantom not installed / not detectable — treat as disconnected
+          await fetch("/api/admin/login", { method: "DELETE", credentials: "include" }).catch(() => {});
+          if (!cancelled) setAuthed(false);
+          return;
+        }
+        try {
+          const conn = await phantom.connect({ onlyIfTrusted: true });
+          const currentPubkey = conn.publicKey.toString();
+          if (currentPubkey !== ADMIN_SOLANA_PUBKEY) {
+            // Different wallet is now active in Phantom, or pubkey mismatch
+            await fetch("/api/admin/login", { method: "DELETE", credentials: "include" }).catch(() => {});
+            if (!cancelled) setAuthed(false);
+            return;
+          }
+          if (!cancelled) {
+            setAuthed(true);
+            setAuthedPubkey(data.pubkey || currentPubkey);
+          }
+        } catch {
+          // onlyIfTrusted:true throws if user revoked trust or Phantom is
+          // locked. Either way, session is no longer valid — log out.
+          await fetch("/api/admin/login", { method: "DELETE", credentials: "include" }).catch(() => {});
+          if (!cancelled) setAuthed(false);
         }
       } catch {
         if (!cancelled) setAuthed(false);
       }
     })();
     return () => { cancelled = true; };
+  }, []);
+
+  // Also listen for Phantom's `disconnect` event — fires if the user
+  // disconnects from Phantom's own UI while this tab is open. Nuke the
+  // session immediately so the admin page locks without a refresh.
+  useEffect(() => {
+    const phantom = getPhantomSolana();
+    if (!phantom) return;
+    const handleDisconnect = async () => {
+      await fetch("/api/admin/login", { method: "DELETE", credentials: "include" }).catch(() => {});
+      setAuthed(false);
+      setAuthedPubkey(null);
+      setData(null);
+    };
+    // Some Phantom builds expose `.on`, some expose events on the provider
+    // differently. Try the standard path and silently no-op if unavailable.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const p = phantom as any;
+    if (typeof p.on === "function") {
+      p.on("disconnect", handleDisconnect);
+      p.on("accountChanged", handleDisconnect);
+      return () => {
+        if (typeof p.removeListener === "function") {
+          p.removeListener("disconnect", handleDisconnect);
+          p.removeListener("accountChanged", handleDisconnect);
+        }
+      };
+    }
   }, []);
 
   // Phantom Solana sign-in flow:
