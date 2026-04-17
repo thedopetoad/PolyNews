@@ -566,7 +566,11 @@ export default function PortfolioPage() {
             </span>
           </div>
           <p className="text-3xl font-bold text-white tabular-nums">{formatUsd(usdcBal + realPositionsValue)}</p>
-          <div className="flex gap-2 mt-3" onClick={(e) => e.stopPropagation()}>
+          {/* mt-auto pushes the action row to the bottom of the flex card
+              so Deposit/Withdraw line up with Paper Trade on the sibling
+              card (Paper has an extra subtext row that would otherwise
+              make its action sit lower). */}
+          <div className="flex gap-2 mt-auto pt-3" onClick={(e) => e.stopPropagation()}>
             <button
               onClick={() => setDepositOpen(true)}
               className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md text-xs font-medium bg-[#58a6ff]/10 text-[#58a6ff] hover:bg-[#58a6ff]/20 transition-colors"
@@ -629,7 +633,10 @@ export default function PortfolioPage() {
           <p className="text-xs text-[#484f58] mt-1">
             {paperBalance.toLocaleString(undefined, { maximumFractionDigits: 0 })} cash + {paperPositionValue.toLocaleString(undefined, { maximumFractionDigits: 0 })} in positions
           </p>
-          <div className="mt-3" onClick={(e) => e.stopPropagation()}>
+          {/* Bottom-align with sibling cards' action rows (mt-auto) so
+              Paper Trade sits at the same vertical as Real's
+              Deposit/Withdraw buttons. */}
+          <div className="mt-auto pt-3" onClick={(e) => e.stopPropagation()}>
             <Link
               href="/trade"
               className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md text-xs font-medium bg-[#d29922]/10 text-[#d29922] hover:bg-[#d29922]/20 transition-colors"
