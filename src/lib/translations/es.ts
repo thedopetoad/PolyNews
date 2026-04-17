@@ -6,6 +6,7 @@ export const es: TranslationKeys = {
     sports: "Deportes",
     portfolio: "Portafolio",
     paperTrade: "Trade Simulado",
+    airdrop: "Airdrop",
     aiConsensus: "Consenso IA",
   },
   login: {

@@ -55,7 +55,7 @@ export const NAV_LINKS = [
   { href: "/", label: "News" },
   { href: "/sports", label: "Sports" },
   { href: "/portfolio", label: "Portfolio" },
-  { href: "/trade", label: "Paper Trade" },
+  { href: "/airdrop", label: "Airdrop" },
   { href: "/ai", label: "AI Consensus" },
 ] as const;
 

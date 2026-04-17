@@ -4,6 +4,7 @@ export const en = {
     sports: "Sports",
     portfolio: "Portfolio",
     paperTrade: "Paper Trade",
+    airdrop: "Airdrop",
     aiConsensus: "AI Consensus",
   },
   login: {
