@@ -23,6 +23,9 @@ export const users = pgTable("users", {
   lastWeeklyAirdrop: text("last_weekly_airdrop"),
   hasSignupAirdrop: boolean("has_signup_airdrop").notNull().default(false),
   signupIp: text("signup_ip"),
+  // One-time airdrop boost flags
+  firstDepositBonusPaid: boolean("first_deposit_bonus_paid").notNull().default(false),
+  firstSportsTradeBonusPaid: boolean("first_sports_trade_bonus_paid").notNull().default(false),
 });
 
 // Trading positions — paper (AIRDROP) and real (USDC) alike.
@@ -57,13 +60,42 @@ export const trades = pgTable("trades", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
-// Airdrop records
+// Airdrop records.
+// `source` values: signup | daily | referral | referral_first_trade |
+//                  news_watch_weekly | paper_trades_weekly |
+//                  first_deposit | first_sports_trade | leaderboard_prize
+// `weekKey` is ISO week ("2026-W16") — used for weekly leaderboards and
+// for idempotency on recurring weekly goals. Nullable for legacy rows
+// created before this column existed; new inserts should always set it.
 export const airdrops = pgTable("airdrops", {
   id: text("id").primaryKey(),
   userId: text("user_id").notNull().references(() => users.id),
   source: text("source").notNull(),
   amount: real("amount").notNull(),
+  weekKey: text("week_key"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+// Heartbeats posted by the news page while the tab is visible. Each row
+// is a 15-second bucket; a full 5-minute claim requires 20 distinct
+// buckets in the same ISO week. Unique(userId, bucket) prevents spam.
+export const newsWatchHeartbeats = pgTable(
+  "news_watch_heartbeats",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id").notNull().references(() => users.id),
+    bucket: text("bucket").notNull(), // "2026-W16-042871" (week + 15s index)
+    weekKey: text("week_key").notNull(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => [uniqueIndex("news_heartbeat_user_bucket_idx").on(table.userId, table.bucket)]
+);
+
+// Admin-editable key/value settings (leaderboard prizes, etc.)
+export const settings = pgTable("settings", {
+  key: text("key").primaryKey(),
+  value: text("value").notNull(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 
 // Canonical news feed cache — ensures all users see the same headlines
