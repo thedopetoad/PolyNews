@@ -1,12 +1,13 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useUser } from "@/hooks/use-user";
 import { usePositionLivePrices } from "@/hooks/use-live-prices";
 import { LoginButton } from "@/components/layout/login-modal";
 import { MiniPriceChart } from "@/components/mini-price-chart";
 import { cn } from "@/lib/utils";
 import type { DbPosition } from "@/hooks/use-user";
+import { AIRDROP_AMOUNTS } from "@/lib/constants";
 import {
   Dialog,
   DialogContent,
@@ -69,6 +70,28 @@ export function AirdropPortfolioTab() {
     return total;
   }, [paperPositions, livePrices]);
   const paperTotal = paperBalance + paperPositionValue;
+
+  // Referral count for the card on the right. Separate tiny fetch
+  // rather than pulling the whole /api/airdrop/me payload — keeps
+  // this tab's dependencies lean.
+  const [referralCount, setReferralCount] = useState<number | null>(null);
+  const [copiedRef, setCopiedRef] = useState(false);
+  useEffect(() => {
+    if (!address) return;
+    let cancelled = false;
+    fetch(`/api/user/referrals?userId=${address}`, { headers: { Authorization: `Bearer ${address}` }, cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (!cancelled && d) setReferralCount(d.count ?? 0); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [address]);
+
+  const copyRefCode = () => {
+    if (!user?.referralCode) return;
+    navigator.clipboard.writeText(user.referralCode);
+    setCopiedRef(true);
+    setTimeout(() => setCopiedRef(false), 1500);
+  };
 
   const confirmClose = async () => {
     if (!pendingClose) return;
@@ -163,28 +186,66 @@ export function AirdropPortfolioTab() {
         </DialogContent>
       </Dialog>
 
-      {/* AIRDROP balance card — full width (PnL chart removed per request) */}
-      <div className="rounded-lg border border-[#d4a843]/25 bg-gradient-to-b from-[#d4a843]/10 via-[#161b22] to-[#161b22] p-5 flex flex-col">
-        <div className="flex items-center justify-between mb-1">
-          <p className="text-[10px] text-[#d4a843]/70 uppercase tracking-wider">Airdrop Portfolio</p>
-          <span className="text-[10px] text-[#f5c542] bg-[#f5c542]/10 border border-[#f5c542]/20 px-1.5 py-0.5 rounded font-medium">AIRDROP</span>
+      {/* AIRDROP balance card — two-column layout fills the full width:
+          left is the portfolio totals, right is the referral call-out
+          (code + count + copy button + per-referral reward reminder). */}
+      <div className="rounded-lg border border-[#d4a843]/25 bg-gradient-to-b from-[#d4a843]/10 via-[#161b22] to-[#161b22] p-5 grid grid-cols-1 md:grid-cols-[1.2fr_1fr] gap-6">
+        {/* Left: balance totals */}
+        <div className="flex flex-col">
+          <div className="flex items-center justify-between mb-1">
+            <p className="text-[10px] text-[#d4a843]/70 uppercase tracking-wider">Airdrop Portfolio</p>
+            <span className="text-[10px] text-[#f5c542] bg-[#f5c542]/10 border border-[#f5c542]/20 px-1.5 py-0.5 rounded font-medium">AIRDROP</span>
+          </div>
+          <p className="text-4xl font-bold bg-gradient-to-r from-[#f5c542] to-[#d4a843] bg-clip-text text-transparent tabular-nums leading-none">
+            {paperTotal.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+          </p>
+          <div className="flex gap-6 mt-auto pt-4">
+            <div>
+              <p className="text-[10px] text-[#d4a843]/60 uppercase tracking-wider">Available to trade</p>
+              <p className="text-sm font-semibold text-white tabular-nums mt-0.5">
+                {paperBalance.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+              </p>
+            </div>
+            <div>
+              <p className="text-[10px] text-[#d4a843]/60 uppercase tracking-wider">In positions</p>
+              <p className="text-sm font-semibold text-white tabular-nums mt-0.5">
+                {paperPositionValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+              </p>
+            </div>
+          </div>
         </div>
-        <p className="text-3xl font-bold bg-gradient-to-r from-[#f5c542] to-[#d4a843] bg-clip-text text-transparent tabular-nums">
-          {paperTotal.toLocaleString(undefined, { maximumFractionDigits: 0 })}
-        </p>
-        <div className="flex gap-6 mt-4">
-          <div>
-            <p className="text-[10px] text-[#d4a843]/60 uppercase tracking-wider">Available to trade</p>
-            <p className="text-sm font-semibold text-white tabular-nums mt-0.5">
-              {paperBalance.toLocaleString(undefined, { maximumFractionDigits: 0 })}
-            </p>
+
+        {/* Right: referral call-out */}
+        <div className="flex flex-col border-t md:border-t-0 md:border-l border-[#d4a843]/20 pt-4 md:pt-0 md:pl-6">
+          <div className="flex items-start justify-between mb-1 gap-2">
+            <p className="text-[10px] text-[#d4a843]/70 uppercase tracking-wider">Your referrals</p>
+            <span className="text-[10px] text-[#f5c542] bg-[#f5c542]/10 border border-[#f5c542]/20 px-1.5 py-0.5 rounded font-medium whitespace-nowrap">
+              +{AIRDROP_AMOUNTS.referralBonus.toLocaleString()} each
+            </span>
           </div>
-          <div>
-            <p className="text-[10px] text-[#d4a843]/60 uppercase tracking-wider">In positions</p>
-            <p className="text-sm font-semibold text-white tabular-nums mt-0.5">
-              {paperPositionValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+          <div className="flex items-baseline gap-2 leading-none">
+            <p className="text-4xl font-bold text-white tabular-nums">
+              {referralCount ?? "—"}
             </p>
+            <p className="text-xs text-[#d4a843]/70">{(referralCount ?? 0) === 1 ? "friend" : "friends"}</p>
           </div>
+          <p className="text-[11px] text-[#adbac7]/70 mt-2 leading-snug">
+            Share your code to climb the leaderboard — referrals are the biggest AIRDROP win.
+          </p>
+          {user?.referralCode && (
+            <div className="mt-auto pt-3 flex items-center gap-2">
+              <div className="flex-1 min-w-0 bg-[#0d1117] border border-[#d4a843]/20 rounded px-2.5 py-1.5 font-mono text-xs text-white truncate">
+                {user.referralCode}
+              </div>
+              <button
+                type="button"
+                onClick={copyRefCode}
+                className="text-xs font-semibold bg-[#d4a843]/20 text-[#f5c542] border border-[#d4a843]/30 px-3 py-1.5 rounded hover:bg-[#d4a843]/30 whitespace-nowrap"
+              >
+                {copiedRef ? "Copied!" : "Copy"}
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
