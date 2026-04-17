@@ -1,13 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getDb, users, positions, trades, airdrops } from "@/db";
-import { eq, and, ne } from "drizzle-orm";
+import { getDb, users, positions, trades, airdrops, referrals } from "@/db";
+import { eq, and, ne, sql } from "drizzle-orm";
 import {
   isValidAddress,
   generateSecureId,
   generateReferralCode,
   getAuthenticatedUser,
 } from "@/lib/auth";
-import { STARTING_BALANCE } from "@/lib/constants";
+import { STARTING_BALANCE, AIRDROP_AMOUNTS } from "@/lib/constants";
+import { isoWeekKey } from "@/lib/week";
 
 // GET /api/user?id=0x123... - Get own user (auth required)
 export async function GET(request: NextRequest) {
@@ -179,6 +180,23 @@ export async function POST(request: NextRequest) {
 
     const referralCode = generateReferralCode();
 
+    // Fresh account creation now ALSO:
+    //   1. Auto-credits the signup airdrop (STARTING_BALANCE stays at
+    //      1000 and the signup bonus adds another 1000 for a total of
+    //      2000). Previously only /api/airdrop POST {type:"signup"}
+    //      granted this, but nothing in the UI ever triggered that
+    //      endpoint, so users silently missed the bonus.
+    //   2. Pays the 5000-AIRDROP referral bonus to the referrer the
+    //      instant the referred user signs up. Before this change the
+    //      bonus was gated on the referred user clicking a signup-
+    //      claim button that no longer existed, so the entire
+    //      virality loop was silently broken.
+    // The flag `hasSignupAirdrop: true` is set on insert so the legacy
+    // /api/airdrop POST {type:"signup"} path returns "already claimed"
+    // if anything still calls it.
+    const signupAmount = AIRDROP_AMOUNTS.signup;
+    const weekKey = isoWeekKey();
+
     const [newUser] = await db
       .insert(users)
       .values({
@@ -188,10 +206,52 @@ export async function POST(request: NextRequest) {
         walletAddress: walletAddress ? walletAddress.toLowerCase() : null,
         referralCode,
         referredBy: referredBy || null,
-        balance: STARTING_BALANCE,
+        balance: STARTING_BALANCE + signupAmount,
+        hasSignupAirdrop: true,
         signupIp: ip,
       })
       .returning();
+
+    // Log the signup grant in the airdrops ledger — weekly "Biggest
+    // Gainers" reads from here, and admin analytics benefit from the
+    // breakdown-by-source.
+    await db.insert(airdrops).values({
+      id: generateSecureId(),
+      userId: normalizedId,
+      source: "signup",
+      amount: signupAmount,
+      weekKey,
+    });
+
+    // Pay the referrer bonus + record the referral pair.
+    if (referredBy) {
+      const [referrer] = await db
+        .select({ id: users.id })
+        .from(users)
+        .where(eq(users.referralCode, referredBy))
+        .limit(1);
+      if (referrer) {
+        await db
+          .update(users)
+          .set({ balance: sql`${users.balance} + ${AIRDROP_AMOUNTS.referralBonus}` })
+          .where(eq(users.id, referrer.id));
+
+        await db.insert(airdrops).values({
+          id: generateSecureId(),
+          userId: referrer.id,
+          source: "referral",
+          amount: AIRDROP_AMOUNTS.referralBonus,
+          weekKey,
+        });
+
+        await db.insert(referrals).values({
+          id: generateSecureId(),
+          referrerId: referrer.id,
+          referredId: normalizedId,
+          signupBonusPaid: true,
+        });
+      }
+    }
 
     return NextResponse.json(newUser, { status: 201 });
   } catch {
