@@ -7,6 +7,7 @@ import { LoginButton } from "@/components/layout/login-modal";
 import { ParticleBackground } from "@/components/ai/particle-background";
 import { LeaderboardTab } from "@/components/airdrop/leaderboard-tab";
 import { AirdropPortfolioTab } from "@/components/airdrop/portfolio-tab";
+import { AirdropTradeTab } from "@/components/airdrop/trade-tab";
 
 type Tab = "leaderboard" | "portfolio" | "trade" | "earn";
 const TABS: { key: Tab; label: string }[] = [
@@ -78,7 +79,7 @@ function AirdropPageInner() {
         <div key={tab} className="animate-fade-in-up">
           {tab === "leaderboard" && <LeaderboardTab />}
           {tab === "portfolio" && <AirdropPortfolioTab />}
-          {tab === "trade" && <TradePlaceholder />}
+          {tab === "trade" && <AirdropTradeTab />}
           {tab === "earn" && <EarnPlaceholder />}
         </div>
       </div>
@@ -95,7 +96,6 @@ function Placeholder({ title }: { title: string }) {
   );
 }
 
-function TradePlaceholder() { return <Placeholder title="Airdrop Trade" />; }
 function EarnPlaceholder() { return <Placeholder title="Earn AIRDROP" />; }
 
 export default function AirdropPage() {

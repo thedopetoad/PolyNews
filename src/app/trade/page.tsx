@@ -757,7 +757,7 @@ function sportsToTradeable(event: SportsEvent, market: SportsMarket, leagueEmoji
   };
 }
 
-function TradableMarketsTab({ allMarkets, events, onBought }: {
+export function TradableMarketsTab({ allMarkets, events, onBought }: {
   allMarkets: MarketWithPrices[];
   events: PolymarketEvent[];
   onBought: () => void;
