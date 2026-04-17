@@ -549,18 +549,18 @@ export default function PortfolioPage() {
               : "border-[#21262d] hover:border-[#30363d] cursor-pointer"
           )}
         >
-          {/* Labels row — kept on one line at top so they sit at the same
-              vertical as the labels on the Paper and P&L cards. Numbers
-              line below, baseline-aligned so the big $ and the small $ sit
-              on the same visual baseline. */}
+          {/* Top row mirrors Paper/P&L layout exactly: label on the left,
+              a padded badge on the right. Paper has AIRDROP, P&L has USDC,
+              Real has the "available to trade" USDC balance as a pill.
+              Identical row height means the TOTAL PORTFOLIO label sits at
+              the same Y as PAPER PORTFOLIO and UNREALIZED P&L. */}
           <div className="flex items-center justify-between mb-1">
             <p className="text-[10px] text-[#484f58] uppercase tracking-wider">Total Portfolio</p>
-            <p className="text-[10px] text-[#484f58] uppercase tracking-wider">Available to trade</p>
+            <span className="text-[10px] text-[#58a6ff] bg-[#58a6ff]/10 px-1.5 py-0.5 rounded font-medium tabular-nums">
+              {formatUsd(usdcBal)} available
+            </span>
           </div>
-          <div className="flex items-baseline justify-between">
-            <p className="text-3xl font-bold text-white tabular-nums">{formatUsd(usdcBal + realPositionsValue)}</p>
-            <p className="text-base font-bold text-[#58a6ff] tabular-nums">{formatUsd(usdcBal)}</p>
-          </div>
+          <p className="text-3xl font-bold text-white tabular-nums">{formatUsd(usdcBal + realPositionsValue)}</p>
           <div className="flex gap-2 mt-3" onClick={(e) => e.stopPropagation()}>
             <button
               onClick={() => setDepositOpen(true)}
