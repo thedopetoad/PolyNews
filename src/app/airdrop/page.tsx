@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useCallback, useMemo } from "react";
+import { Suspense, useCallback, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { LoginButton } from "@/components/layout/login-modal";
@@ -18,21 +18,33 @@ const TABS: { key: Tab; label: string }[] = [
   { key: "earn", label: "Earn" },
 ];
 
+function resolveInitialTab(raw: string | null): Tab {
+  return (TABS.find((t) => t.key === raw)?.key ?? "earn") as Tab;
+}
+
 function AirdropPageInner() {
   const router = useRouter();
   const params = useSearchParams();
-  const tab = useMemo<Tab>(() => {
-    const raw = params.get("tab");
-    return (TABS.find((t) => t.key === raw)?.key ?? "earn") as Tab;
+
+  // Local state drives the UI. URL stays in sync so deep-links and
+  // back/forward work, but tab switching never depends on the URL
+  // round-tripping — under Next 16 App Router, router.replace doesn't
+  // always re-trigger components that read from useSearchParams, which
+  // made the tabs look dead.
+  const [tab, setTabState] = useState<Tab>(() => resolveInitialTab(params.get("tab")));
+
+  // External URL changes (back button, deep link) update local state.
+  useEffect(() => {
+    const next = resolveInitialTab(params.get("tab"));
+    setTabState((prev) => (prev === next ? prev : next));
   }, [params]);
 
   const setTab = useCallback(
     (next: Tab) => {
-      const q = new URLSearchParams(params.toString());
-      q.set("tab", next);
-      router.replace(`/airdrop?${q.toString()}`, { scroll: false });
+      setTabState(next);
+      router.replace(`/airdrop?tab=${next}`, { scroll: false });
     },
-    [router, params],
+    [router],
   );
 
   return (
@@ -64,6 +76,7 @@ function AirdropPageInner() {
           {TABS.map((t) => (
             <button
               key={t.key}
+              type="button"
               onClick={() => setTab(t.key)}
               className={cn(
                 "px-4 py-2.5 text-sm font-medium transition-colors whitespace-nowrap",

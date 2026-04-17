@@ -231,13 +231,11 @@ export function AirdropPortfolioTab() {
 
             {paperPositions.length === 0 ? (
               <div className="text-center py-12">
-                <p className="text-sm text-[#adbac7]">No real positions yet</p>
+                <p className="text-sm text-[#adbac7]">No positions yet</p>
                 <p className="text-xs text-[#484f58] mt-2">
                   Head to the{" "}
-                  <a href="/airdrop?tab=trade" className="text-[#58a6ff] hover:underline">Trade tab</a>
-                  {" "}or the{" "}
-                  <a href="/sports" className="text-[#58a6ff] hover:underline">Sports page</a>
-                  {" "}to place one.
+                  <a href="/airdrop?tab=trade" className="text-[#58a6ff] hover:underline">Airdrop Trade tab</a>
+                  {" "}to place one with AIRDROP.
                 </p>
               </div>
             ) : (
