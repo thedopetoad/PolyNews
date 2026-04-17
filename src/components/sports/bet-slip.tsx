@@ -213,6 +213,15 @@ export function BetSlip({ eventTitle, eventSlug: _eventSlug, eventEndDate: _even
         txHashes: res.transactionHashes,
         side,
       });
+      // One-time first-sports-trade airdrop boost. Fire-and-forget —
+      // server idempotently no-ops if already paid.
+      if (address && side === "BUY") {
+        fetch("/api/airdrop/claim-one-time", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${address}` },
+          body: JSON.stringify({ type: "first_sports_trade" }),
+        }).catch(() => { /* non-critical */ });
+      }
       // Fire side-effects immediately on success instead of waiting for
       // TradeProgress.onConfirmed. The CLOB response doesn't always
       // include tx hashes — when it doesn't, TradeProgress wouldn't

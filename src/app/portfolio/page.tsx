@@ -90,12 +90,21 @@ export default function PortfolioPage() {
     if (bridgeState?.kind === "pending") {
       if (bridgeState.type === "deposit" && delta > 0.001) {
         completeBridge("deposit", bridgeState.chain);
+        // First deposit airdrop boost — server idempotently no-ops
+        // if already paid. Use the EOA address from useUser.
+        if (address) {
+          fetch("/api/airdrop/claim-one-time", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${address}` },
+            body: JSON.stringify({ type: "first_deposit" }),
+          }).catch(() => { /* non-critical */ });
+        }
       } else if (bridgeState.type === "withdraw" && delta < -0.001) {
         completeBridge("withdraw", bridgeState.chain);
       }
     }
     prevBalRef.current = usdcBal;
-  }, [usdcBal, bridgeState, completeBridge]);
+  }, [usdcBal, bridgeState, completeBridge, address]);
 
   // Paper positions only — real positions come exclusively from Polymarket's data API
   const paperOnlyPositions = paperPositions.filter((p) => p.tradeType !== "real");
