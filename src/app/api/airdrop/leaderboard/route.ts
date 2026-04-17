@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb, users, airdrops } from "@/db";
-import { sql, eq, and, gte } from "drizzle-orm";
+import { sql, eq, and, gte, inArray, isNotNull } from "drizzle-orm";
 import { getAuthenticatedUser } from "@/lib/auth";
 import { isoWeekKey, isoWeekStart } from "@/lib/week";
 
@@ -56,7 +56,7 @@ export async function GET(request: NextRequest) {
           referralCode: users.referralCode,
         })
         .from(users)
-        .where(sql`${users.id} = ANY(${userIds})`);
+        .where(inArray(users.id, userIds));
 
       const userMap = new Map(userRows.map((u) => [u.id, u]));
       const codes = userRows.map((u) => u.referralCode);
@@ -68,7 +68,7 @@ export async function GET(request: NextRequest) {
             count: sql<number>`COUNT(*)`.as("count"),
           })
           .from(users)
-          .where(sql`${users.referredBy} = ANY(${codes})`)
+          .where(and(isNotNull(users.referredBy), inArray(users.referredBy, codes)))
           .groupBy(users.referredBy)
         : [];
       const refCounts = new Map(refCountRows.map((r) => [r.code, Number(r.count)]));
@@ -114,7 +114,7 @@ export async function GET(request: NextRequest) {
             referralCode: users.referralCode,
           })
           .from(users)
-          .where(sql`${users.referralCode} = ANY(${codes})`)
+          .where(inArray(users.referralCode, codes))
         : [];
       const codeToUser = new Map(userRows.map((u) => [u.referralCode, u]));
 
@@ -154,7 +154,7 @@ export async function GET(request: NextRequest) {
     const userRows = await db
       .select({ id: users.id, displayName: users.displayName })
       .from(users)
-      .where(sql`${users.id} = ANY(${userIds})`);
+      .where(inArray(users.id, userIds));
     const userMap = new Map(userRows.map((u) => [u.id, u]));
 
     const leaderboard = weekRows.map((r, i) => {

@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { LoginButton } from "@/components/layout/login-modal";
 import { ParticleBackground } from "@/components/ai/particle-background";
+import { LeaderboardTab } from "@/components/airdrop/leaderboard-tab";
 
 type Tab = "leaderboard" | "portfolio" | "trade" | "earn";
 const TABS: { key: Tab; label: string }[] = [
@@ -74,7 +75,7 @@ function AirdropPageInner() {
         </div>
 
         <div key={tab} className="animate-fade-in-up">
-          {tab === "leaderboard" && <LeaderboardPlaceholder />}
+          {tab === "leaderboard" && <LeaderboardTab />}
           {tab === "portfolio" && <PortfolioPlaceholder />}
           {tab === "trade" && <TradePlaceholder />}
           {tab === "earn" && <EarnPlaceholder />}
@@ -93,7 +94,6 @@ function Placeholder({ title }: { title: string }) {
   );
 }
 
-function LeaderboardPlaceholder() { return <Placeholder title="Airdrop Leaderboards" />; }
 function PortfolioPlaceholder() { return <Placeholder title="Airdrop Portfolio" />; }
 function TradePlaceholder() { return <Placeholder title="Airdrop Trade" />; }
 function EarnPlaceholder() { return <Placeholder title="Earn AIRDROP" />; }
