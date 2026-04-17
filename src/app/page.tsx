@@ -5,8 +5,10 @@ import { LiveStreamPlayer } from "@/components/home/live-stream-player";
 import { NewsFeed } from "@/components/home/news-feed";
 import { MarketTicker } from "@/components/home/market-ticker";
 import { SwarmVisualization } from "@/components/ai/swarm-visualization";
+import { useNewsHeartbeat } from "@/hooks/use-news-heartbeat";
 
 export default function HomePage() {
+  useNewsHeartbeat();
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-8 relative overflow-x-clip">
       {/* Plexus background */}

@@ -8,6 +8,7 @@ import { ParticleBackground } from "@/components/ai/particle-background";
 import { LeaderboardTab } from "@/components/airdrop/leaderboard-tab";
 import { AirdropPortfolioTab } from "@/components/airdrop/portfolio-tab";
 import { AirdropTradeTab } from "@/components/airdrop/trade-tab";
+import { AirdropEarnTab } from "@/components/airdrop/earn-tab";
 
 type Tab = "leaderboard" | "portfolio" | "trade" | "earn";
 const TABS: { key: Tab; label: string }[] = [
@@ -80,23 +81,13 @@ function AirdropPageInner() {
           {tab === "leaderboard" && <LeaderboardTab />}
           {tab === "portfolio" && <AirdropPortfolioTab />}
           {tab === "trade" && <AirdropTradeTab />}
-          {tab === "earn" && <EarnPlaceholder />}
+          {tab === "earn" && <AirdropEarnTab />}
         </div>
       </div>
     </>
   );
 }
 
-function Placeholder({ title }: { title: string }) {
-  return (
-    <div className="rounded-lg border border-[#d4a843]/25 bg-gradient-to-b from-[#d4a843]/5 to-transparent p-12 text-center">
-      <p className="text-[#d4a843] font-semibold mb-1">{title}</p>
-      <p className="text-xs text-[#768390]">Coming online in the next phase of this rollout.</p>
-    </div>
-  );
-}
-
-function EarnPlaceholder() { return <Placeholder title="Earn AIRDROP" />; }
 
 export default function AirdropPage() {
   return (
