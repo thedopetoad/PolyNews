@@ -76,10 +76,57 @@ function OddsBtn({ label, price, highlight, selected, onClick }: { label: string
   );
 }
 
+/**
+ * Common prop-market abbreviations. Polymarket's question text often uses
+ * these without the expansion (e.g. "NRFI" instead of "No Runs in First
+ * Inning"), so we inject the glossary expansion when we detect one.
+ * Keep lowercased; we match on word-boundary matches in the question.
+ */
+const PROP_GLOSSARY: Record<string, string> = {
+  nrfi: "No Runs First Inning",
+  yrfi: "Yes Runs First Inning",
+  "o/u": "Over / Under",
+  ats: "Against The Spread",
+  ml: "Moneyline",
+  ou: "Over / Under",
+  tt: "Team Total",
+  pra: "Points + Rebounds + Assists",
+  pr: "Points + Rebounds",
+  pa: "Points + Assists",
+  ra: "Rebounds + Assists",
+  "1h": "1st Half",
+  "2h": "2nd Half",
+  "1q": "1st Quarter",
+  "2q": "2nd Quarter",
+  "3q": "3rd Quarter",
+  "4q": "4th Quarter",
+  ht: "Halftime",
+  ft: "Full Time",
+};
+
+function expandAbbrevs(question: string): string | null {
+  // Only add the first expansion we find — stops the caption from getting
+  // long on markets that contain several abbreviations.
+  const words = question.split(/[\s(),:]+/).filter(Boolean);
+  for (const w of words) {
+    const key = w.toLowerCase();
+    if (PROP_GLOSSARY[key]) {
+      // If the question already contains the expansion, skip.
+      if (question.toLowerCase().includes(PROP_GLOSSARY[key].toLowerCase())) return null;
+      return `${w} = ${PROP_GLOSSARY[key]}`;
+    }
+  }
+  return null;
+}
+
 /* ─── Market Section ─── */
-function MarketSection({ title, markets, volume, eventTitle, eventSlug, eventEndDate, negRisk }: {
+function MarketSection({ title, markets, volume, eventTitle, eventSlug, eventEndDate, negRisk, explainer }: {
   title: string; markets: ParsedMarket[]; volume?: number;
   eventTitle: string; eventSlug: string; eventEndDate: string; negRisk?: boolean;
+  /** One-line helper text shown under the section title for users new to
+   *  the bet type (e.g. "Over/under totals — will the game score more or
+   *  fewer than the listed number of runs?"). */
+  explainer?: string;
 }) {
   const [selectedMarketId, setSelectedMarketId] = useState<string | null>(null);
   const [selectedOutcomeIdx, setSelectedOutcomeIdx] = useState<number | null>(null);
@@ -95,25 +142,48 @@ function MarketSection({ title, markets, volume, eventTitle, eventSlug, eventEnd
 
   return (
     <div className="rounded-lg border border-[#21262d] bg-[#161b22] overflow-hidden animate-fade-in-up">
-      <div className="px-4 py-3 border-b border-[#21262d] flex items-center justify-between">
-        <span className="text-sm font-semibold text-white">{title}</span>
-        {volume !== undefined && volume > 0 && (
-          <span className="text-[10px] text-[#484f58]">{formatVol(volume)} Vol.</span>
+      <div className="px-4 py-3 border-b border-[#21262d]">
+        <div className="flex items-center justify-between">
+          <span className="text-sm font-semibold text-white">{title}</span>
+          {volume !== undefined && volume > 0 && (
+            <span className="text-[10px] text-[#484f58]">{formatVol(volume)} Vol.</span>
+          )}
+        </div>
+        {explainer && (
+          <p className="text-[11px] text-[#768390] mt-1 leading-snug">{explainer}</p>
         )}
       </div>
-      <div className="p-3 space-y-2">
+      <div className="p-3 space-y-3">
         {markets.map((m) => {
           const maxPrice = Math.max(...m.prices);
+          // ALWAYS show each market's question on props / multi-market sections
+          // so the user isn't left guessing what "NRFI" or "O 8.5" means in
+          // isolation. For simple moneyline (single market, 2 outcomes, same
+          // as event title) the question adds nothing, so skip it.
+          const isRepetitiveMoneyline =
+            markets.length === 1 && m.question?.toLowerCase().trim() === eventTitle?.toLowerCase().trim();
+          const showQuestion = !isRepetitiveMoneyline;
+          const glossary = expandAbbrevs(m.question || "");
           return (
-            <div key={m.id}>
-              {m.question !== markets[0]?.question && markets.length > 1 && (
-                <p className="text-[11px] text-[#484f58] mb-1.5 px-1">{m.question}</p>
+            <div key={m.id} className="space-y-1.5">
+              {showQuestion && m.question && (
+                <div className="px-1">
+                  <p className="text-[12px] text-[#e6edf3] leading-snug">{m.question}</p>
+                  {glossary && (
+                    <p className="text-[10px] text-[#768390] mt-0.5 italic">{glossary}</p>
+                  )}
+                </div>
               )}
               <div className="grid grid-cols-2 gap-2">
                 {m.outcomes.map((o, i) => (
                   <OddsBtn
                     key={i}
-                    label={m.groupItemTitle && m.outcomes.length === 2 && i === 0 ? m.groupItemTitle : o}
+                    // Plain outcome text ("Yes"/"No"/"Over"/"Under") is clearer
+                    // than the cryptic groupItemTitle ("NRFI") once the full
+                    // question is visible above. Prefer the raw outcome name;
+                    // fall back to groupItemTitle only for the unusual case
+                    // of a blank outcome label.
+                    label={o || m.groupItemTitle || `Option ${i + 1}`}
                     price={m.prices[i] || 0}
                     highlight={m.prices[i] === maxPrice && m.outcomes.length > 1}
                     selected={selectedMarketId === m.id && selectedOutcomeIdx === i}
@@ -323,10 +393,13 @@ function GameContent() {
       {/* Scoreboard */}
       <Scoreboard espn={data.espn} title={data.title} gameTime={data.gameStartTime} />
 
-      {/* Markets */}
+      {/* Markets — each section gets a one-line explainer so users new to
+          sports betting know what they're looking at. Polymarket's game
+          view has similar copy. */}
       <div className="mt-6 space-y-4">
         <MarketSection
           title="Moneyline"
+          explainer="Straight-up winner. Pick a team — your bet wins if they win the game."
           markets={data.markets.moneyline}
           volume={data.markets.moneyline.reduce((s, m) => s + m.volume, 0)}
           eventTitle={data.title}
@@ -335,6 +408,7 @@ function GameContent() {
         />
         <MarketSection
           title="Spread"
+          explainer="The favorite must win by more than the listed points (−). The underdog can lose by up to that many and still cover (+)."
           markets={data.markets.spreads.slice(0, 3)}
           volume={data.markets.spreads.reduce((s, m) => s + m.volume, 0)}
           eventTitle={data.title}
@@ -343,6 +417,7 @@ function GameContent() {
         />
         <MarketSection
           title="Total (Over/Under)"
+          explainer="Pick whether the total combined score will go Over or Under the listed number."
           markets={data.markets.totals.slice(0, 3)}
           volume={data.markets.totals.reduce((s, m) => s + m.volume, 0)}
           eventTitle={data.title}
@@ -351,7 +426,8 @@ function GameContent() {
         />
         {data.markets.props.length > 0 && (
           <MarketSection
-            title="Player Props"
+            title="Prop Bets"
+            explainer="Side bets on specific events within the game — first-inning runs, a player's stat line, etc. Each card lists the exact question."
             markets={data.markets.props}
             volume={data.markets.props.reduce((s, m) => s + m.volume, 0)}
             eventTitle={data.title}
