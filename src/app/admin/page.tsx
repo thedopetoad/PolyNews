@@ -375,9 +375,6 @@ export default function AdminPage() {
               {signInError}
             </p>
           )}
-          <p className="mt-6 text-[10px] text-[#484f58] font-mono break-all">
-            Authorized pubkey: {ADMIN_SOLANA_PUBKEY}
-          </p>
         </div>
       </div>
     );
