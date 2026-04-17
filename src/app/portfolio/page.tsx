@@ -415,9 +415,33 @@ export default function PortfolioPage() {
         ok: true,
         txHashes: res.transactionHashes,
       });
-      if (!res.transactionHashes || res.transactionHashes.length === 0) {
-        setTimeout(() => queryClient.invalidateQueries({ queryKey: ["polymarket-positions"] }), 3000);
+
+      // Fire ALL follow-up actions immediately instead of waiting for
+      // TradeProgress.onConfirmed. Previously we wired onConfirmed to
+      // addClosedLocal / addPendingActivity / refetches — but that
+      // callback only fires if TradeProgress renders, which only happens
+      // when the CLOB returned tx hashes. On trades where the CLOB
+      // response omitted transactionsHashes (some fills, certain
+      // negRisk paths), none of these would run and the row got stuck.
+      if (isFullClose) addClosedLocal(p.posId);
+      if (res.transactionHashes && res.transactionHashes[0]) {
+        addPendingActivity({
+          txHash: res.transactionHashes[0],
+          side: "SELL",
+          marketTitle: p.marketQuestion,
+          outcomeName: "", // populated by /activity when it catches up
+          shares: p.shares,
+          price: p.price,
+          usdcSize: p.shares * p.price,
+        });
       }
+      // Aggressive polling — /positions lags ~10-30s, /activity similar.
+      [500, 2000, 5000, 10000, 20000].forEach((d) =>
+        setTimeout(() => {
+          queryClient.invalidateQueries({ queryKey: ["polymarket-positions"] });
+          queryClient.invalidateQueries({ queryKey: ["polymarket-activity"] });
+        }, d),
+      );
     } else {
       const errText = (res.error || "").toLowerCase();
       const isAlreadyClosed =
@@ -922,43 +946,26 @@ export default function PortfolioPage() {
                         </button>
                       </div>
                     </div>
-                    {/* Close result */}
+                    {/* Close result — always shows a settling indicator on
+                        success, even when the CLOB response didn't include
+                        tx hashes. All side-effects (addClosedLocal,
+                        addPendingActivity, /positions refetch cadence)
+                        already fire inside executeSell, so this block is
+                        purely presentational now. */}
                     {result && (
                       <div className="px-4 py-2 bg-[#0d1117] border-t border-[#21262d] space-y-2">
                         <p className={cn("text-xs font-medium", result.ok ? "text-[#3fb950]" : "text-[#f85149]")}>{result.msg}</p>
-                        {result.ok && result.txHashes && result.txHashes.length > 0 && (
-                          <TradeProgress
-                            txHashes={result.txHashes}
-                            label="Settling your close…"
-                            onConfirmed={() => {
-                              // Onchain settled — persist the hide and kick off
-                              // refetches until /positions catches up.
-                              addClosedLocal(pos.id);
-                              // Drop a pending-activity entry so the History
-                              // tab shows a skeleton row until /activity
-                              // reflects this sell.
-                              if (result.txHashes && result.txHashes[0]) {
-                                addPendingActivity({
-                                  txHash: result.txHashes[0],
-                                  side: "SELL",
-                                  marketTitle: pos.marketQuestion,
-                                  outcomeName: pos.outcome,
-                                  shares: pos.shares,
-                                  price: livePrice,
-                                  usdcSize: pos.shares * livePrice,
-                                });
-                              }
-                              // Polymarket's /positions data-api lags onchain
-                              // state by 10-30s. Retry at 2s, 5s, 10s, 20s.
-                              [2000, 5000, 10000, 20000].forEach((delay) =>
-                                setTimeout(() => {
-                                  queryClient.invalidateQueries({ queryKey: ["polymarket-positions"] });
-                                  queryClient.invalidateQueries({ queryKey: ["polymarket-activity"] });
-                                }, delay),
-                              );
-                            }}
-                          />
-                        )}
+                        {result.ok && result.txHashes && result.txHashes.length > 0 ? (
+                          <TradeProgress txHashes={result.txHashes} label="Settling your close…" />
+                        ) : result.ok ? (
+                          // Fallback settling indicator for the no-hashes path.
+                          <div className="rounded-lg px-3 py-2 text-xs border bg-[#58a6ff]/10 border-[#58a6ff]/30 text-[#58a6ff] flex items-center gap-2">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="animate-spin flex-shrink-0">
+                              <path d="M21 12a9 9 0 1 1-6.2-8.55" />
+                            </svg>
+                            <span>Settling your close… Polymarket will reflect this shortly.</span>
+                          </div>
+                        ) : null}
                       </div>
                     )}
                   </div>
