@@ -833,7 +833,7 @@ export default function PortfolioPage() {
                       <div className="col-span-4 min-w-0">
                         {pos.eventSlug ? (
                           <Link
-                            href={`/sports?slug=${encodeURIComponent(pos.eventSlug)}`}
+                            href={`/sports/game?slug=${encodeURIComponent(pos.eventSlug)}`}
                             className="group inline-block max-w-full"
                           >
                             <span className="text-[13px] text-[#e6edf3] font-medium leading-snug line-clamp-1 group-hover:text-[#58a6ff] group-hover:underline transition-colors">
@@ -969,7 +969,7 @@ export default function PortfolioPage() {
           avgPrice={sellingPos.avgPrice}
           currentPrice={sellingPos.currentPrice}
           placing={placingOrder || closingPos === sellingPos.id}
-          marketHref={sellingPos.eventSlug ? `/sports?slug=${encodeURIComponent(sellingPos.eventSlug)}` : undefined}
+          marketHref={sellingPos.eventSlug ? `/sports/game?slug=${encodeURIComponent(sellingPos.eventSlug)}` : undefined}
           onCashOut={(sharesToSell) =>
             executeSell({
               posId: sellingPos.id,
