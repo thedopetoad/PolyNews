@@ -620,39 +620,25 @@ export default function PortfolioPage() {
           onWithdrawFailed={dismissPending}
         />
 
-        {/* Paper Portfolio / AIRDROP card */}
-        <button
-          type="button"
-          onClick={() => setPortfolioMode("paper")}
-          className={cn(
-            "rounded-xl border bg-[#161b22] p-5 text-left transition-all flex flex-col items-stretch justify-start",
-            portfolioMode === "paper"
-              ? "border-[#d29922]/40 animate-pulse-glow-green"
-              : "border-[#21262d] hover:border-[#30363d] cursor-pointer"
-          )}
+        {/* Paper trading has moved to /airdrop — this card is a signpost only. */}
+        <Link
+          href="/airdrop?tab=portfolio"
+          className="rounded-xl border border-[#d4a843]/25 bg-gradient-to-br from-[#d4a843]/10 via-[#161b22] to-[#161b22] p-5 flex flex-col items-stretch justify-start hover:border-[#d4a843]/50 transition-colors"
         >
           <div className="flex items-center justify-between mb-1">
-            <p className="text-[10px] text-[#484f58] uppercase tracking-wider">{t.portfolio.paperPortfolio}</p>
-            <span className="text-[10px] text-[#d29922] bg-[#d29922]/10 px-1.5 py-0.5 rounded font-medium">AIRDROP</span>
+            <p className="text-[10px] text-[#d4a843]/70 uppercase tracking-wider">Airdrop Portfolio</p>
+            <span className="text-[10px] text-[#f5c542] bg-[#f5c542]/10 px-1.5 py-0.5 rounded font-medium">AIRDROP</span>
           </div>
-          <p className="text-3xl font-bold text-white tabular-nums">
-            {paperTotal.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+          <p className="text-xl font-bold bg-gradient-to-r from-[#f5c542] to-[#d4a843] bg-clip-text text-transparent">Paper trading moved</p>
+          <p className="text-xs text-[#768390] mt-1">
+            Paper balance, positions, trade history, and leaderboards live on the Airdrop page now.
           </p>
-          <p className="text-xs text-[#484f58] mt-1">
-            {paperBalance.toLocaleString(undefined, { maximumFractionDigits: 0 })} cash + {paperPositionValue.toLocaleString(undefined, { maximumFractionDigits: 0 })} in positions
-          </p>
-          {/* Bottom-align with sibling cards' action rows (mt-auto) so
-              Paper Trade sits at the same vertical as Real's
-              Deposit/Withdraw buttons. */}
-          <div className="mt-auto pt-3" onClick={(e) => e.stopPropagation()}>
-            <Link
-              href="/trade"
-              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md text-xs font-medium bg-[#d29922]/10 text-[#d29922] hover:bg-[#d29922]/20 transition-colors"
-            >
-              Paper Trade
-            </Link>
+          <div className="mt-auto pt-3">
+            <span className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md text-xs font-medium bg-[#d4a843]/10 text-[#f5c542] hover:bg-[#d4a843]/20 transition-colors">
+              Go to Airdrop →
+            </span>
           </div>
-        </button>
+        </Link>
 
         {/* Profit/Loss card — updates based on active mode */}
         <div className={cn(
@@ -698,84 +684,24 @@ export default function PortfolioPage() {
         </div>
       </div>
 
-      {/* Referral Program */}
+      {/* Referral card + paper P&L moved to /airdrop — signpost only. */}
       {user && (
-        <div className="rounded-xl border border-[#21262d] bg-[#161b22] mb-8">
-          <button
-            type="button"
-            onClick={() => setReferralExpanded((v) => !v)}
-            aria-expanded={referralExpanded}
-            className="w-full flex items-center justify-between p-5 text-left hover:bg-[#1c2128]/40 transition-colors rounded-xl"
-          >
+        <Link
+          href="/airdrop?tab=earn"
+          className="block rounded-xl border border-[#d4a843]/25 bg-gradient-to-r from-[#d4a843]/10 via-[#161b22] to-[#161b22] mb-8 p-5 hover:border-[#d4a843]/50 transition-colors"
+        >
+          <div className="flex items-center justify-between gap-4 flex-wrap">
             <div>
-              <p className="text-sm font-semibold text-white mb-1">Referral Program</p>
-              <p className="text-xs text-[#768390]">
-                Share your code and earn <span className="text-[#3fb950] font-semibold">5,000 AIRDROP</span> for every friend who signs up and claims their bonus.
+              <p className="text-sm font-semibold text-white">Referrals + daily claim moved to Airdrop</p>
+              <p className="text-xs text-[#adbac7]/80 mt-1">
+                Earn <span className="text-[#f5c542] font-semibold">5,000 AIRDROP</span> per friend, claim daily, and hit weekly goals.
               </p>
             </div>
-            <div className="flex items-center gap-2 shrink-0 ml-3 px-3 py-1.5 rounded-full bg-[#21262d] border border-[#30363d] text-[#adbac7] hover:bg-[#30363d] hover:text-white transition-colors">
-              <span className="text-xs font-semibold">
-                {referralExpanded ? "Hide" : "Show details"}
-              </span>
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="14"
-                height="14"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                className={cn("transition-transform", referralExpanded && "rotate-180")}
-              >
-                <polyline points="6 9 12 15 18 9" />
-              </svg>
-            </div>
-          </button>
-          {referralExpanded && (
-            <div className="px-5 pb-5">
-              <div className="flex items-center gap-3">
-                <div className="flex-1 bg-[#0d1117] border border-[#30363d] rounded-lg px-4 py-2.5 font-mono text-sm text-[#e6edf3] select-all">
-                  {user.referralCode}
-                </div>
-                <button
-                  onClick={() => handleCopy(user.referralCode, "code")}
-                  className="px-4 py-2.5 rounded-lg text-xs font-semibold bg-[#238636] text-white hover:bg-[#2ea043] transition-colors whitespace-nowrap"
-                >
-                  {copied === "code" ? "Copied!" : "Copy Code"}
-                </button>
-                <button
-                  onClick={() => handleCopy(`${window.location.origin}?ref=${user.referralCode}`, "link")}
-                  className="px-4 py-2.5 rounded-lg text-xs font-semibold bg-[#21262d] text-[#e6edf3] hover:bg-[#30363d] transition-colors whitespace-nowrap"
-                >
-                  {copied === "link" ? "Copied!" : "Copy Link"}
-                </button>
-              </div>
-              <div className="mt-3 grid grid-cols-4 gap-3 text-center">
-                <div className="bg-[#0d1117] rounded-lg p-3">
-                  <p className="text-lg font-bold text-[#3fb950]">{referralCount}</p>
-                  <p className="text-[10px] text-[#484f58]">Friends referred</p>
-                </div>
-                <div className="bg-[#0d1117] rounded-lg p-3">
-                  <p className="text-lg font-bold text-white">5,000</p>
-                  <p className="text-[10px] text-[#484f58]">AIRDROP per referral</p>
-                </div>
-                <div className="bg-[#0d1117] rounded-lg p-3">
-                  <p className="text-lg font-bold text-white">100</p>
-                  <p className="text-[10px] text-[#484f58]">Daily claim</p>
-                </div>
-                <div className="bg-[#0d1117] rounded-lg p-3">
-                  <p className="text-lg font-bold text-white">1,000</p>
-                  <p className="text-[10px] text-[#484f58]">Signup bonus</p>
-                </div>
-              </div>
-
-              {/* Enter referral code — only if not already referred */}
-              <ReferralCodeInput userId={user.id} referredBy={user.referredBy} />
-            </div>
-          )}
-        </div>
+            <span className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md text-xs font-medium bg-[#d4a843]/15 text-[#f5c542] border border-[#d4a843]/30">
+              Open Earn tab →
+            </span>
+          </div>
+        </Link>
       )}
 
       {/* Tabs: Positions / History */}
