@@ -543,7 +543,12 @@ export default function PortfolioPage() {
           type="button"
           onClick={() => setPortfolioMode("real")}
           className={cn(
-            "rounded-xl border bg-[#161b22] p-5 text-left transition-all",
+            // `flex flex-col justify-start` forces content to start at the
+            // top of the stretched grid cell. Without it, the button's
+            // user-agent vertical-center behavior kicks in on cards with
+            // less content (Real has no subtext row, unlike Paper/P&L),
+            // pushing the label block down ~15px vs the sibling cards.
+            "rounded-xl border bg-[#161b22] p-5 text-left transition-all flex flex-col items-stretch justify-start",
             portfolioMode === "real"
               ? "border-[#58a6ff]/40 animate-pulse-glow-blue"
               : "border-[#21262d] hover:border-[#30363d] cursor-pointer"
@@ -608,7 +613,7 @@ export default function PortfolioPage() {
           type="button"
           onClick={() => setPortfolioMode("paper")}
           className={cn(
-            "rounded-xl border bg-[#161b22] p-5 text-left transition-all",
+            "rounded-xl border bg-[#161b22] p-5 text-left transition-all flex flex-col items-stretch justify-start",
             portfolioMode === "paper"
               ? "border-[#d29922]/40 animate-pulse-glow-green"
               : "border-[#21262d] hover:border-[#30363d] cursor-pointer"
@@ -636,7 +641,7 @@ export default function PortfolioPage() {
 
         {/* Profit/Loss card — updates based on active mode */}
         <div className={cn(
-          "rounded-xl border bg-[#161b22] p-5 transition-all",
+          "rounded-xl border bg-[#161b22] p-5 transition-all flex flex-col items-stretch justify-start",
           portfolioMode === "real"
             ? "border-[#58a6ff]/30"
             : "border-[#d29922]/30"
