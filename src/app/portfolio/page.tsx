@@ -106,9 +106,6 @@ export default function PortfolioPage() {
     prevBalRef.current = usdcBal;
   }, [usdcBal, bridgeState, completeBridge, address]);
 
-  // Paper positions only — real positions come exclusively from Polymarket's data API
-  const paperOnlyPositions = paperPositions.filter((p) => p.tradeType !== "real");
-
   // Fetch REAL positions from Polymarket's data API (source of truth).
   // No DB fallback — if the data API says 0 positions, that's the truth.
   // Polymarket /positions response shape. Fields sit at the TOP LEVEL —
@@ -345,11 +342,6 @@ export default function PortfolioPage() {
     }
   }, [polyPositions, closedLocally]);
 
-  // Paper portfolio value
-  const paperBalance = user?.balance || 0;
-  const paperPositionValue = paperOnlyPositions.reduce((sum, p) => sum + p.shares * p.avgPrice, 0);
-  const paperTotal = paperBalance + paperPositionValue;
-
   // Tab state
   const [tab, setTab] = useState<"positions" | "history">("positions");
   // Expandable position + close
@@ -448,10 +440,7 @@ export default function PortfolioPage() {
     setClosingPos(null);
     setSellingPos(null); // close modal either way
   };
-  // Mode: "real" shows USDC.e positions, "paper" shows AIRDROP positions
-  const [portfolioMode, setPortfolioMode] = useState<"real" | "paper">("real");
-
-  // Live prices for ALL positions (paper + real) so we can show real-time P&L
+  // Live prices for positions so we can show real-time P&L.
   const allPositionsWithToken = paperPositions.filter((p) => p.clobTokenId);
   const priceTargets = useMemo(() =>
     allPositionsWithToken.map((p) => ({
@@ -464,17 +453,6 @@ export default function PortfolioPage() {
     [allPositionsWithToken.length]
   );
   const { prices: livePrices } = usePositionLivePrices(priceTargets);
-
-  // Paper P&L
-  const paperPnl = useMemo(() => {
-    let total = 0;
-    for (const pos of paperOnlyPositions) {
-      const live = livePrices[pos.marketId];
-      const livePrice = live ? (pos.outcome === "Yes" ? live.yesPrice : live.noPrice) : pos.avgPrice;
-      total += (livePrice - pos.avgPrice) * pos.shares;
-    }
-    return total;
-  }, [paperOnlyPositions, livePrices]);
 
   // Real P&L — prefer Polymarket data API values when available
   const realPnl = useMemo(() => {
@@ -499,27 +477,6 @@ export default function PortfolioPage() {
   // Ask them, so a bogus "awaiting deposit" doesn't appear if they were
   // only peeking at the address.
   const [confirmDeposit, setConfirmDeposit] = useState<{ chain: string } | null>(null);
-
-  // Referral count
-  const [referralCount, setReferralCount] = useState<number>(0);
-  useEffect(() => {
-    if (!address) return;
-    fetch(`/api/user/referrals?userId=${address}`, {
-      headers: { Authorization: `Bearer ${address}` },
-    })
-      .then((r) => r.ok ? r.json() : null)
-      .then((d) => { if (d) setReferralCount(d.count); })
-      .catch(() => {});
-  }, [address]);
-
-  // Copy feedback
-  const [copied, setCopied] = useState<"code" | "link" | null>(null);
-  const [referralExpanded, setReferralExpanded] = useState(false);
-  const handleCopy = (text: string, type: "code" | "link") => {
-    navigator.clipboard.writeText(text);
-    setCopied(type);
-    setTimeout(() => setCopied(null), 2000);
-  };
 
   if (!isConnected) {
     return (
@@ -546,21 +503,10 @@ export default function PortfolioPage() {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
         {/* Real Trading card — Polymarket-style: big "Total Portfolio"
             (USDC + position values) on the left, "Available to trade" (just
-            USDC) tucked top-right. */}
-        <button
-          type="button"
-          onClick={() => setPortfolioMode("real")}
-          className={cn(
-            // `flex flex-col justify-start` forces content to start at the
-            // top of the stretched grid cell. Without it, the button's
-            // user-agent vertical-center behavior kicks in on cards with
-            // less content (Real has no subtext row, unlike Paper/P&L),
-            // pushing the label block down ~15px vs the sibling cards.
-            "rounded-xl border bg-[#161b22] p-5 text-left transition-all flex flex-col items-stretch justify-start",
-            portfolioMode === "real"
-              ? "border-[#58a6ff]/40 animate-pulse-glow-blue"
-              : "border-[#21262d] hover:border-[#30363d] cursor-pointer"
-          )}
+            USDC) tucked top-right. No longer a button — paper mode was
+            removed, so this card is always the "selected" visual state. */}
+        <div
+          className="rounded-xl border bg-[#161b22] p-5 text-left flex flex-col items-stretch justify-start border-[#58a6ff]/40 animate-pulse-glow-blue"
         >
           {/* Top row mirrors Paper/P&L layout exactly: label on the left,
               a padded badge on the right. Paper has AIRDROP, P&L has USDC,
@@ -595,8 +541,8 @@ export default function PortfolioPage() {
           {bridgeState && (
             <PendingBridgeIndicator state={bridgeState} onDismiss={dismissPending} />
           )}
-        </button>
-        {/* Modals live outside the button to avoid nested-interactive issues */}
+        </div>
+        {/* Modals */}
         <BridgeDepositModal
           open={depositOpen}
           onOpenChange={setDepositOpen}
@@ -640,47 +586,21 @@ export default function PortfolioPage() {
           </div>
         </Link>
 
-        {/* Profit/Loss card — updates based on active mode */}
-        <div className={cn(
-          "rounded-xl border bg-[#161b22] p-5 transition-all flex flex-col items-stretch justify-start",
-          portfolioMode === "real"
-            ? "border-[#58a6ff]/30"
-            : "border-[#d29922]/30"
-        )}>
+        {/* Unrealized P&L — always USDC now that the paper variant lives
+            on /airdrop and can't be swapped in here. */}
+        <div className="rounded-xl border bg-[#161b22] p-5 transition-all flex flex-col items-stretch justify-start border-[#58a6ff]/30">
           <div className="flex items-center justify-between mb-1">
-            <p className="text-[10px] text-[#484f58] uppercase tracking-wider">
-              {portfolioMode === "real" ? "Unrealized P&L" : "Paper P&L"}
-            </p>
-            <span className={cn(
-              "text-[9px] px-1.5 py-0.5 rounded font-medium",
-              portfolioMode === "real"
-                ? "bg-[#58a6ff]/15 text-[#58a6ff]"
-                : "bg-[#d29922]/15 text-[#d29922]"
-            )}>
-              {portfolioMode === "real" ? "USDC" : "AIRDROP"}
-            </span>
+            <p className="text-[10px] text-[#484f58] uppercase tracking-wider">Unrealized P&L</p>
+            <span className="text-[9px] px-1.5 py-0.5 rounded font-medium bg-[#58a6ff]/15 text-[#58a6ff]">USDC</span>
           </div>
-          {portfolioMode === "real" ? (
-            <>
-              <p className={cn("text-3xl font-bold tabular-nums", realPnl >= 0 ? "text-[#3fb950]" : "text-[#f85149]")}>
-                {realPnl >= 0 ? "+" : ""}{formatUsd(realPnl)}
-              </p>
-              <p className="text-xs text-[#484f58] mt-1">
-                {realPositions.length > 0
-                  ? `Across ${realPositions.length} position${realPositions.length !== 1 ? "s" : ""}`
-                  : "Place a trade on Sports to track P&L"}
-              </p>
-            </>
-          ) : (
-            <>
-              <p className={cn("text-3xl font-bold tabular-nums", paperPnl >= 0 ? "text-[#3fb950]" : "text-[#f85149]")}>
-                {paperPnl >= 0 ? "+" : ""}{paperPnl.toFixed(0)} <span className="text-lg">AIRDROP</span>
-              </p>
-              <p className="text-xs text-[#484f58] mt-1">
-                Across {paperOnlyPositions.length} position{paperOnlyPositions.length !== 1 ? "s" : ""}
-              </p>
-            </>
-          )}
+          <p className={cn("text-3xl font-bold tabular-nums", realPnl >= 0 ? "text-[#3fb950]" : "text-[#f85149]")}>
+            {realPnl >= 0 ? "+" : ""}{formatUsd(realPnl)}
+          </p>
+          <p className="text-xs text-[#484f58] mt-1">
+            {realPositions.length > 0
+              ? `Across ${realPositions.length} position${realPositions.length !== 1 ? "s" : ""}`
+              : "Place a trade on Sports to track P&L"}
+          </p>
         </div>
       </div>
 
@@ -727,7 +647,7 @@ export default function PortfolioPage() {
       </div>
 
       {/* Positions Tab */}
-      {tab === "positions" && portfolioMode === "real" && (
+      {tab === "positions" && (
         <div className="rounded-lg border border-[#21262d] bg-[#161b22] overflow-hidden">
           <div className="grid grid-cols-12 gap-2 px-4 py-2.5 text-[10px] text-[#484f58] uppercase tracking-wider border-b border-[#21262d]">
             <div className="col-span-4">{t.portfolio.market}</div>
@@ -912,69 +832,8 @@ export default function PortfolioPage() {
         />
       )}
 
-      {tab === "positions" && portfolioMode === "paper" && (
-        <div className="rounded-lg border border-[#21262d] bg-[#161b22] overflow-hidden">
-          <div className="grid grid-cols-12 gap-2 px-4 py-2.5 text-[10px] text-[#484f58] uppercase tracking-wider border-b border-[#21262d]">
-            <div className="col-span-4">{t.portfolio.market}</div>
-            <div className="col-span-2 text-right">Avg → Now</div>
-            <div className="col-span-2 text-right">{t.portfolio.shares}</div>
-            <div className="col-span-2 text-right">P&L</div>
-            <div className="col-span-2 text-right">{t.portfolio.value}</div>
-          </div>
-
-          {paperOnlyPositions.length === 0 ? (
-            <div className="text-center py-12">
-              <p className="text-sm text-[#484f58]">{t.portfolio.noPositions}</p>
-              <div className="flex gap-3 justify-center mt-3">
-                <Link href="/trade" className="text-xs text-[#58a6ff] hover:underline">Paper Trade</Link>
-                <Link href="/sports" className="text-xs text-[#58a6ff] hover:underline">Sports Betting</Link>
-              </div>
-            </div>
-          ) : (
-            <div className="divide-y divide-[#21262d]">
-              {paperOnlyPositions.map((pos) => {
-                const live = livePrices[pos.marketId];
-                const livePrice = live ? (pos.outcome === "Yes" ? live.yesPrice : live.noPrice) : pos.avgPrice;
-                const value = pos.shares * livePrice;
-                const pnl = (livePrice - pos.avgPrice) * pos.shares;
-                const pnlPct = pos.avgPrice > 0 ? ((livePrice - pos.avgPrice) / pos.avgPrice) * 100 : 0;
-                return (
-                  <div key={pos.id} className="grid grid-cols-12 gap-2 px-4 py-3 items-center hover:bg-[#1c2128]/50 transition-colors">
-                    <div className="col-span-4">
-                      <p className="text-[13px] text-[#e6edf3] font-medium leading-snug line-clamp-1">{pos.marketQuestion}</p>
-                      <p className="text-[10px] text-[#484f58] mt-0.5">{pos.outcome}</p>
-                    </div>
-                    <div className="col-span-2 text-right">
-                      <span className="text-xs text-[#768390] tabular-nums">{Math.round(pos.avgPrice * 100)}¢</span>
-                      <span className="text-[10px] text-[#484f58] mx-0.5">→</span>
-                      <span className={cn("text-xs font-medium tabular-nums", live ? "text-[#e6edf3]" : "text-[#484f58]")}>
-                        {Math.round(livePrice * 100)}¢
-                      </span>
-                    </div>
-                    <div className="col-span-2 text-right">
-                      <span className="text-xs text-[#e6edf3] tabular-nums font-medium">{pos.shares.toFixed(1)}</span>
-                    </div>
-                    <div className="col-span-2 text-right">
-                      <span className={cn("text-xs font-medium tabular-nums", pnl >= 0 ? "text-[#3fb950]" : "text-[#f85149]")}>
-                        {pnl >= 0 ? "+" : ""}{pnl.toFixed(0)}
-                      </span>
-                      <span className={cn("text-[10px] ml-1 tabular-nums", pnl >= 0 ? "text-[#3fb950]/60" : "text-[#f85149]/60")}>
-                        ({pnlPct >= 0 ? "+" : ""}{pnlPct.toFixed(0)}%)
-                      </span>
-                    </div>
-                    <div className="col-span-2 text-right">
-                      <span className="text-xs text-[#e6edf3] tabular-nums font-medium">{value.toFixed(0)} <span className="text-[#484f58]">AIRDROP</span></span>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      )}
-
       {/* History Tab — Real */}
-      {tab === "history" && portfolioMode === "real" && (
+      {tab === "history" && (
         <div className="rounded-lg border border-[#21262d] bg-[#161b22] overflow-hidden">
           <div className="grid grid-cols-12 gap-2 px-4 py-2.5 text-[10px] text-[#484f58] uppercase tracking-wider border-b border-[#21262d]">
             <div className="col-span-1">Side</div>
@@ -1057,19 +916,6 @@ export default function PortfolioPage() {
         </div>
       )}
 
-      {tab === "history" && portfolioMode === "paper" && (
-        <div className="rounded-lg border border-[#21262d] bg-[#161b22] overflow-hidden">
-          <div className="grid grid-cols-12 gap-2 px-4 py-2.5 text-[10px] text-[#484f58] uppercase tracking-wider border-b border-[#21262d]">
-            <div className="col-span-1">Side</div>
-            <div className="col-span-5">Market</div>
-            <div className="col-span-2 text-right">Shares</div>
-            <div className="col-span-2 text-right">Price</div>
-            <div className="col-span-2 text-right">When</div>
-          </div>
-
-          <TradeHistory address={address} />
-        </div>
-      )}
     </div>
   );
 }
@@ -1169,106 +1015,3 @@ function PendingActivityRow({ pending }: { pending: PendingActivity }) {
   );
 }
 
-function ReferralCodeInput({ userId, referredBy }: { userId: string; referredBy: string | null }) {
-  const [code, setCode] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-  const [result, setResult] = useState<{ ok: boolean; msg: string } | null>(null);
-
-  // Already referred — show who referred them
-  if (referredBy) {
-    return (
-      <div className="mt-3 pt-3 border-t border-[#21262d]">
-        <p className="text-[10px] text-[#484f58]">Referred by: <span className="text-[#768390] font-mono">{referredBy}</span></p>
-      </div>
-    );
-  }
-
-  const handleSubmit = async () => {
-    if (!code.trim() || submitting) return;
-    setSubmitting(true);
-    setResult(null);
-    try {
-      const res = await fetch("/api/airdrop", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${userId}` },
-        body: JSON.stringify({ userId, type: "apply-referral", referralCode: code.trim().toUpperCase() }),
-      });
-      const data = await res.json();
-      if (res.ok) {
-        setResult({ ok: true, msg: "Referral applied! Your friend will receive 5,000 AIRDROP when you claim your signup bonus." });
-        setCode("");
-      } else {
-        setResult({ ok: false, msg: data.error || "Invalid code" });
-      }
-    } catch {
-      setResult({ ok: false, msg: "Network error" });
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  return (
-    <div className="mt-3 pt-3 border-t border-[#21262d]">
-      <p className="text-xs text-[#768390] mb-2">Have a friend&apos;s referral code?</p>
-      <div className="flex gap-2">
-        <input
-          type="text"
-          placeholder="PS-XXXXXXXX"
-          value={code}
-          onChange={(e) => setCode(e.target.value)}
-          className="flex-1 bg-[#0d1117] border border-[#30363d] rounded-lg px-3 py-2 text-sm text-white placeholder-[#484f58] focus:border-[#58a6ff] outline-none font-mono uppercase"
-          maxLength={11}
-        />
-        <button
-          onClick={handleSubmit}
-          disabled={submitting || !code.trim()}
-          className="px-4 py-2 rounded-lg text-xs font-semibold bg-[#58a6ff] text-white hover:bg-[#4d8fea] transition-colors disabled:opacity-50 whitespace-nowrap"
-        >
-          {submitting ? "Applying..." : "Apply Code"}
-        </button>
-      </div>
-      {result && (
-        <p className={cn("text-xs mt-2", result.ok ? "text-[#3fb950]" : "text-[#f85149]")}>{result.msg}</p>
-      )}
-    </div>
-  );
-}
-
-function TradeHistory({ address }: { address: string | null }) {
-  const { trades } = useUser();
-
-  if (trades.length === 0) {
-    return <p className="text-sm text-[#484f58] text-center py-12">No trade history</p>;
-  }
-
-  return (
-    <div className="divide-y divide-[#21262d]">
-      {trades.map((t) => {
-        const time = new Date(t.createdAt);
-        const timeStr = time.toLocaleDateString(undefined, { month: "short", day: "numeric" }) + " " + time.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
-        return (
-          <div key={t.id} className="grid grid-cols-12 gap-2 px-4 py-3 items-center hover:bg-[#1c2128]/50 transition-colors">
-            <div className="col-span-1">
-              <span className={cn("text-xs font-semibold", t.side === "buy" ? "text-[#3fb950]" : "text-[#f85149]")}>
-                {t.side.toUpperCase()}
-              </span>
-            </div>
-            <div className="col-span-5">
-              <p className="text-[13px] text-[#e6edf3] leading-snug line-clamp-1">{t.marketQuestion}</p>
-              <p className="text-[10px] text-[#484f58]">{t.outcome}</p>
-            </div>
-            <div className="col-span-2 text-right">
-              <span className="text-xs text-[#e6edf3] tabular-nums">{t.shares.toFixed(1)}</span>
-            </div>
-            <div className="col-span-2 text-right">
-              <span className="text-xs text-[#e6edf3] tabular-nums">{Math.round(t.price * 100)}¢</span>
-            </div>
-            <div className="col-span-2 text-right">
-              <span className="text-[10px] text-[#484f58]">{timeStr}</span>
-            </div>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
