@@ -766,7 +766,26 @@ export default function PortfolioPage() {
                         purely presentational now. */}
                     {result && (
                       <div className="px-4 py-2 bg-[#0d1117] border-t border-[#21262d] space-y-2">
-                        <p className={cn("text-xs font-medium", result.ok ? "text-[#3fb950]" : "text-[#f85149]")}>{result.msg}</p>
+                        <p className={cn("text-xs font-medium", result.ok ? "text-[#3fb950]" : "text-[#f85149]")}>
+                          {/* Linkify any https:// URLs in the message —
+                              used by the "market resolved" error to point
+                              users at polymarket.com/portfolio for redeem. */}
+                          {result.msg.split(/(https?:\/\/\S+)/g).map((part, i) =>
+                            /^https?:\/\//.test(part) ? (
+                              <a
+                                key={i}
+                                href={part}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="underline hover:text-white"
+                              >
+                                {part}
+                              </a>
+                            ) : (
+                              <span key={i}>{part}</span>
+                            )
+                          )}
+                        </p>
                         {result.ok && result.txHashes && result.txHashes.length > 0 ? (
                           <TradeProgress txHashes={result.txHashes} label="Settling your close…" />
                         ) : result.ok ? (

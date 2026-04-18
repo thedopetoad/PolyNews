@@ -302,6 +302,16 @@ export function usePolymarketTrade() {
           msg = params.side === "BUY"
             ? "Insufficient USDC.e in your Polymarket proxy wallet. Deposit more to trade."
             : "Not enough shares to sell — this position may have already been closed. Reload the page to refresh.";
+        } else if (raw.includes("orderbook") && raw.includes("does not exist")) {
+          // Polymarket deletes the CLOB orderbook the moment a market
+          // resolves. Winning shares are no longer sellable — they
+          // have to be redeemed 1-for-1 for USDC via the on-chain
+          // ConditionalTokens contract. We don't have an in-app redeem
+          // flow yet, so point the user at Polymarket's portfolio UI
+          // (Redeem buttons live there).
+          msg = params.side === "SELL"
+            ? "Market resolved — redeem at https://polymarket.com/portfolio to cash out the winning shares. (The CLOB sell orderbook is gone once a market settles.)"
+            : "Market resolved — you can't buy into a settled market.";
         } else if (raw.includes("not enough liquidity") || raw.includes("no asks") || raw.includes("no bids") || raw.includes("could not be filled")) {
           msg = "Not enough liquidity at this price. The market is too thin — try a smaller amount or wait for better odds.";
         } else if (raw.includes("not match") || raw.includes("price range")) {
