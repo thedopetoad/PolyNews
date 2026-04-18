@@ -44,8 +44,35 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: "Invalid referral code" }, { status: 400 });
       }
 
-      // Set referredBy — bonus will be paid when user claims signup airdrop
+      // Set referredBy AND pay the referrer immediately. Older versions
+      // of this handler deferred the bonus to "when user claims signup
+      // airdrop" — but signup bonuses are auto-granted at user creation
+      // now (see /api/user POST), so that claim path never executes.
+      // Result: referrers stayed at 0 even though "1 friend" showed up
+      // on their dashboard. Pay here, idempotency comes from the
+      // user.referredBy guard above.
       await db.update(users).set({ referredBy: referralCode.toUpperCase() }).where(eq(users.id, normalizedUserId));
+
+      await db
+        .update(users)
+        .set({ balance: sql`${users.balance} + ${AIRDROP_AMOUNTS.referralBonus}` })
+        .where(eq(users.id, referrer.id));
+
+      const weekKey = isoWeekKey();
+      await db.insert(airdrops).values({
+        id: generateSecureId(),
+        userId: referrer.id,
+        source: "referral",
+        amount: AIRDROP_AMOUNTS.referralBonus,
+        weekKey,
+      });
+
+      await db.insert(referrals).values({
+        id: generateSecureId(),
+        referrerId: referrer.id,
+        referredId: normalizedUserId,
+        signupBonusPaid: true,
+      });
 
       return NextResponse.json({ success: true });
     }
