@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useUser } from "@/hooks/use-user";
 import { usePositionLivePrices } from "@/hooks/use-live-prices";
@@ -77,7 +78,6 @@ export function AirdropPortfolioTab() {
   // rather than pulling the whole /api/airdrop/me payload — keeps
   // this tab's dependencies lean.
   const [referralCount, setReferralCount] = useState<number | null>(null);
-  const [copiedRef, setCopiedRef] = useState(false);
   useEffect(() => {
     if (!address) return;
     let cancelled = false;
@@ -87,13 +87,6 @@ export function AirdropPortfolioTab() {
       .catch(() => {});
     return () => { cancelled = true; };
   }, [address]);
-
-  const copyRefCode = () => {
-    if (!user?.referralCode) return;
-    navigator.clipboard.writeText(user.referralCode);
-    setCopiedRef(true);
-    setTimeout(() => setCopiedRef(false), 1500);
-  };
 
   const confirmClose = async () => {
     if (!pendingClose) return;
@@ -234,20 +227,17 @@ export function AirdropPortfolioTab() {
           <p className="text-[11px] text-[#adbac7]/70 mt-2 leading-snug">
             {t.airdrop.portfolioCard.shareCopy}
           </p>
-          {user?.referralCode && (
-            <div className="mt-auto pt-3 flex items-center gap-2">
-              <div className="flex-1 min-w-0 bg-[#0d1117] border border-[#d4a843]/20 rounded px-2.5 py-1.5 font-mono text-xs text-white truncate">
-                {user.referralCode}
-              </div>
-              <button
-                type="button"
-                onClick={copyRefCode}
-                className="text-xs font-semibold bg-[#d4a843]/20 text-[#f5c542] border border-[#d4a843]/30 px-3 py-1.5 rounded hover:bg-[#d4a843]/30 whitespace-nowrap"
-              >
-                {copiedRef ? t.airdrop.portfolioCard.copied : t.airdrop.portfolioCard.copy}
-              </button>
-            </div>
-          )}
+          <div className="mt-auto pt-3">
+            <Link
+              href="/airdrop?tab=earn"
+              className="inline-flex items-center justify-center gap-1.5 w-full text-xs font-semibold bg-gradient-to-r from-[#f5c542] to-[#d4a843] text-[#0d1117] px-3 py-2 rounded hover:from-[#f8d155] hover:to-[#e0b247] shadow-[0_0_12px_rgba(212,168,67,0.25)] transition-colors"
+            >
+              {t.airdrop.portfolioCard.openReferralCenter}
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M5 12h14M13 6l6 6-6 6" />
+              </svg>
+            </Link>
+          </div>
         </div>
       </div>
 

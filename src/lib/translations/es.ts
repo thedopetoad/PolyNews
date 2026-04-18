@@ -182,6 +182,7 @@ export const es: TranslationKeys = {
       friend: "amigo",
       friends: "amigos",
       shareCopy: "Comparte tu c\u00f3digo para subir en el ranking — los referidos son el mayor premio AIRDROP.",
+      openReferralCenter: "Compartir e invitar amigos",
       copy: "Copiar",
       copied: "\u00a1Copiado!",
     },

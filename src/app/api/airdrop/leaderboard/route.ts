@@ -40,28 +40,37 @@ export async function GET(request: NextRequest) {
       // airdrops grant ledger, which excluded STARTING_BALANCE + trade
       // P&L — meaning a user with 2K in their wallet could be missing
       // from the leaderboard entirely.)
-      const allUsers = await db
-        .select({
-          id: users.id,
-          displayName: users.displayName,
-          referralCode: users.referralCode,
-          balance: users.balance,
-        })
-        .from(users);
+      //
+      // 3 reads in parallel — none depend on each other's results.
+      const [allUsers, posRows, refCountRows] = await Promise.all([
+        db
+          .select({
+            id: users.id,
+            displayName: users.displayName,
+            referralCode: users.referralCode,
+            balance: users.balance,
+          })
+          .from(users),
+        db
+          .select({
+            userId: positions.userId,
+            tradeType: positions.tradeType,
+            shares: positions.shares,
+            avgPrice: positions.avgPrice,
+          })
+          .from(positions),
+        db
+          .select({
+            code: users.referredBy,
+            count: sql<number>`COUNT(*)`.as("count"),
+          })
+          .from(users)
+          .where(isNotNull(users.referredBy))
+          .groupBy(users.referredBy),
+      ]);
 
       if (allUsers.length === 0) return NextResponse.json({ leaderboard: [] });
 
-      // Open paper position value per user — entry price (live prices
-      // would slow this endpoint). Matches /api/airdrop/me's net-worth
-      // calculation for consistency.
-      const posRows = await db
-        .select({
-          userId: positions.userId,
-          tradeType: positions.tradeType,
-          shares: positions.shares,
-          avgPrice: positions.avgPrice,
-        })
-        .from(positions);
       const positionValueByUser = new Map<string, number>();
       for (const p of posRows) {
         if (p.tradeType === "real") continue;
@@ -70,16 +79,6 @@ export async function GET(request: NextRequest) {
           (positionValueByUser.get(p.userId) || 0) + p.shares * p.avgPrice,
         );
       }
-
-      // Referral counts — one query over all referredBy values.
-      const refCountRows = await db
-        .select({
-          code: users.referredBy,
-          count: sql<number>`COUNT(*)`.as("count"),
-        })
-        .from(users)
-        .where(isNotNull(users.referredBy))
-        .groupBy(users.referredBy);
       const refCounts = new Map(refCountRows.map((r) => [r.code, Number(r.count)]));
 
       const ranked = allUsers

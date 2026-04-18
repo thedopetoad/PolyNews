@@ -180,6 +180,7 @@ export const en = {
       friend: "friend",
       friends: "friends",
       shareCopy: "Share your code to climb the leaderboard — referrals are the biggest AIRDROP win.",
+      openReferralCenter: "Share & invite friends",
       copy: "Copy",
       copied: "Copied!",
     },

@@ -443,8 +443,12 @@ function ReferralCodeInput({ userId, referredBy, onApplied }: { userId: string; 
       <div className="flex gap-2">
         <input
           value={code}
-          onChange={(e) => setCode(e.target.value)}
+          onChange={(e) => setCode(e.target.value.slice(0, 16))}
           placeholder="PS-XXXXXXXX"
+          maxLength={16}
+          spellCheck={false}
+          autoCapitalize="characters"
+          autoComplete="off"
           className="flex-1 min-w-0 bg-[#0d1117] border border-[#21262d] rounded px-2.5 py-1.5 text-xs text-white font-mono uppercase placeholder:text-[#484f58] focus:outline-none focus:border-[#d4a843]/50"
         />
         <button
