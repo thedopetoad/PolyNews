@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb, users, positions, trades, airdrops } from "@/db";
-import { eq, and, ne } from "drizzle-orm";
+import { eq, and, ne, sql } from "drizzle-orm";
 import {
   isValidAddress,
   generateReferralCode,
@@ -108,11 +108,36 @@ export async function POST(request: NextRequest) {
       .limit(1);
 
     if (existing.length > 0) {
+      const row = existing[0];
       // Update email if we have one now and they don't
-      if (normalizedEmail && !existing[0].email) {
+      if (normalizedEmail && !row.email) {
         await db.update(users).set({ email: normalizedEmail, lastLoginAt: new Date() }).where(eq(users.id, normalizedId));
       }
-      return NextResponse.json(existing[0]);
+      // Back-fill referral code if the user was created without one (e.g.
+      // the friend clicked a `?ref=` link, got bitten by the pre-fix
+      // Google OAuth stripping of the ref param, and is now retrying
+      // with the same link). Atomic — only sets referredBy if it's still
+      // NULL, so two concurrent retries can't both credit the referrer.
+      if (referredBy && !row.referredBy) {
+        const code = String(referredBy).toUpperCase();
+        const [referrer] = await db
+          .select({ id: users.id, referralCode: users.referralCode })
+          .from(users)
+          .where(eq(users.referralCode, code))
+          .limit(1);
+        // Only proceed if the code is valid AND not a self-referral.
+        if (referrer && referrer.id !== normalizedId) {
+          const claim = await db
+            .update(users)
+            .set({ referredBy: code })
+            .where(and(eq(users.id, normalizedId), sql`${users.referredBy} IS NULL`))
+            .returning({ id: users.id });
+          if (claim.length > 0) {
+            await payReferralBonus(db, referrer.id, normalizedId);
+          }
+        }
+      }
+      return NextResponse.json(row);
     }
 
     // ─── Account migration: check if old account exists with same email ───
