@@ -36,6 +36,19 @@ export function NewsFeed({ className }: { className?: string }) {
   const [activeCategory, setActiveCategory] = useState<string>("All");
   const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
 
+  // Mouse-wheel handler that turns vertical wheel input into horizontal
+  // scroll on the filter strips. Without this, desktop users with a
+  // mouse wheel (no trackpad) can't reach the right-side filters that
+  // are off-screen — the scrollbar is hidden and there's no obvious
+  // affordance. Same trick the expanded-markets row uses below.
+  const onHorizontalWheel = (e: React.WheelEvent<HTMLDivElement>) => {
+    const el = e.currentTarget;
+    if (el.scrollWidth > el.clientWidth && e.deltaY !== 0) {
+      e.preventDefault();
+      el.scrollLeft += e.deltaY;
+    }
+  };
+
   const { data, isLoading } = useQuery({
     queryKey: ["news-headlines"],
     queryFn: async () => {
@@ -125,7 +138,11 @@ export function NewsFeed({ className }: { className?: string }) {
       </div>
 
       {/* Source filter tabs */}
-      <div className="flex gap-1.5 px-3 py-2 border-b border-[#21262d] overflow-x-auto flex-shrink-0" style={{ scrollbarWidth: "none", WebkitOverflowScrolling: "touch" }}>
+      <div
+        className="flex gap-1.5 px-3 py-2 border-b border-[#21262d] overflow-x-auto flex-shrink-0"
+        style={{ scrollbarWidth: "none", WebkitOverflowScrolling: "touch" }}
+        onWheel={onHorizontalWheel}
+      >
         {NEWS_SOURCES.map((src) => (
           <button
             key={src}
@@ -141,7 +158,11 @@ export function NewsFeed({ className }: { className?: string }) {
       </div>
 
       {/* Category filter tabs */}
-      <div className="flex gap-1.5 px-3 py-2 border-b border-[#21262d] overflow-x-auto flex-shrink-0" style={{ scrollbarWidth: "none", WebkitOverflowScrolling: "touch" }}>
+      <div
+        className="flex gap-1.5 px-3 py-2 border-b border-[#21262d] overflow-x-auto flex-shrink-0"
+        style={{ scrollbarWidth: "none", WebkitOverflowScrolling: "touch" }}
+        onWheel={onHorizontalWheel}
+      >
         {NEWS_CATEGORIES.map((cat) => (
           <button
             key={cat}
