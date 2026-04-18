@@ -133,8 +133,13 @@ export async function POST(request: NextRequest) {
             .where(and(eq(users.id, normalizedId), sql`${users.referredBy} IS NULL`))
             .returning({ id: users.id });
           if (claim.length > 0) {
-            await payReferralBonus(db, referrer.id, normalizedId);
+            const paid = await payReferralBonus(db, referrer.id, normalizedId);
+            console.log(`[backfill-ref] user=${normalizedId} ref=${code} paid=${paid}`);
+          } else {
+            console.log(`[backfill-ref] user=${normalizedId} ref=${code} skipped=CAS_LOST`);
           }
+        } else {
+          console.log(`[backfill-ref] user=${normalizedId} ref=${code} skipped=${referrer ? "SELF_REF" : "UNKNOWN_CODE"}`);
         }
       }
       return NextResponse.json(row);
@@ -237,6 +242,7 @@ export async function POST(request: NextRequest) {
     // index on referrals.referred_id) protects this path. If a separate
     // /api/airdrop apply-referral fires for the same pair, only the
     // first one through actually credits the bonus.
+    let paid = false;
     if (validatedRefCode) {
       const [referrer] = await db
         .select({ id: users.id })
@@ -244,9 +250,18 @@ export async function POST(request: NextRequest) {
         .where(eq(users.referralCode, validatedRefCode))
         .limit(1);
       if (referrer) {
-        await payReferralBonus(db, referrer.id, normalizedId);
+        paid = await payReferralBonus(db, referrer.id, normalizedId);
       }
     }
+
+    // Observability hook — if a ref-less signup flood appears again,
+    // this line tells us instantly whether it's the client dropping the
+    // ref before the POST (ref=MISSING on the new user) or the server
+    // failing to pay (ref=<code> but paid=false). Greppable in Vercel
+    // logs. Cheap; one line per signup, never contains a secret.
+    console.log(
+      `[signup] user=${normalizedId} auth=${authMethod} ref=${validatedRefCode ?? (referredBy ? `REJECTED:${referredBy}` : "MISSING")} paid=${paid}`
+    );
 
     return NextResponse.json(newUser, { status: 201 });
   } catch {

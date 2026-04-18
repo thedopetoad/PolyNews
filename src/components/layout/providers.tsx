@@ -108,9 +108,11 @@ function MagicSessionRestore() {
         // Consume the pending ref INSIDE the branch that actually uses
         // it. Calling it upfront would eat the sessionStorage value on
         // the initial page load (no OAuth yet, no session yet) and then
-        // the redirect-back page load would find nothing to read. That
-        // bug dropped referrer credit for anyone who Google-signed-up
-        // via a ref link — new user never landed with their ref intact.
+        // the redirect-back page load would find nothing to read.
+        // Capture right before consume, so if the user arrived via
+        // client-side SPA nav (providers mounted earlier without a ref,
+        // user later navigated to a URL with ?ref=), we still see it.
+        captureRefFromUrl();
         const refCode = consumePendingRef();
         await fetch("/api/user", {
           method: "POST",
@@ -140,7 +142,10 @@ function MagicSessionRestore() {
       const existing = await checkMagicSession();
       if (existing) {
         setGoogleAddress(existing.address);
-        // Same one-shot rule — consume only when we're about to use it.
+        // Same one-shot rule — capture-right-before-consume so
+        // client-side navs to `/?ref=…` get caught even when providers
+        // hasn't re-mounted.
+        captureRefFromUrl();
         const refCode = consumePendingRef();
         // POST /api/user on every session restore so stale rows (created
         // before we were capturing email) backfill their email field.
