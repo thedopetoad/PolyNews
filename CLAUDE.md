@@ -189,6 +189,30 @@ had slipped through.
 - Wired to GitHub repo `thedopetoad/PolyNews`, auto-deploys on push to master
 - Do NOT run `npx vercel --prod` directly — push to GitHub and let Vercel deploy
 
+### Staging / production split
+- **master** → production (`polystream.vercel.app`)
+- **staging** → preview (`polystream-git-staging-williamnuuh-7435s-projects.vercel.app`)
+- Vercel auto-deploys EVERY branch push to its own URL. The staging
+  branch URL is stable (always points at staging's HEAD), unlike the
+  per-commit hash URLs.
+- Vercel `crons` only run on the production branch, so staging won't
+  trigger the Monday leaderboard snapshot.
+- **Same Neon DB on both right now.** Test users created on staging
+  WILL show up in production's leaderboard. If that becomes an issue,
+  use Neon's branching to spin up a staging DB and override
+  `DATABASE_URL` in Vercel's "Preview" environment scope.
+
+### Recommended workflow for non-trivial fixes
+1. `git checkout staging && git merge master` — sync staging with prod
+2. Edit + commit + `git push` (still on staging)
+3. Visit the staging URL, verify the fix
+4. `git checkout master && git merge staging && git push` — promote to prod
+
+### Hotfixes
+For small, low-risk changes (typo, copy tweak), pushing straight to
+master is still fine. Reserve the staging dance for things that touch
+auth, payouts, or the trade flow.
+
 ## Git
 - User: toad <thedopetoad@gmail.com>
 - Remote: https://github.com/thedopetoad/PolyNews (master branch = production)
