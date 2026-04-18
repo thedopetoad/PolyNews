@@ -73,8 +73,12 @@ export function BetSlip({ eventTitle, eventSlug: _eventSlug, eventEndDate: _even
   const queryClient = useQueryClient();
   const { format } = useOddsFormat();
 
-  // Funds live in the Polymarket proxy wallet (derived from the EOA), not
-  // in the EOA itself. Read from both and sum — matches the portfolio page.
+  // Funds live in the Polymarket proxy wallet (derived from the EOA);
+  // every trade settles there. We deliberately don't roll the EOA
+  // balance in — that money isn't available to bet without an explicit
+  // deposit, and showing it inflated the slip's "Balance: $X" line so
+  // users would size bets they couldn't actually place. Mirrors the
+  // proxy-only total on the Portfolio page.
   const proxyAddress = address ? deriveProxyAddress(address) : undefined;
   const { data: proxyUsdcBalance } = useBalance({
     address: proxyAddress as `0x${string}` | undefined,
@@ -82,15 +86,7 @@ export function BetSlip({ eventTitle, eventSlug: _eventSlug, eventEndDate: _even
     chainId: polygon.id,
     query: { enabled: !!proxyAddress },
   });
-  const { data: eoaUsdcBalance } = useBalance({
-    address: address as `0x${string}` | undefined,
-    token: USDC_ADDRESS,
-    chainId: polygon.id,
-    query: { enabled: !!address },
-  });
-  const proxyBal = proxyUsdcBalance ? parseFloat(proxyUsdcBalance.formatted) : 0;
-  const eoaBal = eoaUsdcBalance ? parseFloat(eoaUsdcBalance.formatted) : 0;
-  const usdcBal = proxyBal + eoaBal;
+  const usdcBal = proxyUsdcBalance ? parseFloat(proxyUsdcBalance.formatted) : 0;
   const { t } = useT();
 
   // Look up the user's holdings for all outcomes in this market — drives
