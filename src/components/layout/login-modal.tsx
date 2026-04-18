@@ -30,8 +30,37 @@ export function LoginButton() {
   const { connectors, connect } = useConnect();
   const { disconnect: wagmiDisconnect } = useDisconnect();
   const { googleAddress, setGoogleAddress } = useAuthStore();
-  const { user } = useUser();
+  const { user, setDisplayName, isSettingName } = useUser();
   const { t } = useT();
+
+  // Inline nickname editor inside the wallet dropdown. Values mirror
+  // the same validation /api/user PATCH enforces: 2–20 chars, only
+  // letters/numbers/underscores. Errors surface inline so users don't
+  // have to re-discover the rule on each attempt.
+  const [editingName, setEditingName] = useState(false);
+  const [nameDraft, setNameDraft] = useState("");
+  const [nameError, setNameError] = useState<string | null>(null);
+
+  const startEditingName = () => {
+    setNameDraft(user?.displayName || "");
+    setNameError(null);
+    setEditingName(true);
+  };
+
+  const submitName = async () => {
+    const trimmed = nameDraft.trim();
+    if (trimmed === (user?.displayName || "")) {
+      setEditingName(false);
+      return;
+    }
+    setNameError(null);
+    try {
+      await setDisplayName(trimmed);
+      setEditingName(false);
+    } catch (e) {
+      setNameError((e as Error).message);
+    }
+  };
 
   // Prefer Google address so a side-wallet connected via the LI.FI deposit
   // widget (e.g. Phantom) can't hijack the primary session via wagmi.
@@ -82,16 +111,74 @@ export function LoginButton() {
 
   // ─── Connected: address with dropdown ───
   if (isConnected && connectedAddress) {
+    // Pill label: prefer the user's nickname, fall back to truncated wallet.
+    // Nickname makes the leaderboards readable instead of a sea of 0x6c…cff4.
+    const pillLabel = user?.displayName
+      ? user.displayName
+      : `${connectedAddress.slice(0, 6)}...${connectedAddress.slice(-4)}`;
     return (
       <div className="relative" ref={menuRef}>
         <button
           onClick={() => setMenuOpen(!menuOpen)}
           className="h-8 px-3 rounded-full bg-[#1c2128] text-[#adbac7] text-xs font-medium border border-[#21262d] hover:border-[#30363d] transition-colors"
         >
-          {connectedAddress.slice(0, 6)}...{connectedAddress.slice(-4)}
+          {pillLabel}
         </button>
         {menuOpen && (
-          <div className="absolute right-0 top-10 w-48 rounded-lg border border-[#21262d] bg-[#161b22] shadow-xl z-50 overflow-hidden">
+          <div className="absolute right-0 top-10 w-64 rounded-lg border border-[#21262d] bg-[#161b22] shadow-xl z-50 overflow-hidden">
+            {/* Nickname row — click "Set" / pencil to edit inline */}
+            {user && (
+              <div className="px-4 py-3 border-b border-[#21262d]">
+                <p className="text-[10px] text-[#484f58] uppercase mb-1">Nickname</p>
+                {editingName ? (
+                  <div className="space-y-1.5">
+                    <div className="flex items-center gap-1.5">
+                      <input
+                        type="text"
+                        value={nameDraft}
+                        onChange={(e) => setNameDraft(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") submitName();
+                          if (e.key === "Escape") { setEditingName(false); setNameError(null); }
+                        }}
+                        autoFocus
+                        maxLength={20}
+                        placeholder="2-20 chars, a-z 0-9 _"
+                        className="flex-1 min-w-0 bg-[#0d1117] border border-[#30363d] rounded px-2 py-1 text-xs text-white placeholder:text-[#484f58] focus:outline-none focus:border-[#58a6ff]"
+                      />
+                      <button
+                        onClick={submitName}
+                        disabled={isSettingName}
+                        className="text-[10px] font-semibold text-[#3fb950] hover:underline disabled:opacity-50"
+                      >
+                        {isSettingName ? "…" : "Save"}
+                      </button>
+                      <button
+                        onClick={() => { setEditingName(false); setNameError(null); }}
+                        className="text-[10px] text-[#768390] hover:text-[#adbac7]"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                    {nameError && (
+                      <p className="text-[10px] text-[#f85149]">{nameError}</p>
+                    )}
+                  </div>
+                ) : (
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-sm text-white truncate">
+                      {user.displayName || <span className="text-[#484f58] italic">Not set</span>}
+                    </p>
+                    <button
+                      onClick={startEditingName}
+                      className="text-[10px] font-semibold text-[#58a6ff] hover:underline flex-shrink-0"
+                    >
+                      {user.displayName ? "Edit" : "Set"}
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
             <div className="px-4 py-3 border-b border-[#21262d]">
               <p className="text-[10px] text-[#484f58] uppercase">{t.login.wallet}</p>
               <p className="text-[11px] text-[#adbac7] font-mono break-all">{connectedAddress}</p>
