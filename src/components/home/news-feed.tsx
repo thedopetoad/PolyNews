@@ -56,9 +56,21 @@ export function NewsFeed({ className }: { className?: string }) {
     if (!el) return;
     const handler = (e: WheelEvent) => {
       if (el.scrollWidth <= el.clientWidth) return;
+      // Pick the larger-magnitude axis so a pure horizontal trackpad
+      // swipe (deltaX only) also consumes the gesture here instead of
+      // the browser firing its "swipe back" default.
       const delta = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
       if (delta === 0) return;
+      // Both are needed:
+      //   preventDefault — blocks the browser's default wheel behavior
+      //     on this element (vertical page scroll, swipe-back, etc).
+      //   stopPropagation — keeps the event from bubbling to any
+      //     ancestor wheel listener (the document's natural scroll
+      //     chain) which would ALSO fire and scroll the page. Without
+      //     this, the page was scrolling vertically at the same time
+      //     as the strip slid horizontally.
       e.preventDefault();
+      e.stopPropagation();
       el.scrollLeft += delta;
     };
     el.addEventListener("wheel", handler, { passive: false });
