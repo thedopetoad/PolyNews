@@ -280,6 +280,34 @@ export default function AdminPage() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
 
+  // User search — debounced server-side ILIKE across id/name/email/wallet/IP.
+  // Empty query returns the most recent 100, so the table is always
+  // populated. When non-empty, swaps results into the same table that
+  // Recent Signups uses so the expansion drawer + actions just work.
+  const [userSearch, setUserSearch] = useState("");
+  const [userSearchResults, setUserSearchResults] = useState<{
+    users: AdminData["recentUsers"];
+    shownCount: number;
+    totalCount: number;
+  } | null>(null);
+  const [userSearchLoading, setUserSearchLoading] = useState(false);
+
+  useEffect(() => {
+    if (authed !== true) return;
+    setUserSearchLoading(true);
+    const t = setTimeout(async () => {
+      try {
+        const res = await fetch(
+          `/api/admin/users?q=${encodeURIComponent(userSearch.trim())}`,
+          { credentials: "include" }
+        );
+        if (res.ok) setUserSearchResults(await res.json());
+      } catch {}
+      setUserSearchLoading(false);
+    }, 200);
+    return () => clearTimeout(t);
+  }, [userSearch, authed]);
+
   // On mount: verify the session TWO ways.
   //   1. Cookie check — the server-side HMAC session is still valid.
   //   2. Wallet check — Phantom is still actively trusting this dApp with
@@ -832,12 +860,36 @@ export default function AdminPage() {
         </div>
       )}
 
-      {/* Recent Users */}
+      {/* Recent Users + search. The search input swaps server results
+          into the same table — same row layout, same expansion drawer,
+          same action buttons all work unchanged. */}
+      {(() => {
+        const usersToShow = userSearchResults?.users ?? data.recentUsers;
+        const isSearching = userSearch.trim().length > 0;
+        const showingTruncated =
+          userSearchResults != null &&
+          userSearchResults.shownCount < userSearchResults.totalCount;
+        return (
       <div className="bg-[#161b22] border border-[#21262d] rounded-lg p-4">
-        <h2 className="text-sm font-semibold text-white mb-3 flex items-center gap-2">
-          <Users className="w-4 h-4 text-[#58a6ff]" />
-          Recent Signups ({data.recentUsers.length})
-        </h2>
+        <div className="flex items-center justify-between gap-3 mb-3 flex-wrap">
+          <h2 className="text-sm font-semibold text-white flex items-center gap-2">
+            <Users className="w-4 h-4 text-[#58a6ff]" />
+            {isSearching ? "Search results" : "Recent Signups"} ({usersToShow.length}
+            {showingTruncated ? ` of ${userSearchResults!.totalCount}` : ""})
+          </h2>
+          <div className="relative flex-1 max-w-xs">
+            <input
+              type="text"
+              value={userSearch}
+              onChange={(e) => setUserSearch(e.target.value)}
+              placeholder="Search by name, email, wallet, code, IP…"
+              className="w-full bg-[#0d1117] border border-[#30363d] rounded px-2.5 py-1 text-xs text-white placeholder:text-[#484f58] focus:outline-none focus:border-[#58a6ff]"
+            />
+            {userSearchLoading && (
+              <RefreshCw className="absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-[#58a6ff] animate-spin" />
+            )}
+          </div>
+        </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
@@ -854,7 +906,7 @@ export default function AdminPage() {
               </tr>
             </thead>
             <tbody>
-              {data.recentUsers.map((u) => (<>
+              {usersToShow.map((u) => (<>
                 <tr key={u.id} className={`border-b border-[#21262d]/50 cursor-pointer transition-colors ${selectedUserId === u.id ? "bg-[#58a6ff]/5" : "hover:bg-[#1c2128]"}`} onClick={() => fetchUserDetail(u.id)}>
                   <td className="py-2 pr-4 font-mono text-xs text-[#e6edf3]">
                     <span
@@ -1031,6 +1083,8 @@ export default function AdminPage() {
           </table>
         </div>
       </div>
+        );
+      })()}
     </div>
   );
 }
