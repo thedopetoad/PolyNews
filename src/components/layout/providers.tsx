@@ -3,7 +3,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { checkMagicSession, handleOAuthRedirect, getMagic, consumePostLoginReturnPath, type OAuthResult } from "@/lib/magic";
+import { checkMagicSession, handleOAuthRedirect, getMagic, consumePostLoginReturnPath, captureRefFromUrl, consumePendingRef, type OAuthResult } from "@/lib/magic";
 import { useAuthStore } from "@/stores/use-auth-store";
 import { magicConnector, prepareMagicConnector } from "@/lib/magic-connector";
 import { I18nProvider } from "@/lib/i18n";
@@ -92,7 +92,11 @@ function MagicSessionRestore() {
 
     inFlightRef.current = true;
     try {
-      const refCode = new URLSearchParams(window.location.search).get("ref") || undefined;
+      // consumePendingRef reads from sessionStorage first (survives
+      // OAuth redirects), falling back to the URL for the wallet flow
+      // that never leaves the site. Captured on mount below so it's
+      // stashed before any redirect can strip it.
+      const refCode = consumePendingRef();
 
       // Helper: after Magic auth succeeds, prepare the connector and connect via wagmi
       const connectMagicToWagmi = (address: string) => {
@@ -162,6 +166,10 @@ function MagicSessionRestore() {
   useEffect(() => {
     if (mountedRef.current) return;
     mountedRef.current = true;
+    // Stash `?ref=` before any login flow can redirect away. Idempotent
+    // and cheap — only the first ref wins, so navigating around with
+    // multiple refs in the URL doesn't overwrite the original one.
+    captureRefFromUrl();
     restore();
   }, [restore]);
 

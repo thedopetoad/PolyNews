@@ -74,6 +74,55 @@ export async function checkMagicSession(): Promise<{ address: string; email: str
 // aggrehglory@gmail.com hit exactly that path on /airdrop or similar.
 const RETURN_PATH_KEY = "polystream:login-return-path";
 
+// sessionStorage key for the referral code lifted from a `?ref=…` URL
+// param. We stash it on page load so it can survive the Google OAuth
+// round-trip (which strips every URL param that isn't state/code).
+// Without this, any friend who clicks a referral link and signs up
+// with Google creates an account with referredBy=null — the referrer
+// never sees their friend count tick up or gets the +5000 bonus.
+// Wallet logins were fine because they don't redirect off-site.
+const REF_KEY = "polystream:pending-ref";
+
+/**
+ * Capture `?ref=…` from the current URL into sessionStorage so it
+ * survives off-site OAuth redirects. Idempotent; safe to call on
+ * every page load. Does NOT overwrite an existing stashed ref (first
+ * ref wins — keeps a later page visit from replacing the original
+ * referrer).
+ */
+export function captureRefFromUrl(): void {
+  if (typeof window === "undefined") return;
+  try {
+    const ref = new URLSearchParams(window.location.search).get("ref");
+    if (ref && !sessionStorage.getItem(REF_KEY)) {
+      sessionStorage.setItem(REF_KEY, ref);
+    }
+  } catch { /* sessionStorage can be blocked */ }
+}
+
+/**
+ * Read the stashed ref code. Clears it so subsequent /api/user calls
+ * (e.g. session restore on a repeat visit) don't re-send it. Falls
+ * back to scanning the URL in case captureRefFromUrl wasn't called
+ * yet — the wallet-login flow calls this directly without going
+ * through Google OAuth.
+ */
+export function consumePendingRef(): string | undefined {
+  if (typeof window === "undefined") return undefined;
+  try {
+    const stashed = sessionStorage.getItem(REF_KEY);
+    if (stashed) {
+      sessionStorage.removeItem(REF_KEY);
+      return stashed;
+    }
+  } catch { /* ignore */ }
+  try {
+    return new URLSearchParams(window.location.search).get("ref") || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /**
  * Start Google OAuth login via Magic.
  * Opens Google's account picker directly — no intermediate modal.

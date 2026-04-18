@@ -3,7 +3,7 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { useAccount, useConnect, useDisconnect } from "wagmi";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { loginWithGoogle } from "@/lib/magic";
+import { loginWithGoogle, consumePendingRef } from "@/lib/magic";
 import { useAuthStore } from "@/stores/use-auth-store";
 import { clearMagicConnector } from "@/lib/magic-connector";
 import { useUser } from "@/hooks/use-user";
@@ -80,10 +80,13 @@ export function LoginButton() {
   useEffect(() => {
     if (wagmiConnected && wagmiAddress) {
       setLoginOpen(false);
+      // Ref code comes from sessionStorage first (captured at mount —
+      // survives any off-site redirect), falling back to the URL for
+      // direct-visit cases.
       fetch("/api/user", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: wagmiAddress.toLowerCase(), authMethod: "wallet", walletAddress: wagmiAddress.toLowerCase(), referredBy: new URLSearchParams(window.location.search).get("ref") || undefined }),
+        body: JSON.stringify({ id: wagmiAddress.toLowerCase(), authMethod: "wallet", walletAddress: wagmiAddress.toLowerCase(), referredBy: consumePendingRef() }),
       }).catch(() => {});
     }
   }, [wagmiConnected, wagmiAddress]);
