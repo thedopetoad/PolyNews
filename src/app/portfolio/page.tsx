@@ -376,6 +376,7 @@ export default function PortfolioPage() {
     posId: string;
     tokenId: string;
     conditionId: string;
+    outcome: string;
     shares: number; // amount of shares to sell (can be partial)
     totalShares: number; // total shares in the position, for "full close" detection
     marketQuestion: string;
@@ -455,6 +456,10 @@ export default function PortfolioPage() {
         const redeemRes = await redeem({
           conditionId: p.conditionId,
           userAddress: p.userAddress,
+          // Full position is redeemed regardless of partial-sell request
+          // — on resolved markets you always want everything.
+          outcome: p.outcome,
+          shares: p.totalShares,
           label: `Redeem ${p.marketQuestion}`,
         });
         if (redeemRes.success) {
@@ -872,6 +877,7 @@ export default function PortfolioPage() {
               posId: sellingPos.id,
               tokenId: sellingPos.tokenId,
               conditionId: sellingPos.conditionId,
+              outcome: sellingPos.outcome,
               shares: sharesToSell,
               totalShares: sellingPos.shares,
               marketQuestion: sellingPos.marketQuestion,

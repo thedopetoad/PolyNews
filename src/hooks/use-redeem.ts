@@ -8,7 +8,13 @@ import { RelayClient, RelayerTxType } from "@polymarket/builder-relayer-client";
 import { useAuthStore } from "@/stores/use-auth-store";
 import { getMagic } from "@/lib/magic";
 import { RELAYER_URL } from "@/lib/relay";
-import { CTF, encodeBinaryRedeem } from "@/lib/redeem";
+import {
+  CTF,
+  NEG_RISK_ADAPTER,
+  encodeBinaryRedeem,
+  encodeNegRiskRedeem,
+  getNegRiskFlag,
+} from "@/lib/redeem";
 
 /**
  * Submit a redeem-winnings transaction through Polymarket's gasless
@@ -36,6 +42,15 @@ export function useRedeem() {
     async (params: {
       conditionId: string;
       userAddress: string;
+      /**
+       * Outcome this position is on — "Yes" or "No". Only matters for
+       * NegRisk markets where we pass the amount to burn as a 2-slot
+       * array [yesAmount, noAmount]; one side is the position's
+       * shares, the other is zero.
+       */
+      outcome: string;
+      /** Share count held on that outcome. Ignored for non-NegRisk. */
+      shares: number;
       /** Human-readable label for the relay, shown in receipts. */
       label?: string;
     }) => {
@@ -101,9 +116,25 @@ export function useRedeem() {
           }
         }
 
-        const data = encodeBinaryRedeem(params.conditionId);
+        // Route to the right contract based on market type. NegRisk
+        // markets (multi-outcome, only one winner — e.g. elections) use
+        // the NegRiskAdapter with a share-amount array instead of the
+        // standard CTF index-set bitmask. Binary YES/NO (every sports
+        // market) goes to the standard CTF contract.
+        const isNegRisk = await getNegRiskFlag(params.conditionId);
+        const { to, data } = isNegRisk
+          ? {
+              to: NEG_RISK_ADAPTER,
+              data: encodeNegRiskRedeem(
+                params.conditionId,
+                params.outcome === "Yes" ? params.shares : 0,
+                params.outcome === "No" ? params.shares : 0,
+              ),
+            }
+          : { to: CTF, data: encodeBinaryRedeem(params.conditionId) };
+
         const response = await relayClient.execute(
-          [{ to: CTF, data, value: "0" }],
+          [{ to, data, value: "0" }],
           params.label ?? "Redeem Polymarket winnings",
         );
 
