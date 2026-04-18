@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useMemo } from "react";
 import { useUser } from "@/hooks/use-user";
 import { usePositionLivePrices } from "@/hooks/use-live-prices";
 import { usePolymarketTrade } from "@/hooks/use-polymarket-trade";
+import { useRedeem } from "@/hooks/use-redeem";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useBalance } from "wagmi";
 import { useAuthStore } from "@/stores/use-auth-store";
@@ -353,6 +354,7 @@ export default function PortfolioPage() {
   const [sellingPos, setSellingPos] = useState<{
     id: string;
     tokenId: string;
+    conditionId: string;
     marketQuestion: string;
     outcome: string;
     shares: number;
@@ -361,6 +363,7 @@ export default function PortfolioPage() {
     eventSlug: string | null;
   } | null>(null);
   const { placeOrder, placing: placingOrder } = usePolymarketTrade();
+  const { redeem } = useRedeem();
   const queryClient = useQueryClient();
 
   /**
@@ -372,10 +375,12 @@ export default function PortfolioPage() {
   const executeSell = async (p: {
     posId: string;
     tokenId: string;
+    conditionId: string;
     shares: number; // amount of shares to sell (can be partial)
     totalShares: number; // total shares in the position, for "full close" detection
     marketQuestion: string;
     price: number;
+    userAddress: string;
   }) => {
     setClosingPos(p.posId);
     setCloseResult(null);
@@ -426,6 +431,11 @@ export default function PortfolioPage() {
         errText.includes("not enough shares") ||
         errText.includes("may have already been closed") ||
         errText.includes("not enough balance");
+      // Resolved-market detection — CLOB error text OR our translated
+      // version, both need to trigger the redeem fallback.
+      const isResolvedMarket =
+        errText.includes("market resolved") ||
+        (errText.includes("orderbook") && errText.includes("does not exist"));
       if (isAlreadyClosed) {
         addClosedLocal(p.posId);
         [500, 2000, 5000, 10000].forEach((d) =>
@@ -435,6 +445,39 @@ export default function PortfolioPage() {
           }, d),
         );
         setCloseResult({ id: p.posId, msg: "Already closed — refreshing…", ok: true });
+      } else if (isResolvedMarket) {
+        // Market settled after the user bought. CLOB orderbook is gone,
+        // so sell is impossible — redeem the winning shares 1-for-1 for
+        // USDC.e via CTF.redeemPositions. Keeps the user in-app so they
+        // don't have to sign into polymarket.com with a different
+        // Google account that would derive a different proxy wallet.
+        setCloseResult({ id: p.posId, msg: "Market resolved — redeeming winnings…", ok: true });
+        const redeemRes = await redeem({
+          conditionId: p.conditionId,
+          userAddress: p.userAddress,
+          label: `Redeem ${p.marketQuestion}`,
+        });
+        if (redeemRes.success) {
+          addClosedLocal(p.posId);
+          setCloseResult({
+            id: p.posId,
+            msg: "Redeemed — USDC.e is in your proxy wallet",
+            ok: true,
+            txHashes: redeemRes.txHash ? [redeemRes.txHash] : undefined,
+          });
+          [500, 2000, 5000, 10000, 20000].forEach((d) =>
+            setTimeout(() => {
+              queryClient.invalidateQueries({ queryKey: ["polymarket-positions"] });
+              queryClient.invalidateQueries({ queryKey: ["polymarket-activity"] });
+            }, d),
+          );
+        } else {
+          setCloseResult({
+            id: p.posId,
+            msg: `Redeem failed: ${redeemRes.error ?? "unknown error"}. You can still redeem at https://polymarket.com/portfolio`,
+            ok: false,
+          });
+        }
       } else {
         setCloseResult({ id: p.posId, msg: res.error || "Sell failed", ok: false });
       }
@@ -739,6 +782,10 @@ export default function PortfolioPage() {
                             setSellingPos({
                               id: pos.id,
                               tokenId: pos.clobTokenId,
+                              // conditionId is stored as marketId on the mapped
+                              // row (see realPositions mapping above). Needed
+                              // for the resolved-market redeem fallback.
+                              conditionId: pos.marketId,
                               marketQuestion: pos.marketQuestion,
                               outcome: pos.outcome,
                               shares: pos.shares,
@@ -824,10 +871,12 @@ export default function PortfolioPage() {
             executeSell({
               posId: sellingPos.id,
               tokenId: sellingPos.tokenId,
+              conditionId: sellingPos.conditionId,
               shares: sharesToSell,
               totalShares: sellingPos.shares,
               marketQuestion: sellingPos.marketQuestion,
               price: sellingPos.currentPrice,
+              userAddress: address ?? "",
             })
           }
         />
