@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { PrizeEditor } from "@/components/admin/prize-editor";
 import { PayoutsBoard } from "@/components/admin/payouts-board";
+import { deriveProxyAddress } from "@/lib/proxy";
 
 // The single Solana Phantom wallet allowed into admin. Must match
 // ADMIN_SOLANA_PUBKEY on the server. If you ever rotate this, update
@@ -141,6 +142,96 @@ function ReasonBadge({ reason }: { reason: string }) {
     >
       {c.label}
     </span>
+  );
+}
+
+/**
+ * Fund-user card shown inside the expanded user-detail drawer.
+ *
+ * Custody-free: we derive the user's Polymarket CREATE2 proxy address
+ * client-side and hand it to the admin, who sends USDC.e from their
+ * own wallet (MetaMask, hardware wallet, whatever). The system never
+ * holds funds. Admin should send on Polygon (chain 137) — USDC.e
+ * contract: 0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174.
+ *
+ * Guards against non-wallet user.ids (legacy test accounts) by
+ * returning a disabled card.
+ */
+function FundUserCard({ eoa, displayName }: { eoa: string; displayName: string | null }) {
+  const [copied, setCopied] = useState<"proxy" | "eoa" | null>(null);
+  const isValidEoa = /^0x[a-fA-F0-9]{40}$/.test(eoa);
+  const proxy = isValidEoa ? deriveProxyAddress(eoa) : null;
+
+  const copy = (text: string, kind: "proxy" | "eoa") => {
+    navigator.clipboard.writeText(text);
+    setCopied(kind);
+    setTimeout(() => setCopied(null), 1500);
+  };
+
+  if (!isValidEoa || !proxy) {
+    return (
+      <div className="rounded-lg border border-[#d29922]/30 bg-[#d29922]/5 p-3 text-xs text-[#d29922]">
+        This user&rsquo;s id isn&rsquo;t a valid EVM address — no proxy wallet to derive.
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-lg border border-[#3fb950]/30 bg-gradient-to-b from-[#3fb950]/5 via-[#0d1117] to-[#0d1117] p-4">
+      <div className="flex items-start justify-between gap-3 mb-3 flex-wrap">
+        <div>
+          <h3 className="text-xs font-semibold text-[#3fb950] flex items-center gap-1.5">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6" /></svg>
+            Fund {displayName || "this user"}&rsquo;s account
+          </h3>
+          <p className="text-[10px] text-[#768390] mt-0.5">
+            Send USDC.e on <span className="text-[#a371f7] font-semibold">Polygon</span> (chain 137) to their proxy wallet below. Funds land in their Polymarket balance immediately.
+          </p>
+        </div>
+        <a
+          href={`https://polygonscan.com/token/0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174?a=${proxy}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-[10px] text-[#58a6ff] hover:underline whitespace-nowrap"
+        >
+          View USDC.e balance on Polygonscan ↗
+        </a>
+      </div>
+      <div className="space-y-2">
+        <div>
+          <p className="text-[10px] text-[#484f58] uppercase tracking-wider mb-1">Proxy wallet (send USDC.e here)</p>
+          <div className="flex items-center gap-2">
+            <code className="flex-1 min-w-0 bg-[#161b22] border border-[#30363d] rounded px-2.5 py-1.5 text-xs font-mono text-[#e6edf3] truncate select-all">
+              {proxy}
+            </code>
+            <button
+              onClick={() => copy(proxy, "proxy")}
+              className={`text-xs font-semibold px-3 py-1.5 rounded border whitespace-nowrap transition-colors ${
+                copied === "proxy"
+                  ? "bg-[#3fb950]/20 text-[#3fb950] border-[#3fb950]/30"
+                  : "bg-[#3fb950]/10 text-[#3fb950] border-[#3fb950]/20 hover:bg-[#3fb950]/20"
+              }`}
+            >
+              {copied === "proxy" ? "Copied!" : "Copy"}
+            </button>
+          </div>
+        </div>
+        <div>
+          <p className="text-[10px] text-[#484f58] uppercase tracking-wider mb-1">User&rsquo;s EOA (for reference)</p>
+          <div className="flex items-center gap-2">
+            <code className="flex-1 min-w-0 bg-[#161b22] border border-[#21262d] rounded px-2.5 py-1.5 text-xs font-mono text-[#768390] truncate select-all">
+              {eoa}
+            </code>
+            <button
+              onClick={() => copy(eoa, "eoa")}
+              className="text-xs font-semibold px-3 py-1.5 rounded border bg-[#21262d] text-[#adbac7] border-[#30363d] hover:bg-[#30363d] whitespace-nowrap"
+            >
+              {copied === "eoa" ? "Copied!" : "Copy"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -828,6 +919,11 @@ export default function AdminPage() {
                           <p className="text-xs text-[#484f58] text-center py-4">Loading user data...</p>
                         ) : userDetail ? (
                           <>
+                            {/* Fund account — send USDC.e to this user's
+                                CREATE2 proxy. Shown first because it's
+                                the whole reason we open the drawer. */}
+                            <FundUserCard eoa={u.id} displayName={u.displayName} />
+
                             {/* User positions */}
                             <div>
                               <h3 className="text-xs font-semibold text-[#58a6ff] mb-2">Open Positions ({userDetail.positions?.length || 0})</h3>
