@@ -92,12 +92,6 @@ function MagicSessionRestore() {
 
     inFlightRef.current = true;
     try {
-      // consumePendingRef reads from sessionStorage first (survives
-      // OAuth redirects), falling back to the URL for the wallet flow
-      // that never leaves the site. Captured on mount below so it's
-      // stashed before any redirect can strip it.
-      const refCode = consumePendingRef();
-
       // Helper: after Magic auth succeeds, prepare the connector and connect via wagmi
       const connectMagicToWagmi = (address: string) => {
         const magic = getMagic();
@@ -111,6 +105,13 @@ function MagicSessionRestore() {
       const result: OAuthResult | null = await handleOAuthRedirect();
       if (result?.address) {
         setGoogleAddress(result.address);
+        // Consume the pending ref INSIDE the branch that actually uses
+        // it. Calling it upfront would eat the sessionStorage value on
+        // the initial page load (no OAuth yet, no session yet) and then
+        // the redirect-back page load would find nothing to read. That
+        // bug dropped referrer credit for anyone who Google-signed-up
+        // via a ref link — new user never landed with their ref intact.
+        const refCode = consumePendingRef();
         await fetch("/api/user", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -139,6 +140,8 @@ function MagicSessionRestore() {
       const existing = await checkMagicSession();
       if (existing) {
         setGoogleAddress(existing.address);
+        // Same one-shot rule — consume only when we're about to use it.
+        const refCode = consumePendingRef();
         // POST /api/user on every session restore so stale rows (created
         // before we were capturing email) backfill their email field.
         await fetch("/api/user", {

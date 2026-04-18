@@ -187,18 +187,26 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Normalize the ref code to uppercase upfront — referral codes are
+    // generated uppercase (e.g. "PS-B6B43E80"), and if anything in the
+    // sharing chain down-cased the URL param we'd silently fail the
+    // referrer lookup and drop the payout on the floor.
+    const normalizedRefCode = referredBy ? String(referredBy).toUpperCase() : null;
+
     // ─── No migration needed — create fresh account ───
-    if (referredBy) {
+    // Invalid code → skip the referral (don't hard-fail the signup). An
+    // unknown referrer shouldn't stop someone from creating an account.
+    let validatedRefCode: string | null = null;
+    if (normalizedRefCode) {
       const referrer = await db
-        .select()
+        .select({ id: users.id })
         .from(users)
-        .where(eq(users.referralCode, referredBy))
+        .where(eq(users.referralCode, normalizedRefCode))
         .limit(1);
-      if (referrer.length === 0) {
-        return NextResponse.json(
-          { error: "Invalid referral code" },
-          { status: 400 }
-        );
+      if (referrer.length > 0) {
+        validatedRefCode = normalizedRefCode;
+      } else {
+        console.warn(`/api/user POST: unknown referral code "${normalizedRefCode}" — signing up without referrer`);
       }
     }
 
@@ -217,7 +225,7 @@ export async function POST(request: NextRequest) {
         authMethod,
         walletAddress: walletAddress ? walletAddress.toLowerCase() : null,
         referralCode,
-        referredBy: referredBy || null,
+        referredBy: validatedRefCode,
         balance: STARTING_BALANCE,
         hasSignupAirdrop: true,
         signupIp: ip,
@@ -229,11 +237,11 @@ export async function POST(request: NextRequest) {
     // index on referrals.referred_id) protects this path. If a separate
     // /api/airdrop apply-referral fires for the same pair, only the
     // first one through actually credits the bonus.
-    if (referredBy) {
+    if (validatedRefCode) {
       const [referrer] = await db
         .select({ id: users.id })
         .from(users)
-        .where(eq(users.referralCode, referredBy))
+        .where(eq(users.referralCode, validatedRefCode))
         .limit(1);
       if (referrer) {
         await payReferralBonus(db, referrer.id, normalizedId);
