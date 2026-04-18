@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useNewsStore, NewsHeadline } from "@/stores/use-news-store";
 import { cn } from "@/lib/utils";
@@ -36,18 +36,40 @@ export function NewsFeed({ className }: { className?: string }) {
   const [activeCategory, setActiveCategory] = useState<string>("All");
   const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
 
-  // Mouse-wheel handler that turns vertical wheel input into horizontal
-  // scroll on the filter strips. Without this, desktop users with a
-  // mouse wheel (no trackpad) can't reach the right-side filters that
-  // are off-screen — the scrollbar is hidden and there's no obvious
-  // affordance. Same trick the expanded-markets row uses below.
-  const onHorizontalWheel = (e: React.WheelEvent<HTMLDivElement>) => {
-    const el = e.currentTarget;
-    if (el.scrollWidth > el.clientWidth && e.deltaY !== 0) {
+  // Ref callback that wires a NATIVE (non-passive) wheel listener for
+  // horizontal scroll on the filter strips. React's onWheel prop is
+  // passive by default in modern versions, which means preventDefault()
+  // is a no-op — the browser scrolls the page vertically regardless of
+  // our handler, and the strip never budges horizontally. Attaching via
+  // addEventListener with { passive: false } is the only way to both
+  // block default scroll AND redirect it sideways. Same pattern the
+  // expanded-markets row in portfolio uses.
+  //
+  // Covers all input types:
+  //   - Mouse wheel (deltaY only) → maps to scrollLeft
+  //   - Trackpad 2-finger up/down (deltaY) → maps to scrollLeft
+  //   - Trackpad 2-finger left/right (deltaX) → scrollLeft directly
+  //     (browser already scrolls overflow-x on its own for pure deltaX,
+  //     but some paths get captured as "swipe to go back" — preventing
+  //     default here keeps the gesture inside the strip)
+  const attachHorizontalWheel = useCallback((el: HTMLDivElement | null) => {
+    if (!el) return;
+    const handler = (e: WheelEvent) => {
+      if (el.scrollWidth <= el.clientWidth) return;
+      const delta = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+      if (delta === 0) return;
       e.preventDefault();
-      el.scrollLeft += e.deltaY;
-    }
-  };
+      el.scrollLeft += delta;
+    };
+    el.addEventListener("wheel", handler, { passive: false });
+    // Stash cleanup on the element itself so React's next ref-callback
+    // call (on unmount / re-render) can tear it down. Parent doesn't
+    // have a clean hook to run cleanup from a ref callback otherwise.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (el as any).__wheelCleanup?.();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (el as any).__wheelCleanup = () => el.removeEventListener("wheel", handler);
+  }, []);
 
   const { data, isLoading } = useQuery({
     queryKey: ["news-headlines"],
@@ -141,7 +163,7 @@ export function NewsFeed({ className }: { className?: string }) {
       <div
         className="flex gap-1.5 px-3 py-2 border-b border-[#21262d] overflow-x-auto flex-shrink-0"
         style={{ scrollbarWidth: "none", WebkitOverflowScrolling: "touch" }}
-        onWheel={onHorizontalWheel}
+        ref={attachHorizontalWheel}
       >
         {NEWS_SOURCES.map((src) => (
           <button
@@ -161,7 +183,7 @@ export function NewsFeed({ className }: { className?: string }) {
       <div
         className="flex gap-1.5 px-3 py-2 border-b border-[#21262d] overflow-x-auto flex-shrink-0"
         style={{ scrollbarWidth: "none", WebkitOverflowScrolling: "touch" }}
-        onWheel={onHorizontalWheel}
+        ref={attachHorizontalWheel}
       >
         {NEWS_CATEGORIES.map((cat) => (
           <button
