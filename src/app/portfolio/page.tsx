@@ -126,6 +126,10 @@ export default function PortfolioPage() {
     conditionId: string;
     asset: string;
     proxyWallet: string;
+    // Polymarket /positions exposes both flags directly — saves us a
+    // separate Gamma API roundtrip when deciding redeem routing.
+    negativeRisk?: boolean;
+    redeemable?: boolean;
   }
   const { data: polyPositions } = useQuery<PolyPosition[]>({
     queryKey: ["polymarket-positions", proxyAddress],
@@ -259,6 +263,8 @@ export default function PortfolioPage() {
       _cashPnl: p.cashPnl,
       _percentPnl: p.percentPnl,
       _currentValue: p.currentValue,
+      _negativeRisk: p.negativeRisk === true,
+      _redeemable: p.redeemable === true,
     }));
 
   // Sum the current-mark value of all real positions — Polymarket's
@@ -361,6 +367,7 @@ export default function PortfolioPage() {
     avgPrice: number;
     currentPrice: number;
     eventSlug: string | null;
+    negativeRisk: boolean;
   } | null>(null);
   const { placeOrder, placing: placingOrder } = usePolymarketTrade();
   const { redeem } = useRedeem();
@@ -382,6 +389,8 @@ export default function PortfolioPage() {
     marketQuestion: string;
     price: number;
     userAddress: string;
+    /** Polymarket /positions tells us this directly; routes redeem to NegRiskAdapter when true. */
+    negativeRisk: boolean;
   }) => {
     setClosingPos(p.posId);
     setCloseResult(null);
@@ -460,6 +469,11 @@ export default function PortfolioPage() {
           // — on resolved markets you always want everything.
           outcome: p.outcome,
           shares: p.totalShares,
+          // Pass through the flag from /positions instead of letting
+          // useRedeem call Gamma — fewer round trips, no risk of the
+          // separate API disagreeing with the position data we used to
+          // build the row.
+          negativeRisk: p.negativeRisk,
           label: `Redeem ${p.marketQuestion}`,
         });
         if (redeemRes.success) {
@@ -704,7 +718,7 @@ export default function PortfolioPage() {
                 <PendingPositionRow key={p.tokenId} pending={p} />
               ))}
               {realPositions.map((pos) => {
-                const ext = pos as typeof pos & { _curPrice?: number; _cashPnl?: number; _percentPnl?: number; _currentValue?: number };
+                const ext = pos as typeof pos & { _curPrice?: number; _cashPnl?: number; _percentPnl?: number; _currentValue?: number; _negativeRisk?: boolean; _redeemable?: boolean };
                 const hasPoly = ext._curPrice !== undefined;
                 const live = livePrices[pos.marketId];
                 const livePrice = hasPoly ? ext._curPrice! : (live ? (pos.outcome === "Yes" ? live.yesPrice : live.noPrice) : pos.avgPrice);
@@ -797,6 +811,7 @@ export default function PortfolioPage() {
                               avgPrice: pos.avgPrice,
                               currentPrice: livePrice,
                               eventSlug: pos.eventSlug,
+                              negativeRisk: ext._negativeRisk === true,
                             });
                           }}
                           className={cn(
@@ -883,6 +898,7 @@ export default function PortfolioPage() {
               marketQuestion: sellingPos.marketQuestion,
               price: sellingPos.currentPrice,
               userAddress: address ?? "",
+              negativeRisk: sellingPos.negativeRisk,
             })
           }
         />

@@ -58,6 +58,13 @@ export function useRedeem() {
       outcome: string;
       /** Share count held on that outcome. Ignored for non-NegRisk. */
       shares: number;
+      /**
+       * Whether this position is a NegRisk market. Pass it explicitly
+       * (Polymarket's /positions exposes `negativeRisk` per-position)
+       * to skip the Gamma fallback fetch + avoid disagreement between
+       * the data source we used to build the row and a separate API.
+       */
+      negativeRisk?: boolean;
       /** Human-readable label for the relay, shown in receipts. */
       label?: string;
     }) => {
@@ -128,9 +135,17 @@ export function useRedeem() {
         // the NegRiskAdapter with a share-amount array instead of the
         // standard CTF index-set bitmask. Binary YES/NO (every sports
         // market) goes to the standard CTF contract.
-        const isNegRisk = await getNegRiskFlag(params.conditionId);
+        //
+        // Prefer the caller-provided flag (Polymarket /positions has it
+        // per-row) and only fall back to a separate Gamma fetch if the
+        // caller didn't pass one. Same source as everything else on
+        // the row → no risk of disagreement.
+        const isNegRisk =
+          typeof params.negativeRisk === "boolean"
+            ? params.negativeRisk
+            : await getNegRiskFlag(params.conditionId);
         console.log(
-          `[redeem] conditionId=${params.conditionId} negRisk=${isNegRisk} outcome=${params.outcome} shares=${params.shares} contract=${isNegRisk ? "NegRiskAdapter" : "CTF"}`,
+          `[redeem] conditionId=${params.conditionId} negRisk=${isNegRisk} (source=${typeof params.negativeRisk === "boolean" ? "caller" : "gamma"}) outcome=${params.outcome} shares=${params.shares} contract=${isNegRisk ? "NegRiskAdapter" : "CTF"}`,
         );
         const { to, data } = isNegRisk
           ? {
