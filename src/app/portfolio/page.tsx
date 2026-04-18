@@ -174,6 +174,31 @@ export default function PortfolioPage() {
     refetchInterval: 30_000,
   });
 
+  // Bridge deposits + withdraws for the proxy wallet. Polygonscan returns
+  // every USDC.e transfer to/from the proxy; we'll cross-reference tx
+  // hashes with polyActivity below to subtract trades and keep only real
+  // bridges.
+  interface BridgeTx {
+    type: "deposit" | "withdraw";
+    amountUsdc: number;
+    timestamp: number;
+    txHash: string;
+    counterparty: string;
+  }
+  const { data: rawBridges } = useQuery<BridgeTx[]>({
+    queryKey: ["bridge-history", proxyAddress],
+    queryFn: async () => {
+      if (!proxyAddress) return [];
+      const res = await fetch(`/api/portfolio/bridge-history?user=${proxyAddress}`);
+      if (!res.ok) return [];
+      const data = await res.json();
+      return data.bridges || [];
+    },
+    enabled: !!proxyAddress,
+    staleTime: 60_000,
+    refetchInterval: 120_000,
+  });
+
   // Pending BUYs whose onchain confirmation landed but /positions hasn't
   // yet reflected them. Hydrated from localStorage on mount (so a user who
   // places a trade then navigates to portfolio sees the skeleton even
@@ -500,7 +525,7 @@ export default function PortfolioPage() {
 
       {/* Balance Cards — click to toggle between Real and Paper views.
           Active card pulses with a glow to show the link to positions below. */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
         {/* Real Trading card — Polymarket-style: big "Total Portfolio"
             (USDC + position values) on the left, "Available to trade" (just
             USDC) tucked top-right. No longer a button — paper mode was
@@ -565,26 +590,6 @@ export default function PortfolioPage() {
           onWithdrawStarted={(chain) => startPending("withdraw", chain)}
           onWithdrawFailed={dismissPending}
         />
-
-        {/* Paper trading has moved to /airdrop — this card is a signpost only. */}
-        <Link
-          href="/airdrop?tab=portfolio"
-          className="rounded-xl border border-[#d4a843]/25 bg-gradient-to-br from-[#d4a843]/10 via-[#161b22] to-[#161b22] p-5 flex flex-col items-stretch justify-start hover:border-[#d4a843]/50 transition-colors"
-        >
-          <div className="flex items-center justify-between mb-1">
-            <p className="text-[10px] text-[#d4a843]/70 uppercase tracking-wider">Airdrop Portfolio</p>
-            <span className="text-[10px] text-[#f5c542] bg-[#f5c542]/10 px-1.5 py-0.5 rounded font-medium">AIRDROP</span>
-          </div>
-          <p className="text-xl font-bold bg-gradient-to-r from-[#f5c542] to-[#d4a843] bg-clip-text text-transparent">Paper trading moved</p>
-          <p className="text-xs text-[#768390] mt-1">
-            Paper balance, positions, trade history, and leaderboards live on the Airdrop page now.
-          </p>
-          <div className="mt-auto pt-3">
-            <span className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md text-xs font-medium bg-[#d4a843]/10 text-[#f5c542] hover:bg-[#d4a843]/20 transition-colors">
-              Go to Airdrop →
-            </span>
-          </div>
-        </Link>
 
         {/* Unrealized P&L — always USDC now that the paper variant lives
             on /airdrop and can't be swapped in here. */}
@@ -832,89 +837,169 @@ export default function PortfolioPage() {
         />
       )}
 
-      {/* History Tab — Real */}
-      {tab === "history" && (
-        <div className="rounded-lg border border-[#21262d] bg-[#161b22] overflow-hidden">
-          <div className="grid grid-cols-12 gap-2 px-4 py-2.5 text-[10px] text-[#484f58] uppercase tracking-wider border-b border-[#21262d]">
-            <div className="col-span-1">Side</div>
-            <div className="col-span-4">Market</div>
-            <div className="col-span-2 text-right">Shares</div>
-            <div className="col-span-2 text-right">Price / Total</div>
-            <div className="col-span-2 text-right">When</div>
-            <div className="col-span-1 text-right">Tx</div>
-          </div>
-          {(!polyActivity || polyActivity.length === 0) && pendingActivity.length === 0 ? (
-            <div className="text-center py-12">
-              <div className="text-4xl mb-3">📜</div>
-              <p className="text-sm font-medium text-[#e6edf3]">No trades yet</p>
-              <p className="text-xs text-[#484f58] mt-1">
-                Place a trade on the <Link href="/sports" className="text-[#58a6ff] hover:underline">Sports page</Link> to see history here.
-              </p>
+      {/* History Tab — real trades + bridge deposits/withdraws merged */}
+      {tab === "history" && (() => {
+        // Build a unified timeline: trades + bridges, sorted newest first.
+        // Bridges filtered to exclude any tx hash that also appears in
+        // polyActivity (those are trade settlement transfers, not
+        // user-initiated bridges).
+        const tradeHashes = new Set(
+          (polyActivity || [])
+            .map((a) => a.transactionHash?.toLowerCase())
+            .filter(Boolean) as string[],
+        );
+        const bridges = (rawBridges || []).filter(
+          (b) => !tradeHashes.has(b.txHash.toLowerCase()),
+        );
+        type Row =
+          | { kind: "trade"; tsMs: number; data: PolyActivity }
+          | { kind: "bridge"; tsMs: number; data: BridgeTx };
+        const rows: Row[] = [
+          ...(polyActivity || []).map<Row>((a) => ({ kind: "trade", tsMs: a.timestamp * 1000, data: a })),
+          ...bridges.map<Row>((b) => ({ kind: "bridge", tsMs: b.timestamp, data: b })),
+        ].sort((a, b) => b.tsMs - a.tsMs);
+
+        const isEmpty =
+          rows.length === 0 && pendingActivity.length === 0;
+
+        const renderWhen = (tsMs: number): string => {
+          const elapsed = Date.now() - tsMs;
+          const hours = elapsed / 3600000;
+          return (
+            elapsed < 60000 ? "just now" :
+            elapsed < 3600000 ? `${Math.floor(elapsed / 60000)}m ago` :
+            hours < 24 ? `${Math.floor(hours)}h ago` :
+            new Date(tsMs).toLocaleDateString()
+          );
+        };
+
+        return (
+          <div className="rounded-lg border border-[#21262d] bg-[#161b22] overflow-hidden">
+            <div className="grid grid-cols-12 gap-2 px-4 py-2.5 text-[10px] text-[#484f58] uppercase tracking-wider border-b border-[#21262d]">
+              <div className="col-span-1">Side</div>
+              <div className="col-span-4">Market / Source</div>
+              <div className="col-span-2 text-right">Shares</div>
+              <div className="col-span-2 text-right">Price / Total</div>
+              <div className="col-span-2 text-right">When</div>
+              <div className="col-span-1 text-right">Tx</div>
             </div>
-          ) : (
-            <div className="divide-y divide-[#21262d]">
-              {/* Pending in-flight trades — shown above the real list with a
-                  shimmer and "Settling onchain…" label until /activity
-                  returns the matching tx hash. */}
-              {pendingActivity.map((p) => (
-                <PendingActivityRow key={p.txHash} pending={p} />
-              ))}
-              {(polyActivity || []).map((a, i) => {
-                const when = new Date(a.timestamp * 1000);
-                const elapsed = Date.now() - a.timestamp * 1000;
-                const hours = elapsed / 3600000;
-                const whenLabel =
-                  elapsed < 60000 ? "just now" :
-                  elapsed < 3600000 ? `${Math.floor(elapsed / 60000)}m ago` :
-                  hours < 24 ? `${Math.floor(hours)}h ago` :
-                  when.toLocaleDateString();
-                return (
-                  <div
-                    key={`${a.transactionHash}-${i}`}
-                    className="grid grid-cols-12 gap-2 px-4 py-3 items-center hover:bg-[#1c2128]/50 transition-colors"
-                  >
-                    <div className="col-span-1">
-                      <span className={cn(
-                        "text-[10px] font-bold px-1.5 py-0.5 rounded",
-                        a.side === "BUY" ? "bg-[#3fb950]/15 text-[#3fb950]" : "bg-[#f85149]/15 text-[#f85149]"
-                      )}>
-                        {a.side}
-                      </span>
-                    </div>
-                    <div className="col-span-4">
-                      <p className="text-[13px] text-[#e6edf3] font-medium leading-snug line-clamp-1">{a.title}</p>
-                    </div>
-                    <div className="col-span-2 text-right">
-                      <span className="text-xs text-[#e6edf3] tabular-nums font-medium">{a.size.toFixed(2)}</span>
-                    </div>
-                    <div className="col-span-2 text-right">
-                      <span className="text-xs text-[#e6edf3] tabular-nums font-medium">{Math.round(a.price * 100)}¢</span>
-                      <span className="text-[10px] text-[#484f58] ml-1 tabular-nums">{formatUsd(a.usdcSize)}</span>
-                    </div>
-                    <div className="col-span-2 text-right">
-                      <span className="text-[11px] text-[#768390] tabular-nums">{whenLabel}</span>
-                    </div>
-                    <div className="col-span-1 text-right">
-                      <a
-                        href={`https://polygonscan.com/tx/${a.transactionHash}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        title={`View ${a.transactionHash.slice(0, 10)}… on Polygonscan`}
-                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium text-[#58a6ff] bg-[#58a6ff]/10 hover:bg-[#58a6ff]/20 transition-colors tabular-nums"
+            {isEmpty ? (
+              <div className="text-center py-12">
+                <div className="text-4xl mb-3">📜</div>
+                <p className="text-sm font-medium text-[#e6edf3]">No activity yet</p>
+                <p className="text-xs text-[#484f58] mt-1">
+                  Deposit USDC or place a trade on the <Link href="/sports" className="text-[#58a6ff] hover:underline">Sports page</Link> to see history here.
+                </p>
+              </div>
+            ) : (
+              <div className="divide-y divide-[#21262d]">
+                {/* Pending in-flight trades — shown above with a shimmer. */}
+                {pendingActivity.map((p) => (
+                  <PendingActivityRow key={p.txHash} pending={p} />
+                ))}
+                {rows.map((row, i) => {
+                  if (row.kind === "trade") {
+                    const a = row.data;
+                    return (
+                      <div
+                        key={`t-${a.transactionHash}-${i}`}
+                        className="grid grid-cols-12 gap-2 px-4 py-3 items-center hover:bg-[#1c2128]/50 transition-colors"
                       >
-                        {a.transactionHash.slice(0, 6)}
-                        <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                          <path d="M7 17L17 7M10 7h7v7" />
-                        </svg>
-                      </a>
+                        <div className="col-span-1">
+                          <span className={cn(
+                            "text-[10px] font-bold px-1.5 py-0.5 rounded",
+                            a.side === "BUY" ? "bg-[#3fb950]/15 text-[#3fb950]" : "bg-[#f85149]/15 text-[#f85149]"
+                          )}>
+                            {a.side}
+                          </span>
+                        </div>
+                        <div className="col-span-4">
+                          <p className="text-[13px] text-[#e6edf3] font-medium leading-snug line-clamp-1">{a.title}</p>
+                        </div>
+                        <div className="col-span-2 text-right">
+                          <span className="text-xs text-[#e6edf3] tabular-nums font-medium">{a.size.toFixed(2)}</span>
+                        </div>
+                        <div className="col-span-2 text-right">
+                          <span className="text-xs text-[#e6edf3] tabular-nums font-medium">{Math.round(a.price * 100)}¢</span>
+                          <span className="text-[10px] text-[#484f58] ml-1 tabular-nums">{formatUsd(a.usdcSize)}</span>
+                        </div>
+                        <div className="col-span-2 text-right">
+                          <span className="text-[11px] text-[#768390] tabular-nums">{renderWhen(a.timestamp * 1000)}</span>
+                        </div>
+                        <div className="col-span-1 text-right">
+                          <a
+                            href={`https://polygonscan.com/tx/${a.transactionHash}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            title={`View ${a.transactionHash.slice(0, 10)}… on Polygonscan`}
+                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium text-[#58a6ff] bg-[#58a6ff]/10 hover:bg-[#58a6ff]/20 transition-colors tabular-nums"
+                          >
+                            {a.transactionHash.slice(0, 6)}
+                            <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                              <path d="M7 17L17 7M10 7h7v7" />
+                            </svg>
+                          </a>
+                        </div>
+                      </div>
+                    );
+                  }
+                  // bridge row
+                  const b = row.data;
+                  const isDeposit = b.type === "deposit";
+                  return (
+                    <div
+                      key={`b-${b.txHash}-${i}`}
+                      className="grid grid-cols-12 gap-2 px-4 py-3 items-center hover:bg-[#1c2128]/50 transition-colors"
+                    >
+                      <div className="col-span-1">
+                        <span className={cn(
+                          "text-[10px] font-bold px-1.5 py-0.5 rounded",
+                          isDeposit ? "bg-[#d29922]/15 text-[#d29922]" : "bg-[#8957e5]/15 text-[#a371f7]"
+                        )}>
+                          {isDeposit ? "DEPOSIT" : "WITHDRAW"}
+                        </span>
+                      </div>
+                      <div className="col-span-4">
+                        <p className="text-[13px] text-[#e6edf3] font-medium leading-snug line-clamp-1">
+                          {isDeposit ? "USDC.e deposit" : "USDC.e withdraw"}
+                        </p>
+                        <p className="text-[10px] text-[#484f58] font-mono">
+                          {isDeposit ? "from" : "to"} {b.counterparty.slice(0, 6)}…{b.counterparty.slice(-4)}
+                        </p>
+                      </div>
+                      <div className="col-span-2 text-right">
+                        <span className="text-xs text-[#484f58]">—</span>
+                      </div>
+                      <div className="col-span-2 text-right">
+                        <span className={cn("text-xs tabular-nums font-medium", isDeposit ? "text-[#3fb950]" : "text-[#f85149]")}>
+                          {isDeposit ? "+" : "−"}{formatUsd(b.amountUsdc)}
+                        </span>
+                      </div>
+                      <div className="col-span-2 text-right">
+                        <span className="text-[11px] text-[#768390] tabular-nums">{renderWhen(b.timestamp)}</span>
+                      </div>
+                      <div className="col-span-1 text-right">
+                        <a
+                          href={`https://polygonscan.com/tx/${b.txHash}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          title={`View ${b.txHash.slice(0, 10)}… on Polygonscan`}
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium text-[#58a6ff] bg-[#58a6ff]/10 hover:bg-[#58a6ff]/20 transition-colors tabular-nums"
+                        >
+                          {b.txHash.slice(0, 6)}
+                          <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M7 17L17 7M10 7h7v7" />
+                          </svg>
+                        </a>
+                      </div>
                     </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      )}
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
     </div>
   );
