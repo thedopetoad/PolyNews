@@ -9,7 +9,7 @@
 // the other's auth mechanism.
 
 import { getDb, users, airdrops, settings, prizePayouts } from "@/db";
-import { sql, and, gte, inArray, isNotNull } from "drizzle-orm";
+import { sql, and, eq, gte, inArray, isNotNull } from "drizzle-orm";
 import { prizeWeekStart, prizeWeekKey } from "@/lib/week";
 import { deriveProxyAddress } from "@/lib/proxy";
 import { generateSecureId } from "@/lib/auth";
@@ -20,11 +20,20 @@ export interface SnapshotResult {
   referralWinners: number;
   gainerWinners: number;
   payoutRowsInserted: number;
+  rowsReplaced: number;
   skippedNoPrize: string[];
 }
 
-export async function snapshotWeeklyPayouts(): Promise<SnapshotResult> {
+/**
+ * @param refresh If true, DELETE any existing prize_payouts rows for
+ *   the target week before inserting fresh ones. Used by the admin
+ *   "Snapshot now" button so re-clicking produces current standings.
+ *   The Monday cron passes false so repeated firings within the hour
+ *   don't clobber the first success.
+ */
+export async function snapshotWeeklyPayouts(options: { refresh?: boolean } = {}): Promise<SnapshotResult> {
   const db = getDb();
+  const refresh = options.refresh === true;
 
   // JUST-ENDED prize week. Shift reference point back 1 hour so Cron
   // drift up to ~59 min still targets the right week.
@@ -87,7 +96,23 @@ export async function snapshotWeeklyPayouts(): Promise<SnapshotResult> {
     .orderBy(sql`gain DESC`)
     .limit(3);
 
-  // ── Insert pending rows, skipping any place where amount ≤ 0 ──
+  // Refresh mode: wipe any existing rows for this week first. Admin's
+  // "Snapshot now" uses this so re-running pulls current standings.
+  // `rowsReplaced` is reported back to the UI so the admin knows what
+  // happened ("Replaced 4 rows" vs "Added 4 rows").
+  let rowsReplaced = 0;
+  if (refresh) {
+    const deleted = await db
+      .delete(prizePayouts)
+      .where(eq(prizePayouts.weekKey, weekKey))
+      .returning({ id: prizePayouts.id });
+    rowsReplaced = deleted.length;
+  }
+
+  // ── Insert pending rows, skipping any place where amount ≤ 0.
+  //    Each .returning() tells us whether the insert actually stuck
+  //    or was silently dropped by the UNIQUE-conflict guard, so our
+  //    reported count matches reality. ──
   let inserted = 0;
   const skipped: string[] = [];
 
@@ -98,7 +123,7 @@ export async function snapshotWeeklyPayouts(): Promise<SnapshotResult> {
     const amount = parseAmount(`airdrop_prize_weeklyRef_${place}`);
     if (amount <= 0) { skipped.push(`weeklyRef_${place}`); continue; }
     const proxy = deriveProxyAddress(userId);
-    await db.insert(prizePayouts).values({
+    const result = await db.insert(prizePayouts).values({
       id: generateSecureId(),
       weekKey,
       leaderboard: "weeklyRef",
@@ -108,8 +133,8 @@ export async function snapshotWeeklyPayouts(): Promise<SnapshotResult> {
       proxyAddress: proxy,
       amountUsdc: amount,
       status: "pending",
-    }).onConflictDoNothing();
-    inserted++;
+    }).onConflictDoNothing().returning({ id: prizePayouts.id });
+    if (result.length > 0) inserted++;
   }
 
   for (let i = 0; i < gainerRows.length; i++) {
@@ -118,7 +143,7 @@ export async function snapshotWeeklyPayouts(): Promise<SnapshotResult> {
     const amount = parseAmount(`airdrop_prize_weeklyGain_${place}`);
     if (amount <= 0) { skipped.push(`weeklyGain_${place}`); continue; }
     const proxy = deriveProxyAddress(userId);
-    await db.insert(prizePayouts).values({
+    const result = await db.insert(prizePayouts).values({
       id: generateSecureId(),
       weekKey,
       leaderboard: "weeklyGain",
@@ -128,8 +153,8 @@ export async function snapshotWeeklyPayouts(): Promise<SnapshotResult> {
       proxyAddress: proxy,
       amountUsdc: amount,
       status: "pending",
-    }).onConflictDoNothing();
-    inserted++;
+    }).onConflictDoNothing().returning({ id: prizePayouts.id });
+    if (result.length > 0) inserted++;
   }
 
   return {
@@ -138,6 +163,7 @@ export async function snapshotWeeklyPayouts(): Promise<SnapshotResult> {
     referralWinners: referralRows.length,
     gainerWinners: gainerRows.length,
     payoutRowsInserted: inserted,
+    rowsReplaced,
     skippedNoPrize: skipped,
   };
 }

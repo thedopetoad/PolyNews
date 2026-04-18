@@ -137,8 +137,15 @@ export function PayoutsBoard() {
       const r = await fetch("/api/admin/snapshot-now", { method: "POST", credentials: "include" });
       const data = await r.json();
       if (!r.ok) throw new Error("snapshot failed");
-      const added = data?.payoutRowsInserted ?? 0;
-      setMsg(added > 0 ? `Snapshot added ${added} payout row${added === 1 ? "" : "s"}.` : "Snapshot ran — no new rows (already snapshotted or no winners with amounts set).");
+      const added: number = data?.payoutRowsInserted ?? 0;
+      const replaced: number = data?.rowsReplaced ?? 0;
+      if (added === 0) {
+        setMsg("Snapshot ran — no winners with amounts set. (Set prize amounts in the Prize editor first.)");
+      } else if (replaced > 0) {
+        setMsg(`Refreshed week with ${added} current winner${added === 1 ? "" : "s"} (replaced ${replaced} old row${replaced === 1 ? "" : "s"}).`);
+      } else {
+        setMsg(`Snapshot created ${added} payout row${added === 1 ? "" : "s"}.`);
+      }
       await refresh();
     } catch {
       setMsg("Snapshot failed");

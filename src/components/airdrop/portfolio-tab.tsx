@@ -266,7 +266,9 @@ export function AirdropPortfolioTab() {
 
         {innerTab === "positions" && (
           <div className="rounded-lg border border-[#21262d] bg-[#161b22] overflow-hidden">
-            <div className="grid grid-cols-12 gap-2 px-4 py-2.5 text-[10px] text-[#484f58] uppercase tracking-wider border-b border-[#21262d]">
+            {/* Desktop column header — hidden on mobile (< md) because
+                the row layout stacks into a card there. */}
+            <div className="hidden md:grid grid-cols-12 gap-2 px-4 py-2.5 text-[10px] text-[#484f58] uppercase tracking-wider border-b border-[#21262d]">
               <div className="col-span-4">{t.airdrop.positions.market}</div>
               <div className="col-span-2 text-right">{t.airdrop.positions.avgNow}</div>
               <div className="col-span-1 text-right">{t.airdrop.positions.traded}</div>
@@ -295,10 +297,32 @@ export function AirdropPortfolioTab() {
                   const isExpanded = expandedId === pos.id;
                   const isClosing = isTrading && closingId === pos.id;
 
+                  const closeButton = (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (livePrice === null) return;
+                        setPendingClose({ pos, livePrice });
+                      }}
+                      disabled={isClosing || livePrice === null}
+                      className={cn(
+                        "px-3 py-1.5 rounded text-[11px] font-semibold transition-colors",
+                        isClosing
+                          ? "bg-[#21262d] text-[#484f58] cursor-wait"
+                          : livePrice === null
+                            ? "bg-[#21262d] text-[#484f58] cursor-not-allowed"
+                            : "bg-[#f85149]/15 text-[#f85149] hover:bg-[#f85149]/25",
+                      )}
+                    >
+                      {isClosing ? t.airdrop.positions.closing : livePrice === null ? t.airdrop.positions.loading : t.airdrop.positions.close}
+                    </button>
+                  );
+
                   return (
                     <div key={pos.id}>
+                      {/* ── Desktop row: 12-col table (md and up) ── */}
                       <div
-                        className="grid grid-cols-12 gap-2 px-4 py-3 items-center cursor-pointer hover:bg-[#1c2128]/50 transition-colors"
+                        className="hidden md:grid grid-cols-12 gap-2 px-4 py-3 items-center cursor-pointer hover:bg-[#1c2128]/50 transition-colors"
                         onClick={() => setExpandedId(isExpanded ? null : pos.id)}
                       >
                         <div className="col-span-4 min-w-0 flex items-start gap-2">
@@ -321,7 +345,7 @@ export function AirdropPortfolioTab() {
                               )}>
                                 {pos.outcome} {Math.round(pos.avgPrice * 100)}¢
                               </span>
-                              <span className="text-[10px] text-[#484f58] tabular-nums">{pos.shares.toFixed(1)} shares</span>
+                              <span className="text-[10px] text-[#484f58] tabular-nums">{pos.shares.toFixed(1)} {t.airdrop.positions.shares}</span>
                             </div>
                           </div>
                         </div>
@@ -345,24 +369,71 @@ export function AirdropPortfolioTab() {
                           </div>
                         </div>
                         <div className="col-span-2 text-right">
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              if (livePrice === null) return;
-                              setPendingClose({ pos, livePrice });
-                            }}
-                            disabled={isClosing || livePrice === null}
-                            className={cn(
-                              "px-3 py-1.5 rounded text-[11px] font-semibold transition-colors",
-                              isClosing
-                                ? "bg-[#21262d] text-[#484f58] cursor-wait"
-                                : livePrice === null
-                                  ? "bg-[#21262d] text-[#484f58] cursor-not-allowed"
-                                  : "bg-[#f85149]/15 text-[#f85149] hover:bg-[#f85149]/25",
-                            )}
+                          {closeButton}
+                        </div>
+                      </div>
+
+                      {/* ── Mobile card (< md) ── */}
+                      <div
+                        className="md:hidden px-4 py-3 cursor-pointer hover:bg-[#1c2128]/50 transition-colors space-y-2.5"
+                        onClick={() => setExpandedId(isExpanded ? null : pos.id)}
+                      >
+                        {/* Market question + outcome pill */}
+                        <div className="flex items-start gap-2">
+                          <svg
+                            className={cn("w-3 h-3 text-[#484f58] transition-transform flex-shrink-0 mt-1", isExpanded && "rotate-90")}
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
                           >
-                            {isClosing ? "Closing…" : livePrice === null ? "Loading…" : "Close"}
-                          </button>
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                          </svg>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-[13px] text-[#e6edf3] font-medium leading-snug line-clamp-2">{pos.marketQuestion}</p>
+                            <div className="mt-1 flex items-center gap-2 flex-wrap">
+                              <span className={cn(
+                                "text-[10px] font-bold px-1.5 py-0.5 rounded",
+                                pos.outcome === "Yes" || pos.outcome === "Up"
+                                  ? "bg-[#3fb950]/15 text-[#3fb950]"
+                                  : "bg-[#f85149]/15 text-[#f85149]",
+                              )}>
+                                {pos.outcome} {Math.round(pos.avgPrice * 100)}¢
+                              </span>
+                              <span className="text-[10px] text-[#484f58] tabular-nums">{pos.shares.toFixed(1)} {t.airdrop.positions.shares}</span>
+                            </div>
+                          </div>
+                        </div>
+                        {/* Metric row — 4 small stats with labels */}
+                        <div className="grid grid-cols-4 gap-2 text-[10px]">
+                          <div>
+                            <p className="text-[#484f58] uppercase">{t.airdrop.positions.avgNow}</p>
+                            <p className="mt-0.5">
+                              <span className="text-[#768390] tabular-nums">{Math.round(pos.avgPrice * 100)}¢</span>
+                              <span className="text-[#484f58] mx-0.5">→</span>
+                              <span className={cn("font-medium tabular-nums", livePrice !== null ? "text-[#e6edf3]" : "text-[#484f58]")}>
+                                {Math.round(livePriceDisplay * 100)}¢
+                              </span>
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-[#484f58] uppercase">{t.airdrop.positions.traded}</p>
+                            <p className="text-[#e6edf3] tabular-nums mt-0.5">{traded.toFixed(0)}</p>
+                          </div>
+                          <div>
+                            <p className="text-[#484f58] uppercase">{t.airdrop.positions.toWin}</p>
+                            <p className="text-[#3fb950] tabular-nums font-medium mt-0.5">{toWin.toFixed(0)}</p>
+                          </div>
+                          <div>
+                            <p className="text-[#484f58] uppercase">{t.airdrop.positions.value}</p>
+                            <p className="text-[#e6edf3] tabular-nums font-semibold mt-0.5">{value.toFixed(0)}</p>
+                            <p className={cn("tabular-nums text-[9px]", pnl >= 0 ? "text-[#3fb950]" : "text-[#f85149]")}>
+                              {pnl >= 0 ? "+" : ""}{pnl.toFixed(0)} ({pnlPct >= 0 ? "+" : ""}{pnlPct.toFixed(0)}%)
+                            </p>
+                          </div>
+                        </div>
+                        {/* Close button — full-width, thumb-reachable */}
+                        <div className="flex justify-end">
+                          {closeButton}
                         </div>
                       </div>
 
@@ -404,42 +475,61 @@ export function AirdropPortfolioTab() {
 
         {innerTab === "history" && (
           <div className="rounded-lg border border-[#21262d] bg-[#161b22] overflow-hidden">
-            <div className="grid grid-cols-12 gap-2 px-4 py-2.5 text-[10px] text-[#484f58] uppercase tracking-wider border-b border-[#21262d]">
-              <div className="col-span-1">Side</div>
-              <div className="col-span-5">Market</div>
-              <div className="col-span-2 text-right">Shares</div>
-              <div className="col-span-2 text-right">Price</div>
-              <div className="col-span-2 text-right">When</div>
+            {/* Desktop header — hidden on mobile since rows collapse into cards. */}
+            <div className="hidden md:grid grid-cols-12 gap-2 px-4 py-2.5 text-[10px] text-[#484f58] uppercase tracking-wider border-b border-[#21262d]">
+              <div className="col-span-1">{t.airdrop.history.side}</div>
+              <div className="col-span-5">{t.airdrop.history.market}</div>
+              <div className="col-span-2 text-right">{t.airdrop.history.shares}</div>
+              <div className="col-span-2 text-right">{t.airdrop.history.price}</div>
+              <div className="col-span-2 text-right">{t.airdrop.history.when}</div>
             </div>
             {trades.length === 0 ? (
-              <p className="text-sm text-[#484f58] text-center py-12">No trade history</p>
+              <p className="text-sm text-[#484f58] text-center py-12">{t.airdrop.history.empty}</p>
             ) : (
               <div className="divide-y divide-[#21262d]">
-                {trades.map((t) => {
-                  const time = new Date(t.createdAt);
+                {trades.map((tr) => {
+                  const time = new Date(tr.createdAt);
                   const timeStr =
                     time.toLocaleDateString(undefined, { month: "short", day: "numeric" }) +
                     " " +
                     time.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
                   return (
-                    <div key={t.id} className="grid grid-cols-12 gap-2 px-4 py-3 items-center hover:bg-[#1c2128]/50 transition-colors">
-                      <div className="col-span-1">
-                        <span className={cn("text-xs font-semibold", t.side === "buy" ? "text-[#3fb950]" : "text-[#f85149]")}>
-                          {t.side.toUpperCase()}
-                        </span>
+                    <div key={tr.id}>
+                      {/* Desktop row */}
+                      <div className="hidden md:grid grid-cols-12 gap-2 px-4 py-3 items-center hover:bg-[#1c2128]/50 transition-colors">
+                        <div className="col-span-1">
+                          <span className={cn("text-xs font-semibold", tr.side === "buy" ? "text-[#3fb950]" : "text-[#f85149]")}>
+                            {tr.side.toUpperCase()}
+                          </span>
+                        </div>
+                        <div className="col-span-5">
+                          <p className="text-[13px] text-[#e6edf3] leading-snug line-clamp-1">{tr.marketQuestion}</p>
+                          <p className="text-[10px] text-[#484f58]">{tr.outcome}</p>
+                        </div>
+                        <div className="col-span-2 text-right">
+                          <span className="text-xs text-[#e6edf3] tabular-nums">{tr.shares.toFixed(1)}</span>
+                        </div>
+                        <div className="col-span-2 text-right">
+                          <span className="text-xs text-[#e6edf3] tabular-nums">{Math.round(tr.price * 100)}¢</span>
+                        </div>
+                        <div className="col-span-2 text-right">
+                          <span className="text-[10px] text-[#484f58]">{timeStr}</span>
+                        </div>
                       </div>
-                      <div className="col-span-5">
-                        <p className="text-[13px] text-[#e6edf3] leading-snug line-clamp-1">{t.marketQuestion}</p>
-                        <p className="text-[10px] text-[#484f58]">{t.outcome}</p>
-                      </div>
-                      <div className="col-span-2 text-right">
-                        <span className="text-xs text-[#e6edf3] tabular-nums">{t.shares.toFixed(1)}</span>
-                      </div>
-                      <div className="col-span-2 text-right">
-                        <span className="text-xs text-[#e6edf3] tabular-nums">{Math.round(t.price * 100)}¢</span>
-                      </div>
-                      <div className="col-span-2 text-right">
-                        <span className="text-[10px] text-[#484f58]">{timeStr}</span>
+                      {/* Mobile card */}
+                      <div className="md:hidden px-4 py-3 hover:bg-[#1c2128]/50 transition-colors">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2">
+                              <span className={cn("text-[10px] font-bold px-1.5 py-0.5 rounded", tr.side === "buy" ? "bg-[#3fb950]/15 text-[#3fb950]" : "bg-[#f85149]/15 text-[#f85149]")}>
+                                {tr.side.toUpperCase()}
+                              </span>
+                              <span className="text-[10px] text-[#484f58]">{timeStr}</span>
+                            </div>
+                            <p className="text-[13px] text-[#e6edf3] leading-snug line-clamp-2 mt-1">{tr.marketQuestion}</p>
+                            <p className="text-[10px] text-[#484f58] mt-0.5">{tr.outcome} · {tr.shares.toFixed(1)} {t.airdrop.positions.shares} @ {Math.round(tr.price * 100)}¢</p>
+                          </div>
+                        </div>
                       </div>
                     </div>
                   );

@@ -12,7 +12,10 @@ export async function POST(request: NextRequest) {
   if (!admin) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   try {
-    const result = await snapshotWeeklyPayouts();
+    // refresh=true → replaces any existing rows for the target week
+    // with fresh data. Admin expects a new click to reflect the
+    // CURRENT leaderboard standings, not a stale snapshot.
+    const result = await snapshotWeeklyPayouts({ refresh: true });
     return NextResponse.json(result);
   } catch (err) {
     console.error("Admin snapshot-now error:", err);
