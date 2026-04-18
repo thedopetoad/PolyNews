@@ -174,30 +174,12 @@ export default function PortfolioPage() {
     refetchInterval: 30_000,
   });
 
-  // Bridge deposits + withdraws for the proxy wallet. Polygonscan returns
-  // every USDC.e transfer to/from the proxy; we'll cross-reference tx
-  // hashes with polyActivity below to subtract trades and keep only real
-  // bridges.
-  interface BridgeTx {
-    type: "deposit" | "withdraw";
-    amountUsdc: number;
-    timestamp: number;
-    txHash: string;
-    counterparty: string;
-  }
-  const { data: rawBridges } = useQuery<BridgeTx[]>({
-    queryKey: ["bridge-history", proxyAddress],
-    queryFn: async () => {
-      if (!proxyAddress) return [];
-      const res = await fetch(`/api/portfolio/bridge-history?user=${proxyAddress}`);
-      if (!res.ok) return [];
-      const data = await res.json();
-      return data.bridges || [];
-    },
-    enabled: !!proxyAddress,
-    staleTime: 60_000,
-    refetchInterval: 120_000,
-  });
+  // Bridge deposits + withdraws are intentionally NOT shown in History.
+  // Polygonscan's V1 API got deprecated and there's no key-free
+  // replacement that gives us the full transfer list — Polymarket's
+  // /activity feed only reports TRADE events, free RPCs cap getLogs at
+  // ~1k blocks. The wallet balance still updates on the Total card via
+  // wagmi's useBalance, so deposits/withdraws are visible there.
 
   // Pending BUYs whose onchain confirmation landed but /positions hasn't
   // yet reflected them. Hydrated from localStorage on mount (so a user who
@@ -837,30 +819,14 @@ export default function PortfolioPage() {
         />
       )}
 
-      {/* History Tab — real trades + bridge deposits/withdraws merged */}
+      {/* History Tab — real trades only. Bridge deposits/withdraws were
+          dropped: see the BridgeTx removal above. The Total Portfolio
+          card on this page already reflects deposit/withdraw balance
+          changes via wagmi's useBalance, so a separate row here was
+          redundant signal once the source data was gone. */}
       {tab === "history" && (() => {
-        // Build a unified timeline: trades + bridges, sorted newest first.
-        // Bridges filtered to exclude any tx hash that also appears in
-        // polyActivity (those are trade settlement transfers, not
-        // user-initiated bridges).
-        const tradeHashes = new Set(
-          (polyActivity || [])
-            .map((a) => a.transactionHash?.toLowerCase())
-            .filter(Boolean) as string[],
-        );
-        const bridges = (rawBridges || []).filter(
-          (b) => !tradeHashes.has(b.txHash.toLowerCase()),
-        );
-        type Row =
-          | { kind: "trade"; tsMs: number; data: PolyActivity }
-          | { kind: "bridge"; tsMs: number; data: BridgeTx };
-        const rows: Row[] = [
-          ...(polyActivity || []).map<Row>((a) => ({ kind: "trade", tsMs: a.timestamp * 1000, data: a })),
-          ...bridges.map<Row>((b) => ({ kind: "bridge", tsMs: b.timestamp, data: b })),
-        ].sort((a, b) => b.tsMs - a.tsMs);
-
-        const isEmpty =
-          rows.length === 0 && pendingActivity.length === 0;
+        const trades = polyActivity || [];
+        const isEmpty = trades.length === 0 && pendingActivity.length === 0;
 
         const renderWhen = (tsMs: number): string => {
           const elapsed = Date.now() - tsMs;
@@ -897,104 +863,48 @@ export default function PortfolioPage() {
                 {pendingActivity.map((p) => (
                   <PendingActivityRow key={p.txHash} pending={p} />
                 ))}
-                {rows.map((row, i) => {
-                  if (row.kind === "trade") {
-                    const a = row.data;
-                    return (
-                      <div
-                        key={`t-${a.transactionHash}-${i}`}
-                        className="grid grid-cols-12 gap-2 px-4 py-3 items-center hover:bg-[#1c2128]/50 transition-colors"
-                      >
-                        <div className="col-span-1">
-                          <span className={cn(
-                            "text-[10px] font-bold px-1.5 py-0.5 rounded",
-                            a.side === "BUY" ? "bg-[#3fb950]/15 text-[#3fb950]" : "bg-[#f85149]/15 text-[#f85149]"
-                          )}>
-                            {a.side}
-                          </span>
-                        </div>
-                        <div className="col-span-4">
-                          <p className="text-[13px] text-[#e6edf3] font-medium leading-snug line-clamp-1">{a.title}</p>
-                        </div>
-                        <div className="col-span-2 text-right">
-                          <span className="text-xs text-[#e6edf3] tabular-nums font-medium">{a.size.toFixed(2)}</span>
-                        </div>
-                        <div className="col-span-2 text-right">
-                          <span className="text-xs text-[#e6edf3] tabular-nums font-medium">{Math.round(a.price * 100)}¢</span>
-                          <span className="text-[10px] text-[#484f58] ml-1 tabular-nums">{formatUsd(a.usdcSize)}</span>
-                        </div>
-                        <div className="col-span-2 text-right">
-                          <span className="text-[11px] text-[#768390] tabular-nums">{renderWhen(a.timestamp * 1000)}</span>
-                        </div>
-                        <div className="col-span-1 text-right">
-                          <a
-                            href={`https://polygonscan.com/tx/${a.transactionHash}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            title={`View ${a.transactionHash.slice(0, 10)}… on Polygonscan`}
-                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium text-[#58a6ff] bg-[#58a6ff]/10 hover:bg-[#58a6ff]/20 transition-colors tabular-nums"
-                          >
-                            {a.transactionHash.slice(0, 6)}
-                            <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                              <path d="M7 17L17 7M10 7h7v7" />
-                            </svg>
-                          </a>
-                        </div>
-                      </div>
-                    );
-                  }
-                  // bridge row
-                  const b = row.data;
-                  const isDeposit = b.type === "deposit";
-                  return (
-                    <div
-                      key={`b-${b.txHash}-${i}`}
-                      className="grid grid-cols-12 gap-2 px-4 py-3 items-center hover:bg-[#1c2128]/50 transition-colors"
-                    >
-                      <div className="col-span-1">
-                        <span className={cn(
-                          "text-[10px] font-bold px-1.5 py-0.5 rounded",
-                          isDeposit ? "bg-[#d29922]/15 text-[#d29922]" : "bg-[#8957e5]/15 text-[#a371f7]"
-                        )}>
-                          {isDeposit ? "DEPOSIT" : "WITHDRAW"}
-                        </span>
-                      </div>
-                      <div className="col-span-4">
-                        <p className="text-[13px] text-[#e6edf3] font-medium leading-snug line-clamp-1">
-                          {isDeposit ? "USDC.e deposit" : "USDC.e withdraw"}
-                        </p>
-                        <p className="text-[10px] text-[#484f58] font-mono">
-                          {isDeposit ? "from" : "to"} {b.counterparty.slice(0, 6)}…{b.counterparty.slice(-4)}
-                        </p>
-                      </div>
-                      <div className="col-span-2 text-right">
-                        <span className="text-xs text-[#484f58]">—</span>
-                      </div>
-                      <div className="col-span-2 text-right">
-                        <span className={cn("text-xs tabular-nums font-medium", isDeposit ? "text-[#3fb950]" : "text-[#f85149]")}>
-                          {isDeposit ? "+" : "−"}{formatUsd(b.amountUsdc)}
-                        </span>
-                      </div>
-                      <div className="col-span-2 text-right">
-                        <span className="text-[11px] text-[#768390] tabular-nums">{renderWhen(b.timestamp)}</span>
-                      </div>
-                      <div className="col-span-1 text-right">
-                        <a
-                          href={`https://polygonscan.com/tx/${b.txHash}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          title={`View ${b.txHash.slice(0, 10)}… on Polygonscan`}
-                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium text-[#58a6ff] bg-[#58a6ff]/10 hover:bg-[#58a6ff]/20 transition-colors tabular-nums"
-                        >
-                          {b.txHash.slice(0, 6)}
-                          <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                            <path d="M7 17L17 7M10 7h7v7" />
-                          </svg>
-                        </a>
-                      </div>
+                {trades.map((a, i) => (
+                  <div
+                    key={`t-${a.transactionHash}-${i}`}
+                    className="grid grid-cols-12 gap-2 px-4 py-3 items-center hover:bg-[#1c2128]/50 transition-colors"
+                  >
+                    <div className="col-span-1">
+                      <span className={cn(
+                        "text-[10px] font-bold px-1.5 py-0.5 rounded",
+                        a.side === "BUY" ? "bg-[#3fb950]/15 text-[#3fb950]" : "bg-[#f85149]/15 text-[#f85149]"
+                      )}>
+                        {a.side}
+                      </span>
                     </div>
-                  );
-                })}
+                    <div className="col-span-4">
+                      <p className="text-[13px] text-[#e6edf3] font-medium leading-snug line-clamp-1">{a.title}</p>
+                    </div>
+                    <div className="col-span-2 text-right">
+                      <span className="text-xs text-[#e6edf3] tabular-nums font-medium">{a.size.toFixed(2)}</span>
+                    </div>
+                    <div className="col-span-2 text-right">
+                      <span className="text-xs text-[#e6edf3] tabular-nums font-medium">{Math.round(a.price * 100)}¢</span>
+                      <span className="text-[10px] text-[#484f58] ml-1 tabular-nums">{formatUsd(a.usdcSize)}</span>
+                    </div>
+                    <div className="col-span-2 text-right">
+                      <span className="text-[11px] text-[#768390] tabular-nums">{renderWhen(a.timestamp * 1000)}</span>
+                    </div>
+                    <div className="col-span-1 text-right">
+                      <a
+                        href={`https://polygonscan.com/tx/${a.transactionHash}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        title={`View ${a.transactionHash.slice(0, 10)}… on Polygonscan`}
+                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium text-[#58a6ff] bg-[#58a6ff]/10 hover:bg-[#58a6ff]/20 transition-colors tabular-nums"
+                      >
+                        {a.transactionHash.slice(0, 6)}
+                        <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M7 17L17 7M10 7h7v7" />
+                        </svg>
+                      </a>
+                    </div>
+                  </div>
+                ))}
               </div>
             )}
           </div>
