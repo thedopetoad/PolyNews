@@ -2,7 +2,7 @@
 
 import { useCallback, useState } from "react";
 import { useAccount, useWalletClient } from "wagmi";
-import { createWalletClient, custom } from "viem";
+import { createPublicClient, createWalletClient, custom, http } from "viem";
 import { polygon } from "viem/chains";
 import { RelayClient, RelayerTxType } from "@polymarket/builder-relayer-client";
 import { useAuthStore } from "@/stores/use-auth-store";
@@ -15,6 +15,13 @@ import {
   encodeNegRiskRedeem,
   getNegRiskFlag,
 } from "@/lib/redeem";
+
+// Public Polygon RPC used for the post-submission receipt check — we
+// query the chain directly to confirm the redeem tx didn't revert,
+// rather than trust the relay's response.wait() which has been seen
+// to throw on valid txs and vice versa.
+const POLYGON_RPC = "https://polygon.drpc.org";
+const receiptClient = createPublicClient({ chain: polygon, transport: http(POLYGON_RPC) });
 
 /**
  * Submit a redeem-winnings transaction through Polymarket's gasless
@@ -122,6 +129,9 @@ export function useRedeem() {
         // standard CTF index-set bitmask. Binary YES/NO (every sports
         // market) goes to the standard CTF contract.
         const isNegRisk = await getNegRiskFlag(params.conditionId);
+        console.log(
+          `[redeem] conditionId=${params.conditionId} negRisk=${isNegRisk} outcome=${params.outcome} shares=${params.shares} contract=${isNegRisk ? "NegRiskAdapter" : "CTF"}`,
+        );
         const { to, data } = isNegRisk
           ? {
               to: NEG_RISK_ADAPTER,
@@ -138,25 +148,53 @@ export function useRedeem() {
           params.label ?? "Redeem Polymarket winnings",
         );
 
-        // Same wait() treatment as the withdraw fix: capture the submitted
-        // hash up front so a failed confirmation poll doesn't flip a
-        // successful on-chain tx into a UI error.
-        const submittedHash = response.transactionHash || null;
+        const submittedHash = response.transactionHash as `0x${string}` | undefined;
+        if (!submittedHash) {
+          throw new Error("Relay returned no transaction hash — redeem not submitted.");
+        }
+        console.log(`[redeem] submitted hash=${submittedHash}`);
+
+        // Verify the tx actually succeeded on-chain. response.wait() in
+        // the relay SDK has been flaky — sometimes throws on valid txs,
+        // sometimes returns without checking status. We hit the chain
+        // directly to get the authoritative receipt, then check
+        // receipt.status === "success". If "reverted", treat it as a
+        // failure (don't optimistically hide the position — the user's
+        // tokens are still there and they need to know).
+        //
+        // Previous behavior: reported success on any submittedHash,
+        // which meant reverted redeems looked successful until the 2min
+        // closedLocally TTL expired and the position reappeared — the
+        // "it pops out again on refresh" bug.
         try {
-          const confirmed = await response.wait();
-          return {
-            success: true,
-            txHash: confirmed?.transactionHash || submittedHash,
-          };
-        } catch (waitErr) {
-          console.warn("Redeem wait() failed but tx was submitted:", waitErr);
-          if (submittedHash) {
-            return { success: true, txHash: submittedHash };
+          const receipt = await receiptClient.waitForTransactionReceipt({
+            hash: submittedHash,
+            timeout: 90_000,
+          });
+          if (receipt.status !== "success") {
+            console.warn(`[redeem] tx reverted hash=${submittedHash} status=${receipt.status}`);
+            return {
+              success: false,
+              error: `On-chain redemption reverted. tx: ${submittedHash}`,
+              txHash: submittedHash,
+            };
           }
-          throw waitErr;
+          console.log(`[redeem] confirmed hash=${submittedHash} status=success gasUsed=${receipt.gasUsed}`);
+          return { success: true, txHash: submittedHash };
+        } catch (waitErr) {
+          // Chain lookup itself failed (network hiccup, RPC down). Don't
+          // claim success — we don't know. Caller will show the user
+          // the submitted hash so they can check Polygonscan.
+          console.warn("[redeem] receipt check failed:", waitErr);
+          return {
+            success: false,
+            error: `Submitted but couldn't confirm on-chain. tx: ${submittedHash}`,
+            txHash: submittedHash,
+          };
         }
       } catch (e) {
         const msg = (e as Error).message || "Redeem failed";
+        console.warn("[redeem] threw:", msg);
         setError(msg);
         return { success: false, error: msg };
       } finally {
