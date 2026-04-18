@@ -56,12 +56,16 @@ export default function PortfolioPage() {
   // changes we can see locally. No source/destination chain polling.
   const { state: bridgeState, startPending, complete: completeBridge, dismiss: dismissPending } = usePendingBridge();
 
-  // Read USDC.e balance from the proxy wallet (not the EOA).
-  // We always read from Polygon regardless of which chain the connected wallet
-  // is on — the balance is held on Polygon whether the user is currently
-  // signed into Phantom/MetaMask on Solana, Ethereum, or anywhere else.
-  // While a bridge is in flight we poll every 8s so the indicator auto-dismisses
-  // as soon as funds land; otherwise we rely on react-query's default staleness.
+  // Read USDC.e balance from the Polymarket proxy wallet only — that's
+  // where every paper-or-real trade actually settles. We deliberately
+  // do NOT roll the user's EOA balance into the total: a withdraw
+  // moves USDC.e from proxy → EOA, and if both counted the total
+  // wouldn't budge, making "successful" withdraws look like no-ops
+  // ("Total Portfolio still shows $3.35 after I withdrew" — exactly
+  // what someone hit). Read from Polygon regardless of which chain
+  // the connected wallet is currently on. While a bridge is in flight
+  // we poll every 8s so the indicator auto-dismisses; otherwise we
+  // rely on react-query's default staleness.
   const refetchInterval = bridgeState ? 8_000 : false;
   const { data: proxyUsdcBalance } = useBalance({
     address: proxyAddress as `0x${string}` | undefined,
@@ -69,16 +73,7 @@ export default function PortfolioPage() {
     chainId: POLYGON_CHAIN_ID,
     query: { enabled: !!proxyAddress, refetchInterval },
   });
-  // Also check EOA balance as fallback
-  const { data: eoaUsdcBalance } = useBalance({
-    address: address as `0x${string}` | undefined,
-    token: USDC_ADDRESS,
-    chainId: POLYGON_CHAIN_ID,
-    query: { enabled: !!address, refetchInterval },
-  });
-  const proxyBal = proxyUsdcBalance ? parseFloat(proxyUsdcBalance.formatted) : 0;
-  const eoaBal = eoaUsdcBalance ? parseFloat(eoaUsdcBalance.formatted) : 0;
-  const usdcBal = proxyBal + eoaBal;
+  const usdcBal = proxyUsdcBalance ? parseFloat(proxyUsdcBalance.formatted) : 0;
 
   // Transition to the "completed" celebration when the USDC.e balance moves
   // in the expected direction:
