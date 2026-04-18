@@ -915,15 +915,16 @@ export default function AdminPage() {
                   <tr key={`${u.id}-detail`}>
                     <td colSpan={9} className="p-0">
                       <div className="bg-[#0d1117] border-t border-b border-[#58a6ff]/20 p-4 space-y-4">
+                        {/* Fund card renders immediately — derived purely
+                            from u.id, doesn't need the detail fetch. The
+                            whole point of opening the drawer is usually
+                            to grab this address. */}
+                        <FundUserCard eoa={u.id} displayName={u.displayName} />
+
                         {detailLoading ? (
-                          <p className="text-xs text-[#484f58] text-center py-4">Loading user data...</p>
+                          <p className="text-xs text-[#484f58] text-center py-4">Loading positions, trades &amp; airdrops…</p>
                         ) : userDetail ? (
                           <>
-                            {/* Fund account — send USDC.e to this user's
-                                CREATE2 proxy. Shown first because it's
-                                the whole reason we open the drawer. */}
-                            <FundUserCard eoa={u.id} displayName={u.displayName} />
-
                             {/* User positions */}
                             <div>
                               <h3 className="text-xs font-semibold text-[#58a6ff] mb-2">Open Positions ({userDetail.positions?.length || 0})</h3>
