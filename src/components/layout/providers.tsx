@@ -3,7 +3,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { checkMagicSession, handleOAuthRedirect, getMagic, type OAuthResult } from "@/lib/magic";
+import { checkMagicSession, handleOAuthRedirect, getMagic, consumePostLoginReturnPath, type OAuthResult } from "@/lib/magic";
 import { useAuthStore } from "@/stores/use-auth-store";
 import { magicConnector, prepareMagicConnector } from "@/lib/magic-connector";
 import { I18nProvider } from "@/lib/i18n";
@@ -119,6 +119,15 @@ function MagicSessionRestore() {
           }),
         }).catch(() => {});
         connectMagicToWagmi(result.address);
+
+        // Restore the page the user was on when they clicked login.
+        // We always send them to `/` for the OAuth round-trip (keeps
+        // the whitelist to a single URI), then hop back here. Ignore
+        // if they started on root anyway.
+        const returnPath = consumePostLoginReturnPath();
+        if (returnPath && returnPath !== "/") {
+          window.history.replaceState({}, "", returnPath);
+        }
         return;
       }
 

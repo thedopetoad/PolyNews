@@ -64,19 +64,56 @@ export async function checkMagicSession(): Promise<{ address: string; email: str
   }
 }
 
+// sessionStorage key for stashing the page the user was on when they
+// clicked "Continue with Google", so we can send them back there after
+// the OAuth round-trip completes. Keeps the login flow using a single
+// whitelisted redirect URI (the site root) — previous implementation
+// passed the current pathname as redirectURI, which broke with
+// `Error 400: redirect_uri_mismatch` whenever a user tried to log in
+// from a page whose URL wasn't on Google's (or Magic's) allowed list.
+// aggrehglory@gmail.com hit exactly that path on /airdrop or similar.
+const RETURN_PATH_KEY = "polystream:login-return-path";
+
 /**
  * Start Google OAuth login via Magic.
  * Opens Google's account picker directly — no intermediate modal.
- * Redirects back to the current page after auth.
+ * Saves the current page to sessionStorage so handleOAuthRedirect can
+ * navigate back once the OAuth round-trip is complete.
  */
 export async function loginWithGoogle(): Promise<void> {
   const magic = getMagic();
   if (!magic) throw new Error("Magic not initialized");
 
+  // Save the page we came from so we can restore it after OAuth returns.
+  // Includes query + hash in case the user was deep-linked somewhere
+  // (e.g. /airdrop?tab=earn). OAuth itself always returns to the site
+  // root — that's the only path we need to keep on the whitelist.
+  try {
+    const current = window.location.pathname + window.location.search + window.location.hash;
+    if (current && current !== "/") {
+      sessionStorage.setItem(RETURN_PATH_KEY, current);
+    }
+  } catch { /* sessionStorage can be blocked; fall back to root */ }
+
   await magic.oauth2.loginWithRedirect({
     provider: "google",
-    redirectURI: window.location.origin + window.location.pathname,
+    redirectURI: window.location.origin + "/",
   });
+}
+
+/**
+ * Pop the stashed pre-login path (if any) so callers can router.replace
+ * the user back to where they started. Clears the stash so a page
+ * refresh doesn't re-trigger the navigation.
+ */
+export function consumePostLoginReturnPath(): string | null {
+  try {
+    const path = sessionStorage.getItem(RETURN_PATH_KEY);
+    if (path) sessionStorage.removeItem(RETURN_PATH_KEY);
+    return path;
+  } catch {
+    return null;
+  }
 }
 
 /**
