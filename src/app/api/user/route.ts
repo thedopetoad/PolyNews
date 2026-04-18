@@ -1,14 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getDb, users, positions, trades, airdrops, referrals } from "@/db";
-import { eq, and, ne, sql } from "drizzle-orm";
+import { getDb, users, positions, trades, airdrops } from "@/db";
+import { eq, and, ne } from "drizzle-orm";
 import {
   isValidAddress,
-  generateSecureId,
   generateReferralCode,
   getAuthenticatedUser,
 } from "@/lib/auth";
-import { STARTING_BALANCE, AIRDROP_AMOUNTS } from "@/lib/constants";
-import { isoWeekKey } from "@/lib/week";
+import { STARTING_BALANCE } from "@/lib/constants";
+import { payReferralBonus } from "@/lib/referral-payout";
 
 // GET /api/user?id=0x123... - Get own user (auth required)
 export async function GET(request: NextRequest) {
@@ -179,7 +178,6 @@ export async function POST(request: NextRequest) {
     }
 
     const referralCode = generateReferralCode();
-    const weekKey = isoWeekKey();
 
     // STARTING_BALANCE IS the signup bonus — there isn't an additional
     // bonus on top of it. Set `hasSignupAirdrop: true` on insert so the
@@ -201,11 +199,11 @@ export async function POST(request: NextRequest) {
       })
       .returning();
 
-    // Pay the referrer bonus + record the referral pair. THIS is the
-    // bit that was silently broken before: the payout used to be gated
-    // behind the referred user clicking a signup-claim button that no
-    // longer existed. Firing it directly on signup restores the
-    // virality loop.
+    // Pay the referrer bonus + record the referral pair. Funnels through
+    // the shared payReferralBonus so the same idempotency guard (unique
+    // index on referrals.referred_id) protects this path. If a separate
+    // /api/airdrop apply-referral fires for the same pair, only the
+    // first one through actually credits the bonus.
     if (referredBy) {
       const [referrer] = await db
         .select({ id: users.id })
@@ -213,25 +211,7 @@ export async function POST(request: NextRequest) {
         .where(eq(users.referralCode, referredBy))
         .limit(1);
       if (referrer) {
-        await db
-          .update(users)
-          .set({ balance: sql`${users.balance} + ${AIRDROP_AMOUNTS.referralBonus}` })
-          .where(eq(users.id, referrer.id));
-
-        await db.insert(airdrops).values({
-          id: generateSecureId(),
-          userId: referrer.id,
-          source: "referral",
-          amount: AIRDROP_AMOUNTS.referralBonus,
-          weekKey,
-        });
-
-        await db.insert(referrals).values({
-          id: generateSecureId(),
-          referrerId: referrer.id,
-          referredId: normalizedId,
-          signupBonusPaid: true,
-        });
+        await payReferralBonus(db, referrer.id, normalizedId);
       }
     }
 

@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getDb, users, airdrops, referrals } from "@/db";
+import { getDb, users, airdrops } from "@/db";
 import { eq, and, sql } from "drizzle-orm";
 import { getAuthenticatedUser, generateSecureId } from "@/lib/auth";
 import { AIRDROP_AMOUNTS } from "@/lib/constants";
 import { isoWeekKey } from "@/lib/week";
+import { payReferralBonus } from "@/lib/referral-payout";
 
 // POST /api/airdrop - Claim an airdrop
 export async function POST(request: NextRequest) {
@@ -23,56 +24,35 @@ export async function POST(request: NextRequest) {
     if (type === "apply-referral") {
       const { referralCode } = body;
       if (!referralCode) return NextResponse.json({ error: "Missing referral code" }, { status: 400 });
+      const code = referralCode.toUpperCase();
 
       const db = getDb();
       const [user] = await db.select().from(users).where(eq(users.id, normalizedUserId)).limit(1);
       if (!user) return NextResponse.json({ error: "User not found" }, { status: 404 });
-
-      // Block if already referred (prevents double-spend)
-      if (user.referredBy) {
-        return NextResponse.json({ error: "You already have a referral code applied" }, { status: 400 });
-      }
-
-      // Block self-referral
-      if (user.referralCode === referralCode.toUpperCase()) {
+      if (user.referralCode === code) {
         return NextResponse.json({ error: "You cannot use your own referral code" }, { status: 400 });
       }
 
-      // Validate the referral code exists
-      const [referrer] = await db.select().from(users).where(eq(users.referralCode, referralCode.toUpperCase())).limit(1);
-      if (!referrer) {
-        return NextResponse.json({ error: "Invalid referral code" }, { status: 400 });
+      const [referrer] = await db.select().from(users).where(eq(users.referralCode, code)).limit(1);
+      if (!referrer) return NextResponse.json({ error: "Invalid referral code" }, { status: 400 });
+
+      // Atomic claim: only set referredBy if it's currently NULL. Two
+      // concurrent applies see exactly one succeed (returning length 1).
+      const claim = await db
+        .update(users)
+        .set({ referredBy: code })
+        .where(and(eq(users.id, normalizedUserId), sql`${users.referredBy} IS NULL`))
+        .returning({ id: users.id });
+
+      if (claim.length === 0) {
+        return NextResponse.json({ error: "You already have a referral code applied" }, { status: 400 });
       }
 
-      // Set referredBy AND pay the referrer immediately. Older versions
-      // of this handler deferred the bonus to "when user claims signup
-      // airdrop" — but signup bonuses are auto-granted at user creation
-      // now (see /api/user POST), so that claim path never executes.
-      // Result: referrers stayed at 0 even though "1 friend" showed up
-      // on their dashboard. Pay here, idempotency comes from the
-      // user.referredBy guard above.
-      await db.update(users).set({ referredBy: referralCode.toUpperCase() }).where(eq(users.id, normalizedUserId));
-
-      await db
-        .update(users)
-        .set({ balance: sql`${users.balance} + ${AIRDROP_AMOUNTS.referralBonus}` })
-        .where(eq(users.id, referrer.id));
-
-      const weekKey = isoWeekKey();
-      await db.insert(airdrops).values({
-        id: generateSecureId(),
-        userId: referrer.id,
-        source: "referral",
-        amount: AIRDROP_AMOUNTS.referralBonus,
-        weekKey,
-      });
-
-      await db.insert(referrals).values({
-        id: generateSecureId(),
-        referrerId: referrer.id,
-        referredId: normalizedUserId,
-        signupBonusPaid: true,
-      });
+      // Pay the referrer. payReferralBonus is idempotent — the unique
+      // index on referrals.referred_id means even if /api/user POST and
+      // this handler both fire (race or retry), only the first succeeds
+      // in inserting the row, only that one pays the bonus.
+      await payReferralBonus(db, referrer.id, normalizedUserId);
 
       return NextResponse.json({ success: true });
     }
@@ -162,34 +142,17 @@ export async function POST(request: NextRequest) {
       weekKey,
     });
 
-    // Handle referral bonus on signup
+    // Handle referral bonus on signup. Idempotent — payReferralBonus
+    // no-ops if the (referrer, referred) pair was already credited via
+    // any other path.
     if (type === "signup" && user.referredBy) {
       const [referrer] = await db
-        .select()
+        .select({ id: users.id })
         .from(users)
         .where(eq(users.referralCode, user.referredBy))
         .limit(1);
-
       if (referrer) {
-        await db
-          .update(users)
-          .set({ balance: sql`${users.balance} + ${AIRDROP_AMOUNTS.referralBonus}` })
-          .where(eq(users.id, referrer.id));
-
-        await db.insert(referrals).values({
-          id: generateSecureId(),
-          referrerId: referrer.id,
-          referredId: normalizedUserId,
-          signupBonusPaid: true,
-        });
-
-        await db.insert(airdrops).values({
-          id: generateSecureId(),
-          userId: referrer.id,
-          source: "referral",
-          amount: AIRDROP_AMOUNTS.referralBonus,
-          weekKey,
-        });
+        await payReferralBonus(db, referrer.id, normalizedUserId);
       }
     }
 
