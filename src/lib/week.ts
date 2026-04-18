@@ -85,3 +85,21 @@ export function prizeWeekRange(weekKey: string): { start: Date; end: Date } {
   const end = new Date(start.getTime() + 7 * 86400 * 1000 - 1);
   return { start, end };
 }
+
+/**
+ * Day key for the daily airdrop claim. Rolls at 17:00 UTC (9am PST,
+ * 10am PDT) so it lines up with the weekly prize reset and the UI
+ * label ("Resets at 9am PST"). Previously this used the UTC calendar
+ * date, which flipped at UTC midnight (~5pm PT) — users who claimed
+ * in the evening PT got locked out for the REST of their PT-day and
+ * only regained access the following 5pm PT, which was confusing and
+ * contradicted what the UI promised.
+ *
+ * Format: "YYYY-MM-DD" of the UTC date 17 hours earlier. At, say,
+ * Tuesday 02:00 UTC (Monday 7pm PT) the key is "Monday". At
+ * Tuesday 17:00 UTC (Tuesday 10am PDT) the key flips to "Tuesday".
+ */
+export function dailyClaimKey(date: Date = new Date()): string {
+  const shifted = new Date(date.getTime() - 17 * 3600 * 1000);
+  return shifted.toISOString().slice(0, 10);
+}

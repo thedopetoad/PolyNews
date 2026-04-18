@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDb, users, airdrops, trades, newsWatchHeartbeats, positions } from "@/db";
 import { eq, and, sql, gte, count } from "drizzle-orm";
 import { getAuthenticatedUser } from "@/lib/auth";
-import { isoWeekKey, isoWeekStart } from "@/lib/week";
+import { isoWeekKey, isoWeekStart, dailyClaimKey } from "@/lib/week";
 
 // GET /api/airdrop/me
 //
@@ -21,7 +21,8 @@ export async function GET(request: NextRequest) {
     const db = getDb();
     const weekKey = isoWeekKey();
     const weekStart = isoWeekStart();
-    const todayUTC = new Date().toISOString().slice(0, 10);
+    // Rolls at 17:00 UTC (9am PST), matching the UI label + weekly reset.
+    const todayKey = dailyClaimKey();
 
     // Fetch the user first — downstream queries need the referralCode
     // to count referrals.
@@ -95,7 +96,7 @@ export async function GET(request: NextRequest) {
       referralCount: Number(refRow?.count || 0),
       referredBy: user.referredBy,
       dailyClaim: {
-        claimed: user.lastDailyAirdrop === todayUTC,
+        claimed: user.lastDailyAirdrop === todayKey,
       },
       weeklyGoals: {
         newsWatch: {

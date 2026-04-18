@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState, useEffect, useCallback, useRef } from "react";
+import { dailyClaimKey } from "@/lib/week";
 import { usePolymarketEvents } from "@/hooks/use-polymarket";
 import { useUser, DbPosition } from "@/hooks/use-user";
 import { useQuery } from "@tanstack/react-query";
@@ -270,8 +271,10 @@ function PortfolioTab({ allMarkets, onSwitchTab }: { allMarkets: MarketWithPrice
     );
   }
 
-  const todayUTC = new Date().toISOString().slice(0, 10);
-  const dailyClaimed = claimedToday || user.lastDailyAirdrop === todayUTC;
+  // dailyClaimKey() rolls at 17:00 UTC (9am PST) to match the
+  // /api/airdrop server check and the Earn tab's "Resets at 9am PST".
+  const todayKey = dailyClaimKey();
+  const dailyClaimed = claimedToday || user.lastDailyAirdrop === todayKey;
 
   const handleClaim = async () => {
     setClaimError(null);

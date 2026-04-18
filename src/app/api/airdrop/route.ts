@@ -3,7 +3,7 @@ import { getDb, users, airdrops } from "@/db";
 import { eq, and, sql } from "drizzle-orm";
 import { getAuthenticatedUser, generateSecureId } from "@/lib/auth";
 import { AIRDROP_AMOUNTS } from "@/lib/constants";
-import { isoWeekKey } from "@/lib/week";
+import { isoWeekKey, dailyClaimKey } from "@/lib/week";
 import { payReferralBonus } from "@/lib/referral-payout";
 
 // POST /api/airdrop - Claim an airdrop
@@ -76,8 +76,12 @@ export async function POST(request: NextRequest) {
 
     let amount = 0;
 
-    // Use UTC date to avoid timezone mismatches between server and client
-    const todayUTC = new Date().toISOString().slice(0, 10); // "YYYY-MM-DD"
+    // Day key for the daily claim — rolls at 17:00 UTC (9am PST, 10am
+    // PDT). Matches the "Resets at 9am PST" UI label and the weekly
+    // prize reset. Using raw UTC date here meant the reset happened
+    // at UTC midnight (~5pm PT), locking out evening-PT claimers for
+    // the rest of their local day.
+    const todayUTC = dailyClaimKey();
 
     if (type === "signup") {
       if (user.hasSignupAirdrop) {
