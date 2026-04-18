@@ -51,7 +51,13 @@ export async function checkMagicSession(): Promise<{ address: string; email: str
     const info = await magic.user.getInfo();
     const address = info.publicAddress?.toLowerCase();
     if (!address) return null;
-    return { address, email: info.email?.toLowerCase() || null };
+    // Magic's `getInfo()` response has shifted over SDK versions — email has
+    // shown up directly on `info`, under `userMetadata`, and nested inside
+    // `oauth.userInfo`. Check every known location so a single missing field
+    // on one SDK path doesn't drop the email on the floor.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const email = extractEmail(info as any);
+    return { address, email };
   } catch (err) {
     console.error("Magic session check failed:", err);
     return null;
@@ -99,7 +105,18 @@ export async function handleOAuthRedirect(): Promise<OAuthResult | null> {
     const result = await magic.oauth2.getRedirectResult();
     const address = result?.magic?.userMetadata?.publicAddress?.toLowerCase()
       || result?.magic?.userMetadata?.wallets?.ethereum?.publicAddress?.toLowerCase();
-    const email = result?.oauth?.userInfo?.email?.toLowerCase() || null;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const email = extractEmail(result as any);
+    if (!email) {
+      // Useful when a new user's email ends up NULL in the DB — lets us
+      // see in prod logs which response shape Magic returned, so we can
+      // add another fallback path rather than silently dropping it.
+      console.warn("Magic OAuth redirect: no email found on result", {
+        oauthShape: result?.oauth ? Object.keys(result.oauth) : null,
+        magicShape: result?.magic ? Object.keys(result.magic) : null,
+        userMetaKeys: result?.magic?.userMetadata ? Object.keys(result.magic.userMetadata) : null,
+      });
+    }
 
     // Clean up URL — remove all OAuth params
     window.history.replaceState({}, "", url.pathname);
@@ -109,6 +126,31 @@ export async function handleOAuthRedirect(): Promise<OAuthResult | null> {
     console.error("Magic OAuth redirect failed:", err);
     return null;
   }
+}
+
+/**
+ * Pull an email out of any of the Magic SDK response shapes we've seen.
+ * The structure has shifted between `magic-sdk` versions and between the
+ * OAuth redirect result vs `user.getInfo()`. Checking every known path
+ * keeps users from slipping through with a NULL email.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function extractEmail(obj: any): string | null {
+  if (!obj) return null;
+  const candidates = [
+    obj.email,
+    obj.userMetadata?.email,
+    obj.magic?.userMetadata?.email,
+    obj.oauth?.userInfo?.email,
+    obj.oauth?.userHandle,
+    obj.oauth?.user_info?.email,
+  ];
+  for (const c of candidates) {
+    if (typeof c === "string" && c.includes("@")) {
+      return c.toLowerCase().trim();
+    }
+  }
+  return null;
 }
 
 /**

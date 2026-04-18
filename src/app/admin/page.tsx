@@ -278,6 +278,7 @@ export default function AdminPage() {
     airdrops: Array<{ id: string; source: string; amount: number; createdAt: string }>;
   } | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState<string | null>(null);
 
   // On mount: verify the session TWO ways.
   //   1. Cookie check — the server-side HMAC session is still valid.
@@ -459,8 +460,10 @@ export default function AdminPage() {
   }, [authed, fetchAdmin]);
 
   const fetchUserDetail = useCallback(async (userId: string) => {
-    if (selectedUserId === userId) { setSelectedUserId(null); setUserDetail(null); return; }
+    if (selectedUserId === userId) { setSelectedUserId(null); setUserDetail(null); setDetailError(null); return; }
     setSelectedUserId(userId);
+    setUserDetail(null);
+    setDetailError(null);
     setDetailLoading(true);
     try {
       const res = await fetch("/api/admin", {
@@ -469,8 +472,23 @@ export default function AdminPage() {
         credentials: "include",
         body: JSON.stringify({ action: "getUserDetails", userId }),
       });
-      if (res.ok) setUserDetail(await res.json());
-    } catch {}
+      if (res.ok) {
+        setUserDetail(await res.json());
+      } else {
+        // Parse { error: "…" } shape; fall back to raw body + status code.
+        const raw = await res.text();
+        let msg = `${res.status}`;
+        try {
+          const parsed = JSON.parse(raw) as { error?: string };
+          if (parsed.error) msg = `${res.status} — ${parsed.error}`;
+        } catch {
+          if (raw) msg = `${res.status} — ${raw.slice(0, 200)}`;
+        }
+        setDetailError(msg);
+      }
+    } catch (err) {
+      setDetailError(`Network error: ${(err as Error).message}`);
+    }
     setDetailLoading(false);
   }, [selectedUserId]);
 
@@ -1000,7 +1018,9 @@ export default function AdminPage() {
                             )}
                           </>
                         ) : (
-                          <p className="text-xs text-[#f85149]">Failed to load user data</p>
+                          <p className="text-xs text-[#f85149] font-mono break-all">
+                            Failed to load user data{detailError ? ` — ${detailError}` : ""}
+                          </p>
                         )}
                       </div>
                     </td>

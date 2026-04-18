@@ -3,17 +3,22 @@ import { NextRequest, NextResponse } from "next/server";
 // GET /api/portfolio/bridge-history?user=<proxyAddress>
 //
 // Returns USDC.e ERC-20 transfer events touching the given proxy
-// wallet, pulled from Polygonscan. The client then subtracts any
-// tx hashes that match Polymarket's /activity feed — the leftovers
-// are bridge deposits (USDC.e coming in) and withdraws (going out).
+// wallet. The client then subtracts any tx hashes that match
+// Polymarket's /activity feed — the leftovers are bridge deposits
+// (USDC.e coming in) and withdraws (going out).
 //
-// POLYGONSCAN_API_KEY env var is optional. Without it Polygonscan
-// still responds but applies a tighter rate limit. Works fine for
-// the single-user-checking-their-own-portfolio case.
+// Uses Etherscan's unified V2 API (api.etherscan.io/v2/api?chainid=137).
+// The legacy polygonscan.com V1 endpoint was deprecated Apr 2026 and now
+// returns NOTOK for every request regardless of whether a key is provided.
+//
+// An API key is REQUIRED for V2. Accepts either ETHERSCAN_API_KEY (new,
+// preferred) or POLYGONSCAN_API_KEY (legacy name, same key works) so
+// existing envs don't break. If neither is set we return a clear error
+// instead of silently empty so the UI can signal the misconfig.
 
 const USDC_E = "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174";
 
-interface PolygonscanTokenTx {
+interface EtherscanTokenTx {
   hash: string;
   from: string;
   to: string;
@@ -38,22 +43,40 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Invalid user" }, { status: 400 });
   }
 
-  const apiKey = process.env.POLYGONSCAN_API_KEY || "";
+  const apiKey =
+    process.env.ETHERSCAN_API_KEY || process.env.POLYGONSCAN_API_KEY || "";
+  if (!apiKey) {
+    return NextResponse.json({
+      bridges: [],
+      error:
+        "Bridge history unavailable — ETHERSCAN_API_KEY env var not set on the server",
+    });
+  }
+
   const url =
-    `https://api.polygonscan.com/api` +
-    `?module=account&action=tokentx` +
+    `https://api.etherscan.io/v2/api` +
+    `?chainid=137` +
+    `&module=account&action=tokentx` +
     `&contractaddress=${USDC_E}` +
     `&address=${user.toLowerCase()}` +
     `&page=1&offset=100&sort=desc` +
-    (apiKey ? `&apikey=${apiKey}` : "");
+    `&apikey=${apiKey}`;
 
   try {
     const res = await fetch(url, { next: { revalidate: 60 } });
     if (!res.ok) return NextResponse.json({ bridges: [] });
-    const data = (await res.json()) as { status?: string; result?: PolygonscanTokenTx[] | string };
-    // Polygonscan returns status "0" + result as a string message when no
-    // results OR rate-limited. Treat both as empty-no-error.
+    const data = (await res.json()) as {
+      status?: string;
+      message?: string;
+      result?: EtherscanTokenTx[] | string;
+    };
+    // Etherscan returns status "0" + result as a string message when no
+    // results OR rate-limited. "No transactions found" is legitimate empty;
+    // anything else is an error we should log once so misconfigs surface.
     if (data.status !== "1" || !Array.isArray(data.result)) {
+      if (typeof data.result === "string" && !/no transactions/i.test(data.result)) {
+        console.warn("Etherscan V2 tokentx non-OK:", data.message, data.result);
+      }
       return NextResponse.json({ bridges: [] });
     }
 

@@ -226,12 +226,31 @@ export function WithdrawModal({ open, onOpenChange, usdcBalance, userAddress, on
 
       setStatus("polling");
 
-      // Poll for confirmation
-      const confirmed = await response.wait();
-      const hash = confirmed?.transactionHash || response.transactionHash;
+      // The relay submission already returned a tx hash. Capture it BEFORE
+      // we await wait() so that even if confirmation polling times out or
+      // throws, we can still show the user the hash and mark the withdraw
+      // as submitted. Without this, on-chain successes were being reported
+      // to the user as failures (third withdraw bug, tx 0x41245c…).
+      const submittedHash = response.transactionHash || null;
 
-      setTxHash(hash);
-      setStatus("success");
+      try {
+        const confirmed = await response.wait();
+        const hash = confirmed?.transactionHash || submittedHash;
+        setTxHash(hash);
+        setStatus("success");
+      } catch (waitErr) {
+        // Submission succeeded; only confirmation polling failed. Surface
+        // the tx hash so the user can verify on Polygonscan, but don't
+        // call onWithdrawFailed — the pending-bridge indicator will
+        // auto-complete when the proxy USDC.e balance drops.
+        console.warn("Withdraw wait() failed but tx was submitted:", waitErr);
+        if (submittedHash) {
+          setTxHash(submittedHash);
+          setStatus("success");
+        } else {
+          throw waitErr;
+        }
+      }
     } catch (err) {
       console.error("Withdraw failed:", err);
       setError((err as Error).message || "Withdrawal failed");

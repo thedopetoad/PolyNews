@@ -305,15 +305,16 @@ export async function POST(request: NextRequest) {
     }
 
     if (action === "getUserDetails") {
-      // Fetch user profile, trades, and positions for monitoring
-      const [user] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
-      if (!user) {
-        // Try lowercase
-        const [userLower] = await db.select().from(users).where(eq(users.id, userId.toLowerCase())).limit(1);
-        if (!userLower) return NextResponse.json({ error: "User not found" }, { status: 404 });
+      // Fetch user profile, trades, and positions for monitoring.
+      // Try exact case first, then lowercase (Google auth sometimes stores
+      // mixed-case IDs while the row we recorded is lowercased).
+      let [foundUser] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
+      if (!foundUser) {
+        [foundUser] = await db.select().from(users).where(eq(users.id, userId.toLowerCase())).limit(1);
       }
+      if (!foundUser) return NextResponse.json({ error: "User not found" }, { status: 404 });
 
-      const targetId = user?.id || userId.toLowerCase();
+      const targetId = foundUser.id;
 
       const [userTrades, userPositions, userAirdrops] = await Promise.all([
         db.select().from(trades).where(eq(trades.userId, targetId)).orderBy(desc(trades.createdAt)).limit(50),
@@ -322,7 +323,7 @@ export async function POST(request: NextRequest) {
       ]);
 
       return NextResponse.json({
-        user: user || null,
+        user: foundUser,
         trades: userTrades,
         positions: userPositions,
         airdrops: userAirdrops,
