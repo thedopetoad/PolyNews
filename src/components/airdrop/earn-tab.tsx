@@ -98,15 +98,28 @@ export function AirdropEarnTab() {
             // ladder is discoverable without burying it in tooltip text.
             title={t.airdrop.earn.dailyTitle}
             reward={me.dailyClaim.nextReward}
-            // Description is the BIG explainer — both states spell out the
-            // ladder so the +100/day pattern isn't a mystery the user has
-            // to derive from the cap. Prior copy was "Day 7 caps at +700"
-            // which left users guessing how to get there.
-            description={
-              me.dailyClaim.currentStreak > 0
-                ? `🔥 Day ${me.dailyClaim.currentStreak} streak. +${AIRDROP_AMOUNTS.daily} more each day in a row → caps at +${AIRDROP_AMOUNTS.daily * me.dailyClaim.cap} on Day ${me.dailyClaim.cap}. Tomorrow: +${AIRDROP_AMOUNTS.daily * Math.min(me.dailyClaim.nextStreak + 1, me.dailyClaim.cap)}.`
-                : `+${AIRDROP_AMOUNTS.daily} more each day in a row. Day 1 = +${AIRDROP_AMOUNTS.daily}, Day 2 = +${AIRDROP_AMOUNTS.daily * 2}, … Day ${me.dailyClaim.cap}+ = +${AIRDROP_AMOUNTS.daily * me.dailyClaim.cap} (cap).`
-            }
+            // Short. The whole job of this string is to give the user one
+            // concrete reason to come back tomorrow — the actual number
+            // they'll earn next time. Ladder is implied by the number
+            // climbing each day; we don't spell it out anymore.
+            description={(() => {
+              const cap = me.dailyClaim.cap;
+              const next = me.dailyClaim.nextReward;
+              const streak = me.dailyClaim.currentStreak;
+              if (me.dailyClaim.claimed) {
+                // Most common state — they just claimed, the only thing
+                // that matters now is what tomorrow gets them.
+                return streak >= cap
+                  ? `🔥 Day ${streak} (max). Back tomorrow for +${next}.`
+                  : `🔥 Day ${streak}. Back tomorrow for +${next}.`;
+              }
+              if (streak > 0) {
+                // Streak alive — claim today to keep the chain.
+                return `🔥 Day ${streak} streak — claim today to keep it.`;
+              }
+              // No streak (new user or broken).
+              return `Claim daily for +${AIRDROP_AMOUNTS.daily} more each day. Up to +${AIRDROP_AMOUNTS.daily * cap}/day at Day ${cap}.`;
+            })()}
             progress={me.dailyClaim.claimed ? 1 : 0}
             progressLabel={me.dailyClaim.claimed ? t.airdrop.earn.dailyClaimedToday : t.airdrop.earn.readyToClaim}
             action={
