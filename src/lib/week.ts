@@ -103,3 +103,13 @@ export function dailyClaimKey(date: Date = new Date()): string {
   const shifted = new Date(date.getTime() - 17 * 3600 * 1000);
   return shifted.toISOString().slice(0, 10);
 }
+
+/**
+ * The day key that was "yesterday" relative to a given moment — used
+ * by the streak system to decide whether the user's last claim was on
+ * the immediately preceding day (streak continues) or earlier (streak
+ * resets). One day = 24h shift past the dailyClaimKey anchor.
+ */
+export function yesterdayClaimKey(date: Date = new Date()): string {
+  return dailyClaimKey(new Date(date.getTime() - 24 * 3600 * 1000));
+}

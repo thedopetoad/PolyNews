@@ -3,6 +3,7 @@ import { getDb, users, airdrops, trades, newsWatchHeartbeats, positions } from "
 import { eq, and, sql, gte, count } from "drizzle-orm";
 import { getAuthenticatedUser } from "@/lib/auth";
 import { isoWeekKey, isoWeekStart, dailyClaimKey } from "@/lib/week";
+import { activeStreak, nextStreak, streakReward, DAILY_STREAK_CAP } from "@/lib/daily-streak";
 
 // GET /api/airdrop/me
 //
@@ -95,8 +96,18 @@ export async function GET(request: NextRequest) {
       referralCode: user.referralCode,
       referralCount: Number(refRow?.count || 0),
       referredBy: user.referredBy,
+      // Streak gives Day 1 = 100, Day 2 = 200, ... Day 7+ = 700.
+      // `currentStreak` reflects what's still alive (claimed today OR
+      // claimed yesterday — both keep the streak warm). If the user
+      // last claimed earlier than yesterday, currentStreak resets to 0
+      // and `nextReward` shows what they'd get for starting fresh
+      // (= base × 1 = 100).
       dailyClaim: {
         claimed: user.lastDailyAirdrop === todayKey,
+        currentStreak: activeStreak(user.lastDailyAirdrop, user.dailyStreak),
+        nextStreak: nextStreak(user.lastDailyAirdrop, user.dailyStreak),
+        nextReward: streakReward(nextStreak(user.lastDailyAirdrop, user.dailyStreak)),
+        cap: DAILY_STREAK_CAP,
       },
       weeklyGoals: {
         newsWatch: {

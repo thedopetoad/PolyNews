@@ -14,7 +14,17 @@ type MePayload = {
   referralCode: string;
   referralCount: number;
   referredBy: string | null;
-  dailyClaim: { claimed: boolean };
+  dailyClaim: {
+    claimed: boolean;
+    /** How many consecutive days they've claimed. 0 = streak broken / never claimed. */
+    currentStreak: number;
+    /** What streak they'd be on if they claimed right now. */
+    nextStreak: number;
+    /** AIRDROP they'd get if they claimed now (= base × min(nextStreak, cap)). */
+    nextReward: number;
+    /** Streak day at which the multiplier flatlines (currently 7). */
+    cap: number;
+  };
   weeklyGoals: {
     newsWatch: { progress: number; required: number; claimed: boolean };
     paperTrades: { progress: number; required: number; claimed: boolean };
@@ -81,9 +91,18 @@ export function AirdropEarnTab() {
         <p className="text-[11px] text-[#768390] mb-3">{t.airdrop.earn.sectionSubtitle}</p>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
           <EarnTile
+            // Reward shown on the tile is the streak-adjusted amount the
+            // user would get for clicking RIGHT NOW (base × multiplier),
+            // not the flat base. Description swaps in a streak hint
+            // ("🔥 Day 3 — claim 4 in a row to unlock +400") so the
+            // ladder is discoverable without burying it in tooltip text.
             title={t.airdrop.earn.dailyTitle}
-            reward={AIRDROP_AMOUNTS.daily}
-            description={t.airdrop.earn.dailyDesc}
+            reward={me.dailyClaim.nextReward}
+            description={
+              me.dailyClaim.currentStreak > 0
+                ? `🔥 ${me.dailyClaim.currentStreak}-day streak. Tomorrow: +${AIRDROP_AMOUNTS.daily * Math.min(me.dailyClaim.nextStreak + 1, me.dailyClaim.cap)} (Day ${Math.min(me.dailyClaim.nextStreak + 1, me.dailyClaim.cap)})`
+                : `Claim each day to grow your streak. Day 7 caps at +${AIRDROP_AMOUNTS.daily * me.dailyClaim.cap}.`
+            }
             progress={me.dailyClaim.claimed ? 1 : 0}
             progressLabel={me.dailyClaim.claimed ? t.airdrop.earn.dailyClaimedToday : t.airdrop.earn.readyToClaim}
             action={

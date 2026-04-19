@@ -27,6 +27,11 @@ export const users = pgTable("users", {
   // One-time airdrop boost flags
   firstDepositBonusPaid: boolean("first_deposit_bonus_paid").notNull().default(false),
   firstSportsTradeBonusPaid: boolean("first_sports_trade_bonus_paid").notNull().default(false),
+  // Daily-claim streak: number of consecutive days the user has hit the
+  // daily claim. Multiplier is min(streak, 7), so each unbroken day
+  // earns +100 more (capped at 700/day on day 7+). Resets to 1 on the
+  // first claim after a missed day. See lib/daily-streak.ts.
+  dailyStreak: integer("daily_streak").notNull().default(0),
 });
 
 // Trading positions — paper (AIRDROP) and real (USDC) alike.

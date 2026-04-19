@@ -5,6 +5,7 @@ import { getAuthenticatedUser, generateSecureId } from "@/lib/auth";
 import { AIRDROP_AMOUNTS } from "@/lib/constants";
 import { isoWeekKey, dailyClaimKey } from "@/lib/week";
 import { payReferralBonus } from "@/lib/referral-payout";
+import { nextStreak, streakReward } from "@/lib/daily-streak";
 
 // POST /api/airdrop - Claim an airdrop
 export async function POST(request: NextRequest) {
@@ -115,14 +116,21 @@ export async function POST(request: NextRequest) {
       if (user.lastDailyAirdrop === todayUTC) {
         return NextResponse.json({ error: "Already claimed today" }, { status: 400 });
       }
-      amount = AIRDROP_AMOUNTS.daily;
 
-      // Atomic: check and set in one query
+      // Streak math — Day N gets N×base, capped at 7×. Continues if
+      // their last claim was yesterday's day-key, resets to 1 otherwise.
+      const newStreak = nextStreak(user.lastDailyAirdrop, user.dailyStreak);
+      amount = streakReward(newStreak);
+
+      // Atomic: check + set in one query. Conditions guarantee that if
+      // two claim attempts race, only one writes the new row + bumps
+      // the streak by 1 (the other gets 0 rows back and we 400).
       const result = await db
         .update(users)
         .set({
           balance: sql`${users.balance} + ${amount}`,
           lastDailyAirdrop: todayUTC,
+          dailyStreak: newStreak,
         })
         .where(
           and(
