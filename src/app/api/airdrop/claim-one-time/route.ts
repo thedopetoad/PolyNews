@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getDb, users, airdrops } from "@/db";
+import { getDb, users, airdrops, referrals } from "@/db";
 import { eq, and } from "drizzle-orm";
 import { sql } from "drizzle-orm";
 import { getAuthenticatedUser, generateSecureId } from "@/lib/auth";
@@ -60,7 +60,49 @@ export async function POST(request: NextRequest) {
       weekKey,
     });
 
-    return NextResponse.json({ ok: true, amount, type });
+    // ── Referrer second-stage bonus on first real deposit ──────────
+    // Most signup-referrals never deposit, costing us 5k AIRDROP each
+    // and earning $0 in builder fees. When the referred friend ACTUALLY
+    // funds their wallet, the referrer earned us recurring revenue —
+    // pay a bigger bonus to align incentives.
+    //
+    // Idempotent via referrals.referralDepositBonusPaid (CAS update —
+    // only flip false → true). Only fires for first_deposit, never for
+    // first_sports_trade (the deposit is the meaningful milestone).
+    let referralPaid = 0;
+    if (type === "first_deposit") {
+      const [me] = await db.select({ referredBy: users.referredBy }).from(users).where(eq(users.id, authedUser)).limit(1);
+      if (me?.referredBy) {
+        const [referrer] = await db.select({ id: users.id }).from(users).where(eq(users.referralCode, me.referredBy)).limit(1);
+        if (referrer) {
+          // Atomic flip — guarantees one payout per referral pair.
+          const flipped = await db
+            .update(referrals)
+            .set({ referralDepositBonusPaid: true })
+            .where(and(
+              eq(referrals.referrerId, referrer.id),
+              eq(referrals.referredId, authedUser),
+              eq(referrals.referralDepositBonusPaid, false),
+            ))
+            .returning({ id: referrals.id });
+          if (flipped.length > 0) {
+            const bonus = AIRDROP_AMOUNTS.referralFirstDeposit;
+            await db.update(users).set({ balance: sql`${users.balance} + ${bonus}` }).where(eq(users.id, referrer.id));
+            await db.insert(airdrops).values({
+              id: generateSecureId(),
+              userId: referrer.id,
+              source: "referral_deposit",
+              amount: bonus,
+              weekKey,
+            });
+            referralPaid = bonus;
+            console.log(`[referral-deposit] referrer=${referrer.id} referred=${authedUser} paid=${bonus}`);
+          }
+        }
+      }
+    }
+
+    return NextResponse.json({ ok: true, amount, type, referralPaid });
   } catch (err) {
     console.error("One-time claim error:", err);
     return NextResponse.json({ error: "Database error" }, { status: 500 });

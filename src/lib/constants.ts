@@ -44,6 +44,11 @@ export const AIRDROP_AMOUNTS = {
   daily: 100,
   referralBonus: 5000,
   referralFirstTrade: 250,
+  // Bigger second-stage referral bonus for when a referred friend
+  // makes their FIRST real USDC deposit. Aligns the referral economy
+  // with actual platform revenue (we earn builder fees on real trades),
+  // unlike the signup bonus which costs us 5k AIRDROP and earns $0.
+  referralFirstDeposit: 10000,
   weeklyGoal: 500, // news-watch-weekly, paper-trades-weekly
   firstDeposit: 2500,
   firstSportsTrade: 1000,

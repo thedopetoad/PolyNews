@@ -98,10 +98,14 @@ export function AirdropEarnTab() {
             // ladder is discoverable without burying it in tooltip text.
             title={t.airdrop.earn.dailyTitle}
             reward={me.dailyClaim.nextReward}
+            // Description is the BIG explainer — both states spell out the
+            // ladder so the +100/day pattern isn't a mystery the user has
+            // to derive from the cap. Prior copy was "Day 7 caps at +700"
+            // which left users guessing how to get there.
             description={
               me.dailyClaim.currentStreak > 0
-                ? `🔥 ${me.dailyClaim.currentStreak}-day streak. Tomorrow: +${AIRDROP_AMOUNTS.daily * Math.min(me.dailyClaim.nextStreak + 1, me.dailyClaim.cap)} (Day ${Math.min(me.dailyClaim.nextStreak + 1, me.dailyClaim.cap)})`
-                : `Claim each day to grow your streak. Day 7 caps at +${AIRDROP_AMOUNTS.daily * me.dailyClaim.cap}.`
+                ? `🔥 Day ${me.dailyClaim.currentStreak} streak. +${AIRDROP_AMOUNTS.daily} more each day in a row → caps at +${AIRDROP_AMOUNTS.daily * me.dailyClaim.cap} on Day ${me.dailyClaim.cap}. Tomorrow: +${AIRDROP_AMOUNTS.daily * Math.min(me.dailyClaim.nextStreak + 1, me.dailyClaim.cap)}.`
+                : `+${AIRDROP_AMOUNTS.daily} more each day in a row. Day 1 = +${AIRDROP_AMOUNTS.daily}, Day 2 = +${AIRDROP_AMOUNTS.daily * 2}, … Day ${me.dailyClaim.cap}+ = +${AIRDROP_AMOUNTS.daily * me.dailyClaim.cap} (cap).`
             }
             progress={me.dailyClaim.claimed ? 1 : 0}
             progressLabel={me.dailyClaim.claimed ? t.airdrop.earn.dailyClaimedToday : t.airdrop.earn.readyToClaim}

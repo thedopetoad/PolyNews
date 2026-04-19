@@ -169,6 +169,10 @@ export const referrals = pgTable(
     referredId: text("referred_id").notNull().references(() => users.id),
     signupBonusPaid: boolean("signup_bonus_paid").notNull().default(false),
     firstTradeBonusPaid: boolean("first_trade_bonus_paid").notNull().default(false),
+    // Set true when the referrer received the +10k bonus for the
+    // referred user's first real-money deposit. Idempotent guard so
+    // the deposit endpoint can fire repeatedly without double-paying.
+    referralDepositBonusPaid: boolean("referral_deposit_bonus_paid").notNull().default(false),
     // How this referral was attributed. Lets us answer "did people use
     // the link or paste the code?" without inferring from timestamps.
     //   - "signup_link": came in via /?ref=… (URL → cookie → body)
