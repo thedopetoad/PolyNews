@@ -40,7 +40,15 @@ export function activeStreak(
   const today = dailyClaimKey(now);
   const yesterday = yesterdayClaimKey(now);
   if (lastDailyAirdrop === today || lastDailyAirdrop === yesterday) {
-    return storedStreak;
+    // Floor at 1 — if there's a claim record in the alive window, the
+    // user is on AT LEAST Day 1. The stored value can legitimately be
+    // 0 for users who claimed before the streak column existed (the
+    // migration backfilled to default 0; their claim row was written
+    // by the pre-streak code path that didn't bump dailyStreak).
+    // Without this floor, they'd see "🔥 Day 0" the day the streak
+    // system shipped, which makes no sense given they obviously
+    // claimed.
+    return Math.max(storedStreak, 1);
   }
   return 0;
 }
