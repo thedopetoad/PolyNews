@@ -39,8 +39,42 @@ function checkRateLimit(ip: string): boolean {
   return true;
 }
 
+// Referral attribution cookie. Survives the Google OAuth round-trip
+// natively (cookies are sent on every same-domain request regardless
+// of where the navigation originated, so unlike sessionStorage there's
+// no consume-timing trap). 30-day window matches industry standard
+// (Dropbox, Coinbase) for "first-touch" attribution.
+//
+// SameSite=Lax (NOT Strict) is critical: Strict drops the cookie on
+// the 302 returning from Google, defeating the whole point.
+//
+// First-touch wins: middleware only writes the cookie if it isn't
+// already set, so a user clicking Friend A's link then Friend B's
+// link sticks with A as their attributed referrer.
+const REF_COOKIE = "ps_ref";
+const REF_COOKIE_MAX_AGE = 30 * 24 * 60 * 60; // 30 days in seconds
+
 export function middleware(request: NextRequest) {
   const response = NextResponse.next();
+
+  // Capture `?ref=…` into a cookie before anything redirects us off-site.
+  // Skips API routes (those POST the body directly), only fires on
+  // navigations / page renders. Idempotent — re-clicking the same link
+  // doesn't re-extend the window, and a different code in the URL
+  // doesn't overwrite an existing attribution.
+  if (!request.nextUrl.pathname.startsWith("/api/")) {
+    const ref = request.nextUrl.searchParams.get("ref");
+    const existing = request.cookies.get(REF_COOKIE)?.value;
+    if (ref && !existing) {
+      response.cookies.set(REF_COOKIE, ref.toUpperCase(), {
+        maxAge: REF_COOKIE_MAX_AGE,
+        sameSite: "lax",
+        secure: process.env.NODE_ENV === "production",
+        path: "/",
+        httpOnly: false, // client may want to read this for the apply-referral UI
+      });
+    }
+  }
 
   // Security headers
   response.headers.set("X-Frame-Options", "DENY");

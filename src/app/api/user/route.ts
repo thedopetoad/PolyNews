@@ -71,7 +71,24 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { id, authMethod, walletAddress, referredBy, email } = body;
+    const { id, authMethod, walletAddress, email } = body;
+
+    // Referral attribution — body.referredBy used to be the only source,
+    // but it lived in client-side sessionStorage which we kept losing
+    // across the Google OAuth round-trip (3 separate bug instances this
+    // session). The middleware now sets a `ps_ref` cookie with first-
+    // touch attribution that survives the redirect natively. Read order:
+    //   1. cookie (set by middleware on the original /?ref=… page hit —
+    //      authoritative because it can't be eaten by sessionStorage
+    //      consume-timing bugs)
+    //   2. body.referredBy (legacy path — keeps wallet-login flow
+    //      and any future client that hasn't been updated working)
+    const cookieRef = request.cookies.get("ps_ref")?.value;
+    const referredBy = cookieRef || body.referredBy;
+    // Track which source wound up being used so [signup] log lines can
+    // distinguish cookie-via-link vs body-via-sessionStorage when we're
+    // diagnosing a future drop.
+    const refSource = cookieRef ? "cookie" : body.referredBy ? "body" : "none";
 
     if (!id || !authMethod) {
       return NextResponse.json(
@@ -133,7 +150,7 @@ export async function POST(request: NextRequest) {
             .where(and(eq(users.id, normalizedId), sql`${users.referredBy} IS NULL`))
             .returning({ id: users.id });
           if (claim.length > 0) {
-            const paid = await payReferralBonus(db, referrer.id, normalizedId);
+            const paid = await payReferralBonus(db, referrer.id, normalizedId, "oauth_backfill");
             console.log(`[backfill-ref] user=${normalizedId} ref=${code} paid=${paid}`);
           } else {
             console.log(`[backfill-ref] user=${normalizedId} ref=${code} skipped=CAS_LOST`);
@@ -250,7 +267,7 @@ export async function POST(request: NextRequest) {
         .where(eq(users.referralCode, validatedRefCode))
         .limit(1);
       if (referrer) {
-        paid = await payReferralBonus(db, referrer.id, normalizedId);
+        paid = await payReferralBonus(db, referrer.id, normalizedId, "signup_link");
       }
     }
 
@@ -260,7 +277,7 @@ export async function POST(request: NextRequest) {
     // failing to pay (ref=<code> but paid=false). Greppable in Vercel
     // logs. Cheap; one line per signup, never contains a secret.
     console.log(
-      `[signup] user=${normalizedId} auth=${authMethod} ref=${validatedRefCode ?? (referredBy ? `REJECTED:${referredBy}` : "MISSING")} paid=${paid}`
+      `[signup] user=${normalizedId} auth=${authMethod} ref=${validatedRefCode ?? (referredBy ? `REJECTED:${referredBy}` : "MISSING")} refSource=${refSource} paid=${paid}`
     );
 
     return NextResponse.json(newUser, { status: 201 });

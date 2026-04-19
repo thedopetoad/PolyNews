@@ -52,7 +52,7 @@ export async function POST(request: NextRequest) {
       // index on referrals.referred_id means even if /api/user POST and
       // this handler both fire (race or retry), only the first succeeds
       // in inserting the row, only that one pays the bonus.
-      const paid = await payReferralBonus(db, referrer.id, normalizedUserId);
+      const paid = await payReferralBonus(db, referrer.id, normalizedUserId, "apply_code");
       console.log(`[apply-referral] user=${normalizedUserId} ref=${code} paid=${paid}`);
 
       return NextResponse.json({ success: true });

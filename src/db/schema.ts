@@ -164,6 +164,14 @@ export const referrals = pgTable(
     referredId: text("referred_id").notNull().references(() => users.id),
     signupBonusPaid: boolean("signup_bonus_paid").notNull().default(false),
     firstTradeBonusPaid: boolean("first_trade_bonus_paid").notNull().default(false),
+    // How this referral was attributed. Lets us answer "did people use
+    // the link or paste the code?" without inferring from timestamps.
+    //   - "signup_link": came in via /?ref=… (URL → cookie → body)
+    //   - "oauth_backfill": existing user later visited a ref link and
+    //     we back-filled their referredBy on /api/user retry
+    //   - "apply_code": user pasted the code into the Earn-tab UI
+    //   - "unknown": legacy rows from before this column existed
+    source: text("source").notNull().default("unknown"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
   (table) => [uniqueIndex("referrals_referred_id_idx").on(table.referredId)]

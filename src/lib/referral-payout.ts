@@ -28,10 +28,13 @@ type Db = ReturnType<typeof getDb>;
  * here so any future referral entry point gets the same protection
  * for free.
  */
+export type ReferralSource = "signup_link" | "oauth_backfill" | "apply_code" | "unknown";
+
 export async function payReferralBonus(
   db: Db,
   referrerId: string,
   referredId: string,
+  source: ReferralSource = "unknown",
 ): Promise<boolean> {
   try {
     await db.insert(referrals).values({
@@ -39,6 +42,7 @@ export async function payReferralBonus(
       referrerId,
       referredId,
       signupBonusPaid: true,
+      source,
     });
   } catch (err) {
     // Unique-constraint violation on referred_id — already paid.
