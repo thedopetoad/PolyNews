@@ -35,7 +35,13 @@ export function useLivePrices(markets: MarketWithPrices[]) {
           if (!res.ok) return;
           const data = await res.json();
           const mid = parseFloat(data.mid);
-          if (mid > 0 && mid < 1) {
+          // Accept the full [0, 1] range — 0 and 1 are RESOLVED-market
+          // prices (loser side / winner side), not invalid. The old
+          // strict-inequality bound silently dropped the price update
+          // the moment a market settled, leaving the UI showing the
+          // stale entry price and the close dialog selling at it
+          // instead of the resolved value.
+          if (Number.isFinite(mid) && mid >= 0 && mid <= 1) {
             updates[market.id] = { yesPrice: mid, noPrice: 1 - mid };
           }
         } catch {}
@@ -92,7 +98,11 @@ export function usePositionLivePrices(targets: PriceTarget[]) {
           if (!res.ok) return;
           const data = await res.json();
           const mid = parseFloat(data.mid);
-          if (mid > 0 && mid < 1) {
+          // Same fix as the markets-keyed variant: 0 and 1 are valid
+          // resolved-market prices, not invalid. Rejecting them caused
+          // paper-trade winners to close at the entry price instead of
+          // the actual $1 payout. See companion fix above.
+          if (Number.isFinite(mid) && mid >= 0 && mid <= 1) {
             updates[t.id] = { yesPrice: mid, noPrice: 1 - mid };
           }
         } catch {}

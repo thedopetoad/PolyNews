@@ -121,38 +121,66 @@ export function AirdropPortfolioTab() {
       {/* Close-confirm dialog — mirrors the old /trade confirm UX. */}
       <Dialog open={!!pendingClose} onOpenChange={(open) => { if (!open && !isTrading) setPendingClose(null); }}>
         <DialogContent className="bg-[#161b22] border-[#30363d] text-white">
-          <DialogHeader>
-            <DialogTitle className="text-white">{t.airdrop.closeDialog.title}</DialogTitle>
-          </DialogHeader>
-          {pendingClose && (
-            <div className="space-y-3 py-2">
-              <p className="text-[13px] text-[#e6edf3] font-medium leading-snug">{pendingClose.pos.marketQuestion}</p>
-              <div className="grid grid-cols-2 gap-3 bg-[#0d1117] rounded-lg p-3 border border-[#21262d]">
-                <div>
-                  <p className="text-[10px] text-[#484f58] uppercase">{t.airdrop.closeDialog.side}</p>
-                  <span className={cn(
-                    "text-sm font-semibold",
-                    pendingClose.pos.outcome === "Yes" ? "text-[#3fb950]" : "text-[#f85149]",
-                  )}>{pendingClose.pos.outcome}</span>
-                </div>
-                <div>
-                  <p className="text-[10px] text-[#484f58] uppercase">{t.airdrop.closeDialog.shares}</p>
-                  <p className="text-sm text-[#e6edf3] tabular-nums">{pendingClose.pos.shares.toFixed(1)}</p>
-                </div>
-                <div>
-                  <p className="text-[10px] text-[#484f58] uppercase">{t.airdrop.closeDialog.sellPrice}</p>
-                  <p className="text-sm text-[#e6edf3] tabular-nums">{(pendingClose.livePrice * 100).toFixed(0)}%</p>
-                </div>
-                <div>
-                  <p className="text-[10px] text-[#484f58] uppercase">{t.airdrop.closeDialog.proceeds}</p>
-                  <p className="text-sm text-[#e6edf3] tabular-nums">
-                    {(pendingClose.pos.shares * pendingClose.livePrice).toFixed(0)} AIRDROP
-                  </p>
-                </div>
-              </div>
-              {(() => {
-                const pnl = (pendingClose.livePrice - pendingClose.pos.avgPrice) * pendingClose.pos.shares;
-                return (
+          {pendingClose && (() => {
+            // Resolution detection — Polymarket settles binary markets to
+            // exactly 1.0 (winner) or 0.0 (loser). 99% / 1% guards against
+            // late-settling markets where the orderbook has crashed but
+            // hasn't been marked closed yet.
+            const livePrice = pendingClose.livePrice;
+            const isResolved = livePrice >= 0.99 || livePrice <= 0.01;
+            const isWinner = isResolved && livePrice >= 0.99;
+            const proceeds = pendingClose.pos.shares * livePrice;
+            const pnl = (livePrice - pendingClose.pos.avgPrice) * pendingClose.pos.shares;
+            return (
+              <>
+                <DialogHeader>
+                  <DialogTitle className="text-white">
+                    {isResolved
+                      ? (isWinner ? "Claim winnings" : "Close losing position")
+                      : t.airdrop.closeDialog.title}
+                  </DialogTitle>
+                </DialogHeader>
+                <div className="space-y-3 py-2">
+                  <p className="text-[13px] text-[#e6edf3] font-medium leading-snug">{pendingClose.pos.marketQuestion}</p>
+                  {isResolved && (
+                    <div className={cn(
+                      "rounded-lg px-3 py-2 text-xs border",
+                      isWinner
+                        ? "bg-[#238636]/10 border-[#238636]/30 text-[#3fb950]"
+                        : "bg-[#484f58]/10 border-[#484f58]/30 text-[#768390]",
+                    )}>
+                      {isWinner
+                        ? `🎉 Market resolved — your "${pendingClose.pos.outcome}" position won. Claim 1.00 AIRDROP per share.`
+                        : `Market resolved — your "${pendingClose.pos.outcome}" position lost. Closing returns 0 AIRDROP.`}
+                    </div>
+                  )}
+                  <div className="grid grid-cols-2 gap-3 bg-[#0d1117] rounded-lg p-3 border border-[#21262d]">
+                    <div>
+                      <p className="text-[10px] text-[#484f58] uppercase">{t.airdrop.closeDialog.side}</p>
+                      <span className={cn(
+                        "text-sm font-semibold",
+                        pendingClose.pos.outcome === "Yes" ? "text-[#3fb950]" : "text-[#f85149]",
+                      )}>{pendingClose.pos.outcome}</span>
+                    </div>
+                    <div>
+                      <p className="text-[10px] text-[#484f58] uppercase">{t.airdrop.closeDialog.shares}</p>
+                      <p className="text-sm text-[#e6edf3] tabular-nums">{pendingClose.pos.shares.toFixed(1)}</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] text-[#484f58] uppercase">
+                        {isResolved ? "Settled at" : t.airdrop.closeDialog.sellPrice}
+                      </p>
+                      <p className="text-sm text-[#e6edf3] tabular-nums">{(livePrice * 100).toFixed(0)}%</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] text-[#484f58] uppercase">
+                        {isResolved ? "Payout" : t.airdrop.closeDialog.proceeds}
+                      </p>
+                      <p className="text-sm text-[#e6edf3] tabular-nums">
+                        {proceeds.toFixed(0)} AIRDROP
+                      </p>
+                    </div>
+                  </div>
                   <div className={cn(
                     "flex items-center justify-between rounded-lg px-3 py-2 border",
                     pnl >= 0 ? "bg-[#238636]/10 border-[#238636]/20" : "bg-[#f85149]/10 border-[#f85149]/20",
@@ -162,22 +190,31 @@ export function AirdropPortfolioTab() {
                       {pnl >= 0 ? "+" : ""}{pnl.toFixed(0)} AIRDROP
                     </span>
                   </div>
-                );
-              })()}
-            </div>
-          )}
-          <DialogFooter>
-            <DialogClose render={<Button variant="outline" className="border-[#30363d] text-[#768390] hover:text-white" />}>
-              {t.airdrop.closeDialog.cancel}
-            </DialogClose>
-            <Button
-              onClick={confirmClose}
-              disabled={isTrading && closingId !== null}
-              className="bg-[#f85149] hover:bg-[#f85149]/80 text-white font-medium"
-            >
-              {isTrading && closingId !== null ? t.airdrop.closeDialog.confirming : t.airdrop.closeDialog.confirm}
-            </Button>
-          </DialogFooter>
+                </div>
+                <DialogFooter>
+                  <DialogClose render={<Button variant="outline" className="border-[#30363d] text-[#768390] hover:text-white" />}>
+                    {t.airdrop.closeDialog.cancel}
+                  </DialogClose>
+                  <Button
+                    onClick={confirmClose}
+                    disabled={isTrading && closingId !== null}
+                    className={cn(
+                      "text-white font-medium",
+                      isWinner
+                        ? "bg-[#238636] hover:bg-[#2ea043]"
+                        : "bg-[#f85149] hover:bg-[#f85149]/80",
+                    )}
+                  >
+                    {isTrading && closingId !== null
+                      ? t.airdrop.closeDialog.confirming
+                      : isWinner
+                        ? `Claim ${proceeds.toFixed(0)} AIRDROP`
+                        : t.airdrop.closeDialog.confirm}
+                  </Button>
+                </DialogFooter>
+              </>
+            );
+          })()}
         </DialogContent>
       </Dialog>
 
