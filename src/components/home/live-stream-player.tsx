@@ -98,27 +98,23 @@ export function LiveStreamPlayer() {
         </span>
 
         {!multiView ? (
-          // Single view: channel tabs
+          // Single view: channel tabs (live only; hidden once loaded if offline)
           <>
             {STREAM_CHANNELS.map((ch, idx) => {
               const chData = channels[idx];
               const hasStream = chData && chData.streams.length > 0;
+              if (chData && !chData.loading && !hasStream) return null;
               return (
                 <button
                   key={ch.channelId}
                   onClick={() => { setActiveIdx(idx); setActiveStreamIdx(0); }}
                   className={cn(
                     "px-2.5 py-1 rounded text-[11px] font-medium whitespace-nowrap transition-colors flex-shrink-0",
-                    activeIdx === idx
-                      ? "text-white"
-                      : hasStream
-                        ? "text-[#768390] hover:text-[#adbac7]"
-                        : "text-[#484f58]"
+                    activeIdx === idx ? "text-white" : "text-[#768390] hover:text-[#adbac7]"
                   )}
                   style={activeIdx === idx ? { backgroundColor: ch.color + "33", color: ch.color } : undefined}
                 >
                   {ch.name}
-                  {!chData?.loading && !hasStream && <span className="ml-1 text-[9px] opacity-50">off</span>}
                   {hasStream && chData.streams.length > 1 && (
                     <span className="ml-1 text-[9px] opacity-70">{chData.streams.length}</span>
                   )}
@@ -127,11 +123,12 @@ export function LiveStreamPlayer() {
             })}
           </>
         ) : (
-          // Multi view: selectable channels (up to 4)
+          // Multi view: selectable live channels (up to 4)
           <>
             {STREAM_CHANNELS.map((ch, idx) => {
               const chData = channels[idx];
               const hasStream = chData && chData.streams.length > 0;
+              if (chData && !chData.loading && !hasStream) return null;
               const selected = multiSelections.includes(idx);
               return (
                 <button
@@ -149,7 +146,6 @@ export function LiveStreamPlayer() {
                   style={selected ? { backgroundColor: ch.color + "33", color: ch.color } : undefined}
                 >
                   {ch.name}
-                  {!hasStream && <span className="ml-1 text-[9px] opacity-50">off</span>}
                 </button>
               );
             })}
