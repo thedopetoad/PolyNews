@@ -3,6 +3,10 @@
     {
       "path": "/api/cron/weekly-snapshot",
       "schedule": "0 17 * * 1"
+    },
+    {
+      "path": "/api/cron/catalog-refresh",
+      "schedule": "0 */6 * * *"
     }
   ]
 }

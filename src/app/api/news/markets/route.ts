@@ -1,14 +1,42 @@
 import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
 import crypto from "crypto";
-import { getDb, consensusCache } from "@/db";
+import { getDb, consensusCache, marketsCatalog } from "@/db";
 import { eq } from "drizzle-orm";
 
+export const maxDuration = 60;
+
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+// Bump when prompts or pipeline shape change so old caches invalidate.
+const CACHE_KEY = "news-mkt-v16";
+const CACHE_TTL = 2 * 60 * 60 * 1000; // 2h — resets per-headline match cache
+
+// Per-process catalog cache. Hot serverless instances reuse this to skip the
+// Neon round-trip. 5-min TTL is fine since the underlying cron only updates
+// markets_catalog every 6h.
+const CATALOG_TTL = 5 * 60 * 1000;
+let CATALOG_CACHE: { rows: CatalogRow[]; at: number } | null = null;
+
+// How many keyword-filtered markets we send to the GPT matcher per headline.
+// Sorted by volume desc before slicing so popular markets are preferred.
+const MAX_CANDIDATES_PER_HEADLINE = 250;
+
+// Hard cap on markets per headline surfaced to the UI.
+const MAX_MARKETS_PER_HEADLINE = 20;
+
+// Fallback if the catalog table is empty (e.g. pre-bootstrap or cron never ran).
 const GAMMA_API = "https://gamma-api.polymarket.com";
-const CACHE_KEY = "news-mkt-v15";
-const CACHE_TTL = 2 * 60 * 60 * 1000; // 2 hours — reset stale caches
-const BATCH_SIZE = 3;
+
+interface CatalogRow {
+  slug: string;
+  eventSlug: string;
+  question: string;
+  volume: string | null;
+  endDate: string | null;
+  clobTokenIds: string | null;
+  lastTradePrice: number | null;
+}
 
 interface MarketLink {
   headlineHash: string;
@@ -22,11 +50,9 @@ interface MarketLink {
 interface CachedData {
   links: MarketLink[];
   processedHashes: string[];
-  cursor: number; // Next index to process
   updatedAt: string;
 }
 
-// Normalize title the same way as the frontend for consistent matching
 function normalizeTitle(title: string): string {
   return title.replace(/[^\w\s]/g, "").toLowerCase().slice(0, 40);
 }
@@ -35,42 +61,240 @@ function hashTitle(title: string): string {
   return crypto.createHash("md5").update(normalizeTitle(title)).digest("hex").slice(0, 12);
 }
 
-async function searchGammaMarkets(keywords: string[]) {
+async function loadCatalog(): Promise<CatalogRow[]> {
+  if (CATALOG_CACHE && Date.now() - CATALOG_CACHE.at < CATALOG_TTL) {
+    return CATALOG_CACHE.rows;
+  }
+  const db = getDb();
+  const rows = await db
+    .select({
+      slug: marketsCatalog.slug,
+      eventSlug: marketsCatalog.eventSlug,
+      question: marketsCatalog.question,
+      volume: marketsCatalog.volume,
+      endDate: marketsCatalog.endDate,
+      clobTokenIds: marketsCatalog.clobTokenIds,
+      lastTradePrice: marketsCatalog.lastTradePrice,
+    })
+    .from(marketsCatalog);
+
+  // If catalog hasn't been bootstrapped, fall back to a direct Gamma fetch
+  // (same shape as today's code) so the feature keeps working.
+  if (rows.length < 100) {
+    const fallback = await fetchGammaFallback();
+    CATALOG_CACHE = { rows: fallback, at: Date.now() };
+    return fallback;
+  }
+
+  CATALOG_CACHE = { rows, at: Date.now() };
+  return rows;
+}
+
+async function fetchGammaFallback(): Promise<CatalogRow[]> {
   const offsets = [0, 50, 100, 150];
   const results = await Promise.allSettled(
     offsets.map(async (offset) => {
       const res = await fetch(
         `${GAMMA_API}/events?active=true&closed=false&limit=50&order=volume&ascending=false&offset=${offset}`,
-        { next: { revalidate: 300 } }
+        { next: { revalidate: 300 } },
       );
       if (!res.ok) return [];
-      return await res.json();
-    })
+      return (await res.json()) as {
+        slug: string;
+        markets?: {
+          slug?: string;
+          question?: string;
+          volume?: string;
+          endDate?: string;
+          clobTokenIds?: string;
+          lastTradePrice?: number;
+          closed?: boolean;
+          active?: boolean;
+        }[];
+      }[];
+    }),
   );
 
-  const allMarkets: { question: string; slug: string; eventSlug: string; yesPrice: number }[] = [];
+  const rows: CatalogRow[] = [];
   const seen = new Set<string>();
-
-  for (const result of results) {
-    if (result.status !== "fulfilled") continue;
-    for (const event of result.value) {
+  for (const r of results) {
+    if (r.status !== "fulfilled") continue;
+    for (const event of r.value) {
       for (const m of event.markets || []) {
-        if (m.closed || !m.active || seen.has(m.id)) continue;
-        seen.add(m.id);
-        allMarkets.push({
-          question: m.question,
+        if (!m.slug || m.closed === true || m.active === false) continue;
+        if (seen.has(m.slug)) continue;
+        seen.add(m.slug);
+        rows.push({
           slug: m.slug,
           eventSlug: event.slug,
-          yesPrice: m.lastTradePrice || 0.5,
+          question: m.question || "",
+          volume: m.volume || "0",
+          endDate: m.endDate || "",
+          clobTokenIds: m.clobTokenIds || "[]",
+          lastTradePrice: typeof m.lastTradePrice === "number" ? m.lastTradePrice : 0.5,
         });
       }
     }
   }
+  return rows;
+}
 
-  return allMarkets.filter((market) => {
-    const q = market.question.toLowerCase();
-    return keywords.some((kw) => kw.length > 2 && q.includes(kw.toLowerCase()));
+async function extractKeywords(headline: string): Promise<string[]> {
+  const res = await openai.chat.completions.create({
+    model: "gpt-4o-mini",
+    temperature: 0,
+    messages: [
+      {
+        role: "system",
+        content: `Extract 4-8 single lowercase keywords from the headline for searching prediction markets. Include synonyms, related entities, and associated broader topics so keyword-substring search finds candidate markets even if the market wording differs.
+
+"Iran War Cease-Fire Tested" → {"kw":["iran","ceasefire","war","middle east","tehran","hormuz","israel"]}
+"Trump slams NATO" → {"kw":["trump","nato","alliance","europe","military"]}
+"Israel bombed Beirut" → {"kw":["israel","lebanon","beirut","strike","hezbollah","war"]}
+"Bitcoin hits $100K" → {"kw":["bitcoin","btc","crypto","price","ath"]}
+"Fed hints at rate cut" → {"kw":["fed","rate","inflation","powell","interest","cpi"]}
+"SpaceX launches Starship" → {"kw":["spacex","starship","rocket","launch","musk"]}
+
+Return ONLY JSON in this shape: {"kw":["word1","word2"]}`,
+      },
+      { role: "user", content: headline },
+    ],
   });
+
+  const raw = (res.choices[0]?.message?.content || "{}").replace(/```json\n?|\n?```/g, "").trim();
+  try {
+    const parsed = JSON.parse(raw);
+    const kw: unknown = parsed.kw;
+    if (!Array.isArray(kw)) return [];
+    return kw
+      .filter((k): k is string => typeof k === "string")
+      .map((k) => k.toLowerCase().trim())
+      .filter((k) => k.length > 2);
+  } catch {
+    return [];
+  }
+}
+
+function filterCatalogByKeywords(catalog: CatalogRow[], keywords: string[]): CatalogRow[] {
+  if (keywords.length === 0) return [];
+  const kws = keywords.map((k) => k.toLowerCase());
+  const matches: CatalogRow[] = [];
+  for (const m of catalog) {
+    const q = (m.question || "").toLowerCase();
+    if (kws.some((k) => q.includes(k))) matches.push(m);
+  }
+  // Sort by volume desc so the top candidates are the most liquid ones.
+  matches.sort((a, b) => {
+    const av = parseFloat(a.volume || "0");
+    const bv = parseFloat(b.volume || "0");
+    return bv - av;
+  });
+  return matches;
+}
+
+async function matchHeadlineToMarkets(
+  headline: string,
+  candidates: CatalogRow[],
+): Promise<number[]> {
+  if (candidates.length === 0) return [];
+
+  const marketList = candidates.map((m, i) => `${i}: ${m.question}`).join("\n");
+
+  const res = await openai.chat.completions.create({
+    model: "gpt-4o-mini",
+    temperature: 0,
+    messages: [
+      {
+        role: "system",
+        content: `You match a news headline to prediction markets from a filtered list. Return the indices of EVERY market that is clearly about the same event, subject, or trend as the headline.
+
+MATCH IF:
+- The market would resolve based on the same underlying event/trend the headline is about
+- Shared subject matter AND aligned topic (war, crypto, specific entity, etc.)
+- A reasonable reader would agree "this market is relevant to this news"
+- Related markets about the same broader storyline also count (e.g. headline about Iran-Israel war → markets about Middle East ceasefire, Iran sanctions, oil prices all qualify)
+
+DO NOT MATCH IF:
+- Only a shared name/country but completely different topic (Iran oil ≠ Iran soccer)
+- Sports markets for non-sports headlines and vice versa
+- Entertainment/Eurovision markets for political/military headlines
+
+CORRECT:
+✅ "US blocks Iranian ports" → "Will US impose sanctions on Iran?"
+✅ "Iran oil blockade" → "Will Strait of Hormuz close before year end?"
+✅ "Bitcoin hits $100K" → "Will Bitcoin close above $150K on Dec 31?"
+✅ "Bitcoin hits $100K" → "Will BTC reach $200K in 2026?"
+✅ "Israel strikes Lebanon" → "Will Israel-Hezbollah ceasefire hold?"
+✅ "Trump NATO speech" → "Will Trump withdraw from NATO?"
+✅ "Fed hints at rate cut" → "Will Fed cut rates in June?"
+
+REJECT:
+❌ "Iran oil blockade" → "Will Iran win FIFA World Cup?"
+❌ "Ukraine counteroffensive" → "Will Russia host World Cup 2030?"
+❌ "Israel strikes Lebanon" → "Will Israel win Eurovision?"
+
+Return up to ${MAX_MARKETS_PER_HEADLINE} indices, ordered from MOST to LEAST relevant. Only include markets you are confident are actually related.
+
+Return ONLY JSON in this shape: {"m":[0,3,7]}`,
+      },
+      { role: "user", content: `HEADLINE: ${headline}\n\nMARKETS:\n${marketList}` },
+    ],
+  });
+
+  const raw = (res.choices[0]?.message?.content || "{}").replace(/```json\n?|\n?```/g, "").trim();
+  try {
+    const parsed = JSON.parse(raw);
+    const arr: unknown = parsed.m;
+    if (!Array.isArray(arr)) return [];
+    const out: number[] = [];
+    for (const v of arr) {
+      const n = typeof v === "number" ? v : parseInt(String(v), 10);
+      if (Number.isInteger(n) && n >= 0 && n < candidates.length) out.push(n);
+    }
+    return out.slice(0, MAX_MARKETS_PER_HEADLINE);
+  } catch {
+    return [];
+  }
+}
+
+async function processHeadline(headline: string, catalog: CatalogRow[]): Promise<MarketLink[]> {
+  let keywords: string[];
+  try {
+    keywords = await extractKeywords(headline);
+  } catch {
+    return [];
+  }
+  if (keywords.length === 0) return [];
+
+  const filtered = filterCatalogByKeywords(catalog, keywords);
+  if (filtered.length === 0) return [];
+
+  const candidates = filtered.slice(0, MAX_CANDIDATES_PER_HEADLINE);
+
+  let indices: number[];
+  try {
+    indices = await matchHeadlineToMarkets(headline, candidates);
+  } catch {
+    return [];
+  }
+
+  const hHash = hashTitle(headline);
+  const seen = new Set<string>();
+  const links: MarketLink[] = [];
+  for (const i of indices) {
+    const m = candidates[i];
+    if (!m || seen.has(m.slug)) continue;
+    seen.add(m.slug);
+    links.push({
+      headlineHash: hHash,
+      headlineTitle: headline,
+      question: m.question,
+      slug: m.slug,
+      eventSlug: m.eventSlug,
+      yesPrice: typeof m.lastTradePrice === "number" ? m.lastTradePrice : 0.5,
+    });
+  }
+  return links;
 }
 
 export async function POST(request: NextRequest) {
@@ -81,158 +305,73 @@ export async function POST(request: NextRequest) {
 
     const db = getDb();
 
-    // Load cache
-    const [cached] = await db.select().from(consensusCache).where(eq(consensusCache.id, CACHE_KEY)).limit(1);
+    // Cache = one row in consensus_cache keyed by CACHE_KEY, storing the
+    // union of (headline → matched markets) pairs produced so far.
+    const [cached] = await db
+      .select()
+      .from(consensusCache)
+      .where(eq(consensusCache.id, CACHE_KEY))
+      .limit(1);
+
     let existing: CachedData = cached
       ? JSON.parse(cached.result)
-      : { links: [], processedHashes: [], cursor: 0, updatedAt: "" };
+      : { links: [], processedHashes: [], updatedAt: "" };
 
-    // Expire stale cache — reset everything after 2 hours so new headlines get processed
     if (existing.updatedAt) {
       const age = Date.now() - new Date(existing.updatedAt).getTime();
-      if (age > CACHE_TTL) {
-        existing = { links: [], processedHashes: [], cursor: 0, updatedAt: "" };
-      }
+      if (age > CACHE_TTL) existing = { links: [], processedHashes: [], updatedAt: "" };
     }
 
-    // Find headlines that haven't been processed yet (by hash)
     const processedSet = new Set(existing.processedHashes);
     const unprocessed = headlines.filter((h) => !processedSet.has(hashTitle(h)));
 
     if (unprocessed.length === 0) {
-      // Keep existing links that match current headlines (fuzzy by normalized title)
-      const currentNormalized = new Set(headlines.map(normalizeTitle));
-      const relevantLinks = existing.links.filter((l) => currentNormalized.has(normalizeTitle(l.headlineTitle)));
-      return NextResponse.json({ links: relevantLinks, remaining: 0 });
+      const current = new Set(headlines.map(normalizeTitle));
+      const relevant = existing.links.filter((l) => current.has(normalizeTitle(l.headlineTitle)));
+      return NextResponse.json({ links: relevant, remaining: 0 });
     }
 
-    // Process next batch of unprocessed headlines
-    const toProcess = unprocessed.slice(0, BATCH_SIZE);
+    const catalog = await loadCatalog();
 
-    if (toProcess.length === 0) {
-      return NextResponse.json({ links: existing.links, remaining: 0 });
-    }
+    // Process every unprocessed headline in parallel. With the full catalog
+    // available via markets_catalog this is cheap enough to not batch.
+    const results = await Promise.all(
+      unprocessed.map((h) =>
+        processHeadline(h, catalog).catch((err) => {
+          console.error("[news-mkt] processHeadline failed", { headline: h, err: (err as Error).message });
+          return [] as MarketLink[];
+        }),
+      ),
+    );
+    const newLinks = results.flat();
 
-    // Step 1: Extract keywords
-    const kwResponse = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      temperature: 0,
-      messages: [
-        {
-          role: "system",
-          content: `Extract 3-5 single lowercase keywords from each headline for searching prediction markets.
-"Iran War Cease-Fire Tested" → ["iran", "ceasefire", "hormuz", "war"]
-"Trump slams NATO" → ["nato", "trump", "alliance"]
-"Israel bombed Beirut" → ["israel", "lebanon", "beirut", "strike"]
-Return: [{"kw": ["word1", "word2"]}] — one object per headline. ONLY JSON.`,
-        },
-        { role: "user", content: toProcess.join("\n") },
-      ],
-    });
+    const existingKey = new Set(existing.links.map((l) => `${l.headlineHash}|${l.slug}`));
+    const dedupedNew = newLinks.filter((l) => !existingKey.has(`${l.headlineHash}|${l.slug}`));
 
-    let kwResults: { kw: string[] }[] = [];
-    try {
-      kwResults = JSON.parse((kwResponse.choices[0]?.message?.content || "[]").replace(/```json\n?|\n?```/g, "").trim());
-    } catch { kwResults = []; }
-
-    const allKw = [...new Set(kwResults.flatMap((r) => r.kw || []))].filter((k) => k.length > 2);
-
-    // Step 2: Search Gamma API
-    const gammaMarkets = allKw.length > 0 ? await searchGammaMarkets(allKw) : [];
-
-    const newLinks: MarketLink[] = [];
-
-    if (gammaMarkets.length > 0) {
-      // Deduplicate similar markets
-      const deduped = new Map<string, typeof gammaMarkets[0]>();
-      for (const m of gammaMarkets) {
-        const key = m.question.replace(/\b\d{1,2}[,.]?\s*(january|february|march|april|may|june|july|august|september|october|november|december|\d{4})\b/gi, "").trim().toLowerCase().slice(0, 50);
-        if (!deduped.has(key)) deduped.set(key, m);
-      }
-      const unique = [...deduped.values()].slice(0, 30);
-      const marketList = unique.map((m, i) => `${i}: ${m.question}`).join("\n");
-
-      // Step 3: Match & validate — STRICT topic matching
-      const matchResponse = await openai.chat.completions.create({
-        model: "gpt-4o-mini",
-        temperature: 0,
-        messages: [
-          {
-            role: "system",
-            content: `You match news headlines to prediction markets. Be EXTREMELY strict — only match if the market is DIRECTLY about the same specific event/topic as the headline.
-
-RULES:
-- The market must be about the EXACT SAME subject as the headline
-- Sharing a country name or person name is NOT enough — the topic must match
-- Sports markets NEVER match non-sports headlines (and vice versa)
-- Generic/broad markets don't match specific events unless clearly related
-
-CORRECT matches:
-✅ "US blocks Iranian ports" → "Will US impose sanctions on Iran?" (same geopolitical event)
-✅ "Bitcoin hits $100K" → "Will Bitcoin reach $100K by June?" (same asset, same milestone)
-✅ "Trump fires cabinet member" → "Will Trump's cabinet member resign?" (same specific event)
-
-WRONG matches — REJECT THESE:
-❌ "Iran oil blockade" → "Will Iran win FIFA World Cup?" (oil ≠ sports)
-❌ "Trump NATO speech" → "Will Trump win 2028?" (NATO policy ≠ election)
-❌ "Ukraine counteroffensive" → "Will Russia host World Cup?" (war ≠ sports)
-❌ "Israel strikes Lebanon" → "Will Israel win Eurovision?" (military ≠ entertainment)
-❌ "China tariffs" → "Will China land on Mars?" (trade ≠ space)
-
-When in doubt, DO NOT match. Empty arrays are fine: [{"h": 0, "m": []}]
-Return: [{"h": 0, "m": [1, 5]}] — ONLY JSON, one object per headline.`,
-          },
-          { role: "user", content: `HEADLINES:\n${toProcess.map((h, i) => `${i}: ${h}`).join("\n")}\n\nMARKETS:\n${marketList}` },
-        ],
-      });
-
-      let matches: { h: number; m: number[] }[] = [];
-      try {
-        matches = JSON.parse((matchResponse.choices[0]?.message?.content || "[]").replace(/```json\n?|\n?```/g, "").trim());
-      } catch { matches = []; }
-
-      const existingSlugs = new Set(existing.links.map((l) => l.slug));
-
-      for (const match of matches) {
-        if (match.h < 0 || match.h >= toProcess.length || !Array.isArray(match.m)) continue;
-        const headline = toProcess[match.h];
-        const hHash = hashTitle(headline);
-        for (const mi of match.m.slice(0, 3)) {
-          if (mi < 0 || mi >= unique.length) continue;
-          const market = unique[mi];
-          if (existingSlugs.has(market.slug)) continue;
-          existingSlugs.add(market.slug);
-          newLinks.push({
-            headlineHash: hHash,
-            headlineTitle: headline,
-            question: market.question,
-            slug: market.slug,
-            eventSlug: market.eventSlug,
-            yesPrice: market.yesPrice,
-          });
-        }
-      }
-    }
-
-    // Update cache — keep all existing links + add new ones
     const updated: CachedData = {
-      links: [...existing.links, ...newLinks],
-      processedHashes: [...existing.processedHashes, ...toProcess.map(hashTitle)],
-      cursor: 0, // Not used anymore, kept for compatibility
+      links: [...existing.links, ...dedupedNew],
+      processedHashes: [...existing.processedHashes, ...unprocessed.map(hashTitle)],
       updatedAt: new Date().toISOString(),
     };
 
     const json = JSON.stringify(updated);
     if (cached) {
-      await db.update(consensusCache).set({ result: json, createdAt: new Date() }).where(eq(consensusCache.id, CACHE_KEY));
+      await db
+        .update(consensusCache)
+        .set({ result: json, createdAt: new Date() })
+        .where(eq(consensusCache.id, CACHE_KEY));
     } else {
-      await db.insert(consensusCache).values({ id: CACHE_KEY, marketQuestion: "news-market-links", result: json });
+      await db.insert(consensusCache).values({
+        id: CACHE_KEY,
+        marketQuestion: "news-market-links",
+        result: json,
+      });
     }
 
-    // Count remaining unprocessed
-    const updatedProcessed = new Set(updated.processedHashes);
-    const remaining = headlines.filter((h) => !updatedProcessed.has(hashTitle(h))).length;
-    return NextResponse.json({ links: updated.links, remaining: Math.max(remaining, 0) });
+    const current = new Set(headlines.map(normalizeTitle));
+    const relevant = updated.links.filter((l) => current.has(normalizeTitle(l.headlineTitle)));
+
+    return NextResponse.json({ links: relevant, remaining: 0 });
   } catch (err) {
     console.error("News markets error:", err);
     return NextResponse.json({ links: [], remaining: 0 });
@@ -242,14 +381,17 @@ Return: [{"h": 0, "m": [1, 5]}] — ONLY JSON, one object per headline.`,
 export async function GET() {
   try {
     const db = getDb();
-    const [cached] = await db.select().from(consensusCache).where(eq(consensusCache.id, CACHE_KEY)).limit(1);
+    const [cached] = await db
+      .select()
+      .from(consensusCache)
+      .where(eq(consensusCache.id, CACHE_KEY))
+      .limit(1);
     if (cached) {
       const data: CachedData = JSON.parse(cached.result);
-      // Always return remaining=1 so frontend keeps polling for new headlines
-      return NextResponse.json({ links: data.links, remaining: 1 });
+      return NextResponse.json({ links: data.links, remaining: 0 });
     }
-    return NextResponse.json({ links: [], remaining: 1 });
+    return NextResponse.json({ links: [], remaining: 0 });
   } catch {
-    return NextResponse.json({ links: [], remaining: 1 });
+    return NextResponse.json({ links: [], remaining: 0 });
   }
 }

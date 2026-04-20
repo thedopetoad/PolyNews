@@ -160,6 +160,20 @@ export const youtubeStreamCache = pgTable("youtube_stream_cache", {
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 
+// Full live Polymarket catalog — refreshed every 6h by /api/cron/catalog-refresh.
+// /api/news/markets reads this instead of re-fetching Gamma on every request.
+// Rows older than 12h are deleted (closed/delisted markets fall off naturally).
+export const marketsCatalog = pgTable("markets_catalog", {
+  slug: text("slug").primaryKey(),
+  eventSlug: text("event_slug").notNull(),
+  question: text("question").notNull(),
+  volume: text("volume"),
+  endDate: text("end_date"),
+  clobTokenIds: text("clob_token_ids"),
+  lastTradePrice: real("last_trade_price"),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
 // Referral tracking
 export const referrals = pgTable(
   "referrals",
