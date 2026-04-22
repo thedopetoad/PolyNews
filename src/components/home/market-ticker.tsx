@@ -65,6 +65,11 @@ export function MarketTicker() {
   const useScroll = markets.length > 4;
   const tickerItems = useScroll ? [...markets, ...markets] : markets;
 
+  // Scale scroll duration so apparent velocity stays readable regardless of
+  // market count. Each card is ~288px wide plus a 12px gap; 4s/card ≈ 75
+  // px/s linear, which reads comfortably without pausing.
+  const durationSeconds = Math.max(80, markets.length * 4);
+
   return (
     <div className="space-y-3">
       <div className="flex items-center gap-2">
@@ -76,8 +81,11 @@ export function MarketTicker() {
       {useScroll ? (
         <div className="overflow-hidden">
           <div
-            className="flex gap-3 pl-4 animate-[ticker_80s_linear_infinite] hover:[animation-play-state:paused]"
-            style={{ width: "max-content" }}
+            className="flex gap-3 pl-4 hover:[animation-play-state:paused]"
+            style={{
+              width: "max-content",
+              animation: `ticker ${durationSeconds}s linear infinite`,
+            }}
           >
             {tickerItems.map((market, idx) => (
               <MarketCard key={`${market.id}-${idx}`} market={market} />
