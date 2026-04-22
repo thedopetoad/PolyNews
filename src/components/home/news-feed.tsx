@@ -248,21 +248,29 @@ export function NewsFeed({ className }: { className?: string }) {
                       type="button"
                       onClick={(e) => { e.preventDefault(); e.stopPropagation(); setExpandedIdx(isExpanded ? null : idx); }}
                       aria-expanded={isExpanded}
-                      // Embossed gold pill. Chunky enough to be a 44-ish px tap
-                      // target on mobile (py-2 + text-[12px] clears 40 px).
-                      // touch-manipulation keeps iOS Safari from routing the tap
-                      // to the <a> wrapper above. The inner-highlight + drop
-                      // shadow give it the "raised" look users expect from a
-                      // clickable pill rather than inline text.
+                      // Neutral accordion-style toggle. Blends with the card
+                      // background (bg-[#21262d]) so it reads as part of this
+                      // item's own UI rather than a CTA linking somewhere else.
+                      // The rotating chevron is the universal "expand this
+                      // panel" affordance. Size / tap target kept (min-h-[36px]
+                      // + text-[12px] + py-2 + touch-manipulation).
                       className={cn(
-                        "ml-auto flex items-center gap-1.5 rounded-full border transition-all duration-150 touch-manipulation select-none font-semibold whitespace-nowrap text-[12px] px-3.5 py-2 min-h-[36px] active:translate-y-[1px]",
+                        "ml-auto flex items-center gap-1.5 rounded-md border transition-all duration-150 touch-manipulation select-none font-medium whitespace-nowrap text-[12px] px-3 py-2 min-h-[36px] active:translate-y-[1px]",
                         isExpanded
-                          ? "border-[#d29922]/50 bg-[#d29922]/10 text-[#d29922] shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]"
-                          : "border-[#d29922]/60 bg-gradient-to-b from-[#d29922]/25 to-[#d29922]/10 text-[#f0c14b] shadow-[inset_0_1px_0_rgba(255,255,255,0.15),0_1px_2px_rgba(0,0,0,0.45)] hover:from-[#d29922]/35 hover:to-[#d29922]/15 hover:border-[#d29922]/80 hover:text-[#ffd666]"
+                          ? "border-[#30363d] bg-[#0d1117] text-[#adbac7] hover:bg-[#161b22]"
+                          : "border-[#30363d] bg-[#21262d] text-[#e6edf3] hover:bg-[#2d333b] hover:border-[#444c56]"
                       )}
                     >
-                      <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" /></svg>
                       {isExpanded ? "Hide Markets" : "Click to See Markets"}
+                      <svg
+                        className={cn("w-3.5 h-3.5 text-[#d29922] transition-transform duration-150", isExpanded && "rotate-180")}
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2.5"
+                        viewBox="0 0 20 20"
+                      >
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 8l5 5 5-5" />
+                      </svg>
                     </button>
                   )}
                 </div>
