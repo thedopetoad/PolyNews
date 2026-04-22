@@ -102,6 +102,20 @@
   100% { transform: translateX(-50%); }
 }
 
+/* Live-markets chyron. Duration is set inline (it scales with market count)
+   so only the non-dynamic animation properties live here. Pausing on hover
+   via the Tailwind arbitrary `hover:[animation-play-state:paused]` utility
+   wasn't surviving v4 codegen, so this plain CSS rule guarantees it. */
+.ticker-row {
+  animation-name: ticker;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+  animation-play-state: running;
+}
+.ticker-row:hover {
+  animation-play-state: paused;
+}
+
 @keyframes glow-green {
   0%, 100% { box-shadow: 0 0 6px rgba(63,185,80,0.15); }
   50% { box-shadow: 0 0 14px rgba(63,185,80,0.35); }

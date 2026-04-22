@@ -80,12 +80,17 @@ export function MarketTicker() {
 
       {useScroll ? (
         <div className="overflow-hidden">
+          {/*
+            .ticker-row (defined in globals.css) handles animation-name,
+            timing-function, iteration-count, and hover-pause. Only duration
+            is dynamic — set inline so it scales with market count.
+            Tailwind v4's arbitrary-variant codegen dropped the hover rule
+            when we tried to express it as `hover:[animation-play-state:paused]`,
+            hence the move to plain CSS.
+          */}
           <div
-            className="flex gap-3 pl-4 hover:[animation-play-state:paused]"
-            style={{
-              width: "max-content",
-              animation: `ticker ${durationSeconds}s linear infinite`,
-            }}
+            className="ticker-row flex gap-3 pl-4"
+            style={{ width: "max-content", animationDuration: `${durationSeconds}s` }}
           >
             {tickerItems.map((market, idx) => (
               <MarketCard key={`${market.id}-${idx}`} market={market} />
