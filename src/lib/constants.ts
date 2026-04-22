@@ -49,7 +49,15 @@ export const AIRDROP_AMOUNTS = {
   // with actual platform revenue (we earn builder fees on real trades),
   // unlike the signup bonus which costs us 5k AIRDROP and earns $0.
   referralFirstDeposit: 10000,
-  weeklyGoal: 500, // news-watch-weekly, paper-trades-weekly
+  weeklyGoal: 500, // legacy — kept for historical rows in airdrops.source
+  // Daily news-watch tiers. Each tier is an independent once-per-day
+  // claim, so a user who watches 2h straight can collect 100+300+600+2400.
+  newsWatch5mDaily: 100,
+  newsWatch15mDaily: 300,
+  newsWatch30mDaily: 600,
+  newsWatch2hDaily: 2400,
+  // Daily paper-trade goal — replaces the previous weekly version.
+  paperTradesDaily: 500,
   firstDeposit: 2500,
   firstSportsTrade: 1000,
 } as const;

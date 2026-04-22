@@ -2,14 +2,16 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDb, users, airdrops, trades, newsWatchHeartbeats, positions } from "@/db";
 import { eq, and, sql, gte, count } from "drizzle-orm";
 import { getAuthenticatedUser } from "@/lib/auth";
-import { isoWeekKey, isoWeekStart, dailyClaimKey } from "@/lib/week";
+import { dailyClaimKey, dailyClaimStart } from "@/lib/week";
 import { activeStreak, nextStreak, streakReward, DAILY_STREAK_CAP } from "@/lib/daily-streak";
+import { AIRDROP_AMOUNTS } from "@/lib/constants";
 
 // GET /api/airdrop/me
 //
 // Returns everything the Earn tab needs to render milestone progress:
 // - user's total lifetime airdrop
-// - this-week progress for each weekly goal (+ whether already claimed)
+// - today's news-watch progress + per-tier claim state (5m/15m/30m/2h)
+// - today's paper-trade progress + claim state
 // - one-time boost flags (first deposit, first sports trade)
 // - daily claim status + referral count
 export async function GET(request: NextRequest) {
@@ -20,13 +22,11 @@ export async function GET(request: NextRequest) {
 
   try {
     const db = getDb();
-    const weekKey = isoWeekKey();
-    const weekStart = isoWeekStart();
-    // Rolls at 17:00 UTC (9am PST), matching the UI label + weekly reset.
+    // All daily windows roll at 17:00 UTC (9am PST) to match the daily
+    // claim + the UI label.
     const todayKey = dailyClaimKey();
+    const todayStart = dailyClaimStart();
 
-    // Fetch the user first — downstream queries need the referralCode
-    // to count referrals.
     const [user] = await db
       .select()
       .from(users)
@@ -36,17 +36,12 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "User not found" }, { status: 404 });
     }
 
-    // Run the remaining 6 reads in parallel — they're all independent
-    // SELECTs on different tables. Previously these were sequential
-    // (~7 Neon roundtrips = 200-350ms). Parallel brings it to ~50ms
-    // and uses 1 connection-slot instead of keeping one busy for the
-    // whole serial chain.
     const [
       [totalRow],
       openPositions,
       [newsRow],
       [tradeRow],
-      thisWeekClaims,
+      todaysClaims,
       [refRow],
     ] = await Promise.all([
       db
@@ -58,19 +53,19 @@ export async function GET(request: NextRequest) {
         .from(positions)
         .where(eq(positions.userId, authedUser)),
       db
-        .select({ count: count() })
+        .select({ c: count() })
         .from(newsWatchHeartbeats)
-        .where(and(eq(newsWatchHeartbeats.userId, authedUser), eq(newsWatchHeartbeats.weekKey, weekKey))),
+        .where(and(eq(newsWatchHeartbeats.userId, authedUser), gte(newsWatchHeartbeats.createdAt, todayStart))),
       db
-        .select({ count: count() })
+        .select({ c: count() })
         .from(trades)
-        .where(and(eq(trades.userId, authedUser), gte(trades.createdAt, weekStart))),
+        .where(and(eq(trades.userId, authedUser), gte(trades.createdAt, todayStart))),
       db
         .select({ source: airdrops.source })
         .from(airdrops)
-        .where(and(eq(airdrops.userId, authedUser), eq(airdrops.weekKey, weekKey))),
+        .where(and(eq(airdrops.userId, authedUser), eq(airdrops.weekKey, todayKey))),
       db
-        .select({ count: count() })
+        .select({ c: count() })
         .from(users)
         .where(eq(users.referredBy, user.referralCode)),
     ]);
@@ -80,28 +75,35 @@ export async function GET(request: NextRequest) {
       .filter((p) => p.tradeType !== "real")
       .reduce((s, p) => s + p.shares * p.avgPrice, 0);
     const netWorth = Math.round(user.balance + openPositionValue);
-    const newsBuckets = Number(newsRow?.count || 0);
-    const newsSeconds = Math.min(newsBuckets * 15, 300);
-    const tradesThisWeek = Number(tradeRow?.count || 0);
-    const claimedSet = new Set(thisWeekClaims.map((r) => r.source));
+
+    const newsBuckets = Number(newsRow?.c || 0);
+    const newsSecondsToday = newsBuckets * 15;
+    const tradesToday = Number(tradeRow?.c || 0);
+    const claimedSet = new Set(todaysClaims.map((r) => r.source));
+
+    // Build the 4 news-watch tiers. UI renders one tile per tier; all
+    // share the same underlying progress (newsSecondsToday) so watching
+    // once fills every bar simultaneously.
+    const newsTiers: Array<{
+      id: "5m" | "15m" | "30m" | "2h";
+      requiredSeconds: number;
+      reward: number;
+      claimed: boolean;
+    }> = [
+      { id: "5m", requiredSeconds: 5 * 60, reward: AIRDROP_AMOUNTS.newsWatch5mDaily, claimed: claimedSet.has("news_watch_5m_daily") },
+      { id: "15m", requiredSeconds: 15 * 60, reward: AIRDROP_AMOUNTS.newsWatch15mDaily, claimed: claimedSet.has("news_watch_15m_daily") },
+      { id: "30m", requiredSeconds: 30 * 60, reward: AIRDROP_AMOUNTS.newsWatch30mDaily, claimed: claimedSet.has("news_watch_30m_daily") },
+      { id: "2h", requiredSeconds: 2 * 60 * 60, reward: AIRDROP_AMOUNTS.newsWatch2hDaily, claimed: claimedSet.has("news_watch_2h_daily") },
+    ];
 
     return NextResponse.json({
-      // "totalAirdrop" is the headline number — net worth (balance +
-      // open positions), so Earn and Portfolio tabs show the same thing.
       totalAirdrop: netWorth,
-      // Kept for future use (e.g. "you've earned N grants over all time").
       totalGranted,
       balance: user.balance,
       openPositionValue: Math.round(openPositionValue),
       referralCode: user.referralCode,
-      referralCount: Number(refRow?.count || 0),
+      referralCount: Number(refRow?.c || 0),
       referredBy: user.referredBy,
-      // Streak gives Day 1 = 100, Day 2 = 200, ... Day 7+ = 700.
-      // `currentStreak` reflects what's still alive (claimed today OR
-      // claimed yesterday — both keep the streak warm). If the user
-      // last claimed earlier than yesterday, currentStreak resets to 0
-      // and `nextReward` shows what they'd get for starting fresh
-      // (= base × 1 = 100).
       dailyClaim: {
         claimed: user.lastDailyAirdrop === todayKey,
         currentStreak: activeStreak(user.lastDailyAirdrop, user.dailyStreak),
@@ -109,16 +111,16 @@ export async function GET(request: NextRequest) {
         nextReward: streakReward(nextStreak(user.lastDailyAirdrop, user.dailyStreak)),
         cap: DAILY_STREAK_CAP,
       },
-      weeklyGoals: {
+      dailyGoals: {
         newsWatch: {
-          progress: newsSeconds,
-          required: 300, // 5 min
-          claimed: claimedSet.has("news_watch_weekly"),
+          progressSeconds: newsSecondsToday,
+          tiers: newsTiers,
         },
         paperTrades: {
-          progress: tradesThisWeek,
+          progress: tradesToday,
           required: 5,
-          claimed: claimedSet.has("paper_trades_weekly"),
+          reward: AIRDROP_AMOUNTS.paperTradesDaily,
+          claimed: claimedSet.has("paper_trades_daily"),
         },
       },
       oneTimeBoosts: {

@@ -8,6 +8,8 @@ import { cn } from "@/lib/utils";
 import { useT } from "@/lib/i18n";
 import { AIRDROP_AMOUNTS } from "@/lib/constants";
 
+type NewsTierId = "5m" | "15m" | "30m" | "2h";
+
 type MePayload = {
   totalAirdrop: number;
   balance: number;
@@ -25,9 +27,12 @@ type MePayload = {
     /** Streak day at which the multiplier flatlines (currently 7). */
     cap: number;
   };
-  weeklyGoals: {
-    newsWatch: { progress: number; required: number; claimed: boolean };
-    paperTrades: { progress: number; required: number; claimed: boolean };
+  dailyGoals: {
+    newsWatch: {
+      progressSeconds: number;
+      tiers: { id: NewsTierId; requiredSeconds: number; reward: number; claimed: boolean }[];
+    };
+    paperTrades: { progress: number; required: number; reward: number; claimed: boolean };
   };
   oneTimeBoosts: {
     firstDeposit: { paid: boolean };
@@ -134,41 +139,54 @@ export function AirdropEarnTab() {
             status={me.dailyClaim.claimed ? "done" : "open"}
             resetsLabel={t.airdrop.earn.resetsAtDaily}
           />
-          <EarnTile
-            title={t.airdrop.earn.newsTitle}
-            reward={AIRDROP_AMOUNTS.weeklyGoal}
-            description={t.airdrop.earn.newsDesc}
-            progress={me.weeklyGoals.newsWatch.progress / me.weeklyGoals.newsWatch.required}
-            progressLabel={`${Math.floor(me.weeklyGoals.newsWatch.progress / 60)}:${String(me.weeklyGoals.newsWatch.progress % 60).padStart(2, "0")} / 5:00`}
-            action={
-              <ClaimButton
-                kind="news_watch"
-                ready={me.weeklyGoals.newsWatch.progress >= me.weeklyGoals.newsWatch.required && !me.weeklyGoals.newsWatch.claimed}
-                claimed={me.weeklyGoals.newsWatch.claimed}
-                address={address!}
-                onClaimed={refetch}
+          {me.dailyGoals.newsWatch.tiers.map((tier) => {
+            const progressPct = tier.requiredSeconds === 0
+              ? 0
+              : me.dailyGoals.newsWatch.progressSeconds / tier.requiredSeconds;
+            const title =
+              tier.id === "5m" ? t.airdrop.earn.news5mTitle
+                : tier.id === "15m" ? t.airdrop.earn.news15mTitle
+                : tier.id === "30m" ? t.airdrop.earn.news30mTitle
+                : t.airdrop.earn.news2hTitle;
+            return (
+              <EarnTile
+                key={tier.id}
+                title={title}
+                reward={tier.reward}
+                description={t.airdrop.earn.newsDesc}
+                progress={progressPct}
+                progressLabel={formatWatchProgress(me.dailyGoals.newsWatch.progressSeconds, tier.requiredSeconds)}
+                action={
+                  <ClaimButton
+                    kind={`news_watch_${tier.id}` as NewsTierClaimKind}
+                    ready={me.dailyGoals.newsWatch.progressSeconds >= tier.requiredSeconds && !tier.claimed}
+                    claimed={tier.claimed}
+                    address={address!}
+                    onClaimed={refetch}
+                  />
+                }
+                status={tier.claimed ? "done" : "open"}
+                resetsLabel={t.airdrop.earn.resetsDaily}
               />
-            }
-            status={me.weeklyGoals.newsWatch.claimed ? "done" : "open"}
-            resetsLabel={t.airdrop.earn.resetsWeekly}
-          />
+            );
+          })}
           <EarnTile
             title={t.airdrop.earn.tradesTitle}
-            reward={AIRDROP_AMOUNTS.weeklyGoal}
+            reward={me.dailyGoals.paperTrades.reward}
             description={t.airdrop.earn.tradesDesc}
-            progress={me.weeklyGoals.paperTrades.progress / me.weeklyGoals.paperTrades.required}
-            progressLabel={`${me.weeklyGoals.paperTrades.progress} / 5 ${t.airdrop.earn.tradesProgress}`}
+            progress={me.dailyGoals.paperTrades.progress / me.dailyGoals.paperTrades.required}
+            progressLabel={`${me.dailyGoals.paperTrades.progress} / ${me.dailyGoals.paperTrades.required} ${t.airdrop.earn.tradesProgress}`}
             action={
               <ClaimButton
                 kind="paper_trades"
-                ready={me.weeklyGoals.paperTrades.progress >= me.weeklyGoals.paperTrades.required && !me.weeklyGoals.paperTrades.claimed}
-                claimed={me.weeklyGoals.paperTrades.claimed}
+                ready={me.dailyGoals.paperTrades.progress >= me.dailyGoals.paperTrades.required && !me.dailyGoals.paperTrades.claimed}
+                claimed={me.dailyGoals.paperTrades.claimed}
                 address={address!}
                 onClaimed={refetch}
               />
             }
-            status={me.weeklyGoals.paperTrades.claimed ? "done" : "open"}
-            resetsLabel={t.airdrop.earn.resetsWeekly}
+            status={me.dailyGoals.paperTrades.claimed ? "done" : "open"}
+            resetsLabel={t.airdrop.earn.resetsDaily}
           />
           <EarnTile
             title={t.airdrop.earn.firstDepositTitle}
@@ -305,6 +323,25 @@ function ProgressWheel({ pct, status, label }: { pct: number; status: "done" | "
   );
 }
 
+// Claim kinds for the per-tier news-watch goals. Backend maps these
+// 1:1 to source keys (news_watch_5m_daily, etc.) in claim-weekly/route.ts.
+type NewsTierClaimKind = "news_watch_5m" | "news_watch_15m" | "news_watch_30m" | "news_watch_2h";
+
+// Format "mm:ss / target" for news-watch progress. Caps the display at
+// the target so users don't see "12:00 / 5:00" after long sessions.
+function formatWatchProgress(secondsWatched: number, targetSeconds: number): string {
+  const display = Math.min(secondsWatched, targetSeconds);
+  const fmt = (s: number) => {
+    if (s >= 3600) {
+      const h = Math.floor(s / 3600);
+      const m = Math.floor((s % 3600) / 60);
+      return `${h}:${String(m).padStart(2, "0")}:00`;
+    }
+    return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+  };
+  return `${fmt(display)} / ${fmt(targetSeconds)}`;
+}
+
 // Unified claim button for daily + weekly. Locked for one-time boosts
 // (server fires those automatically on qualifying actions).
 function ClaimButton({
@@ -314,7 +351,7 @@ function ClaimButton({
   address,
   onClaimed,
 }: {
-  kind: "daily" | "news_watch" | "paper_trades";
+  kind: "daily" | NewsTierClaimKind | "paper_trades";
   ready: boolean;
   claimed: boolean;
   address: string;

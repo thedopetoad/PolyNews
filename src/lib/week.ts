@@ -105,6 +105,18 @@ export function dailyClaimKey(date: Date = new Date()): string {
 }
 
 /**
+ * Moment the current daily-claim window started — i.e. 17:00 UTC of
+ * the date encoded in `dailyClaimKey()`. Use this for "today so far"
+ * filters against `createdAt` timestamps (heartbeats, trades, etc.)
+ * when gating daily goals.
+ */
+export function dailyClaimStart(date: Date = new Date()): Date {
+  const key = dailyClaimKey(date);
+  const [y, m, d] = key.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d, 17, 0, 0, 0));
+}
+
+/**
  * The day key that was "yesterday" relative to a given moment — used
  * by the streak system to decide whether the user's last claim was on
  * the immediately preceding day (streak continues) or earlier (streak
