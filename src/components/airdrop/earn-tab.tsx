@@ -139,37 +139,11 @@ export function AirdropEarnTab() {
             status={me.dailyClaim.claimed ? "done" : "open"}
             resetsLabel={t.airdrop.earn.resetsAtDaily}
           />
-          {me.dailyGoals.newsWatch.tiers.map((tier) => {
-            const progressPct = tier.requiredSeconds === 0
-              ? 0
-              : me.dailyGoals.newsWatch.progressSeconds / tier.requiredSeconds;
-            const title =
-              tier.id === "5m" ? t.airdrop.earn.news5mTitle
-                : tier.id === "15m" ? t.airdrop.earn.news15mTitle
-                : tier.id === "30m" ? t.airdrop.earn.news30mTitle
-                : t.airdrop.earn.news2hTitle;
-            return (
-              <EarnTile
-                key={tier.id}
-                title={title}
-                reward={tier.reward}
-                description={t.airdrop.earn.newsDesc}
-                progress={progressPct}
-                progressLabel={formatWatchProgress(me.dailyGoals.newsWatch.progressSeconds, tier.requiredSeconds)}
-                action={
-                  <ClaimButton
-                    kind={`news_watch_${tier.id}` as NewsTierClaimKind}
-                    ready={me.dailyGoals.newsWatch.progressSeconds >= tier.requiredSeconds && !tier.claimed}
-                    claimed={tier.claimed}
-                    address={address!}
-                    onClaimed={refetch}
-                  />
-                }
-                status={tier.claimed ? "done" : "open"}
-                resetsLabel={t.airdrop.earn.resetsDaily}
-              />
-            );
-          })}
+          <NewsWatchTiersTile
+            newsWatch={me.dailyGoals.newsWatch}
+            address={address!}
+            onClaimed={refetch}
+          />
           <EarnTile
             title={t.airdrop.earn.tradesTitle}
             reward={me.dailyGoals.paperTrades.reward}
@@ -226,6 +200,7 @@ function EarnTile({
   action,
   status,
   resetsLabel,
+  navigator,
 }: {
   title: string;
   reward: number;
@@ -235,6 +210,10 @@ function EarnTile({
   action?: React.ReactNode;
   status: "done" | "open";
   resetsLabel: string;
+  /** Optional row rendered between the description block and the progress
+   *  label — used by multi-tier tiles (e.g. news-watch) to host prev/next
+   *  arrows + a step indicator. */
+  navigator?: React.ReactNode;
 }) {
   const pct = Math.max(0, Math.min(1, progress));
   const pctInt = Math.round(pct * 100);
@@ -267,6 +246,8 @@ function EarnTile({
           <p className="text-xs text-[#768390] mt-0.5 line-clamp-2">{description}</p>
         </div>
       </div>
+
+      {navigator}
 
       <div className="flex items-center justify-between text-[10px] tabular-nums">
         <span className="text-[#adbac7]">{progressLabel}</span>
@@ -340,6 +321,139 @@ function formatWatchProgress(secondsWatched: number, targetSeconds: number): str
     return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
   };
   return `${fmt(display)} / ${fmt(targetSeconds)}`;
+}
+
+// Multi-tier news-watch tile. Renders ONE tile that steps through the
+// four watch-time milestones (5m/15m/30m/2h) with prev/next arrows and
+// a step indicator. Auto-focuses the first unclaimed tier, but a manual
+// nav sticks until the user claims (at which point we clear the override
+// so the next unclaimed tier surfaces).
+function NewsWatchTiersTile({
+  newsWatch,
+  address,
+  onClaimed,
+}: {
+  newsWatch: {
+    progressSeconds: number;
+    tiers: { id: NewsTierId; requiredSeconds: number; reward: number; claimed: boolean }[];
+  };
+  address: string;
+  onClaimed: () => void;
+}) {
+  const { t } = useT();
+  const tiers = newsWatch.tiers;
+
+  // Auto-focus: lowest tier that's either unclaimed-but-ready or just
+  // next-up. If all 4 are done for the day, stick on the last (so the
+  // UI reads "Claimed" on the biggest one).
+  const defaultIdx = (() => {
+    const ready = tiers.findIndex(
+      (tier) => !tier.claimed && newsWatch.progressSeconds >= tier.requiredSeconds,
+    );
+    if (ready >= 0) return ready;
+    const unclaimed = tiers.findIndex((tier) => !tier.claimed);
+    return unclaimed >= 0 ? unclaimed : tiers.length - 1;
+  })();
+
+  const [manualIdx, setManualIdx] = useState<number | null>(null);
+  const idx = manualIdx !== null ? Math.max(0, Math.min(tiers.length - 1, manualIdx)) : defaultIdx;
+  const tier = tiers[idx];
+
+  const title = (() => {
+    switch (tier.id) {
+      case "5m": return t.airdrop.earn.news5mTitle;
+      case "15m": return t.airdrop.earn.news15mTitle;
+      case "30m": return t.airdrop.earn.news30mTitle;
+      case "2h": return t.airdrop.earn.news2hTitle;
+    }
+  })();
+
+  const progressPct = tier.requiredSeconds === 0
+    ? 0
+    : newsWatch.progressSeconds / tier.requiredSeconds;
+
+  const goPrev = () => setManualIdx(idx - 1);
+  const goNext = () => setManualIdx(idx + 1);
+  const canPrev = idx > 0;
+  const canNext = idx < tiers.length - 1;
+
+  // After a successful claim, drop the manual override so defaultIdx
+  // re-picks the next unclaimed tier on the refetch.
+  const handleClaimed = () => {
+    setManualIdx(null);
+    onClaimed();
+  };
+
+  return (
+    <EarnTile
+      title={title}
+      reward={tier.reward}
+      description={t.airdrop.earn.newsDesc}
+      progress={progressPct}
+      progressLabel={formatWatchProgress(newsWatch.progressSeconds, tier.requiredSeconds)}
+      status={tier.claimed ? "done" : "open"}
+      resetsLabel={t.airdrop.earn.resetsDaily}
+      navigator={
+        <div className="flex items-center justify-between gap-2 -mx-1">
+          <button
+            type="button"
+            onClick={goPrev}
+            disabled={!canPrev}
+            aria-label="Previous tier"
+            className={cn(
+              "flex items-center justify-center h-9 w-9 rounded-md border transition-colors touch-manipulation",
+              canPrev
+                ? "border-[#30363d] text-[#e6edf3] hover:bg-[#21262d] hover:border-[#444c56]"
+                : "border-[#21262d] text-[#484f58] cursor-not-allowed",
+            )}
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 20 20">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 5l-5 5 5 5" />
+            </svg>
+          </button>
+          <div className="flex items-center gap-1.5">
+            {tiers.map((ti, i) => (
+              <span
+                key={ti.id}
+                className={cn(
+                  "h-1.5 w-1.5 rounded-full transition-colors",
+                  i === idx
+                    ? ti.claimed ? "bg-[#3fb950]" : "bg-[#f5c542]"
+                    : ti.claimed ? "bg-[#3fb950]/40" : "bg-[#484f58]",
+                )}
+              />
+            ))}
+            <span className="text-[10px] text-[#768390] ml-1.5 tabular-nums">{idx + 1}/{tiers.length}</span>
+          </div>
+          <button
+            type="button"
+            onClick={goNext}
+            disabled={!canNext}
+            aria-label="Next tier"
+            className={cn(
+              "flex items-center justify-center h-9 w-9 rounded-md border transition-colors touch-manipulation",
+              canNext
+                ? "border-[#30363d] text-[#e6edf3] hover:bg-[#21262d] hover:border-[#444c56]"
+                : "border-[#21262d] text-[#484f58] cursor-not-allowed",
+            )}
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 20 20">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M8 5l5 5-5 5" />
+            </svg>
+          </button>
+        </div>
+      }
+      action={
+        <ClaimButton
+          kind={`news_watch_${tier.id}` as NewsTierClaimKind}
+          ready={newsWatch.progressSeconds >= tier.requiredSeconds && !tier.claimed}
+          claimed={tier.claimed}
+          address={address}
+          onClaimed={handleClaimed}
+        />
+      }
+    />
+  );
 }
 
 // Unified claim button for daily + weekly. Locked for one-time boosts
