@@ -4,21 +4,28 @@ import { getDb, marketsCatalog } from "@/db";
 
 // GET /api/cron/catalog-refresh
 //
-// Pulls the full active Polymarket catalog from Gamma and upserts every
-// market into markets_catalog. Rows not touched during this sync are
-// deleted at the end, which handles closed/delisted markets naturally.
+// Pulls the active Polymarket catalog from Gamma's keyset endpoint and
+// upserts every market into markets_catalog. Rows not touched during
+// this sync are deleted at the end, which handles closed/delisted
+// markets naturally.
+//
+// Migrated from offset-based /events to cursor-based /events/keyset
+// on 2026-04-23 (old endpoint deprecated 2026-05-01). Cursor pagination
+// is inherently sequential so we can't parallelize; capped at MAX_PAGES
+// so the whole sync fits comfortably inside the Vercel 60s limit.
 //
 // Gated by CRON_SECRET. Also runnable manually with
 //   curl -H "Authorization: Bearer $CRON_SECRET" <url>/api/cron/catalog-refresh
-// to bootstrap a fresh deploy.
 
 export const maxDuration = 60;
 export const dynamic = "force-dynamic";
 
 const GAMMA_API = "https://gamma-api.polymarket.com";
 const PAGE_SIZE = 100;
-const MAX_OFFSET = 5000; // up to 50 pages = ~5k markets, well above typical active count
-const CONCURRENCY = 10;
+// 50 pages × 100 = 5000 most-liquid markets. Matches the prior offset-
+// based cap (MAX_OFFSET = 5000). Cron runs every 6h so we re-cover the
+// same slice continuously.
+const MAX_PAGES = 50;
 const UPSERT_CHUNK = 100;
 
 interface CatalogRow {
@@ -47,14 +54,26 @@ interface GammaEvent {
   markets?: GammaMarket[];
 }
 
-async function fetchPage(offset: number): Promise<GammaEvent[]> {
-  const url = `${GAMMA_API}/events?active=true&closed=false&limit=${PAGE_SIZE}&offset=${offset}&order=volume&ascending=false`;
+interface KeysetResponse {
+  events?: GammaEvent[];
+  next_cursor?: string | null;
+}
+
+async function fetchPage(cursor: string | null): Promise<KeysetResponse> {
+  const params = new URLSearchParams({
+    active: "true",
+    closed: "false",
+    limit: String(PAGE_SIZE),
+    order: "volume",
+    ascending: "false",
+  });
+  if (cursor) params.set("cursor", cursor);
   try {
-    const res = await fetch(url);
-    if (!res.ok) return [];
-    return await res.json();
+    const res = await fetch(`${GAMMA_API}/events/keyset?${params.toString()}`);
+    if (!res.ok) return { events: [], next_cursor: null };
+    return (await res.json()) as KeysetResponse;
   } catch {
-    return [];
+    return { events: [], next_cursor: null };
   }
 }
 
@@ -74,41 +93,36 @@ export async function GET(request: NextRequest) {
   const startedAt = new Date();
   const t0 = Date.now();
 
-  const offsets: number[] = [];
-  for (let o = 0; o <= MAX_OFFSET; o += PAGE_SIZE) offsets.push(o);
-
   const allRows: CatalogRow[] = [];
   const seen = new Set<string>();
-  let reachedEnd = false;
 
-  for (let i = 0; i < offsets.length && !reachedEnd; i += CONCURRENCY) {
-    const batch = offsets.slice(i, i + CONCURRENCY);
-    const pages = await Promise.all(batch.map(fetchPage));
-    let batchHadRows = false;
+  let cursor: string | null = null;
+  for (let page = 0; page < MAX_PAGES; page++) {
+    const data = await fetchPage(cursor);
+    const events = data.events ?? [];
+    if (events.length === 0) break;
 
-    for (const events of pages) {
-      if (!events || events.length === 0) continue;
-      batchHadRows = true;
-      for (const event of events) {
-        if (!event?.slug) continue;
-        for (const m of event.markets || []) {
-          if (!m.slug || m.closed === true || m.active === false) continue;
-          if (seen.has(m.slug)) continue;
-          seen.add(m.slug);
-          allRows.push({
-            slug: m.slug,
-            eventSlug: event.slug,
-            question: m.question || "",
-            volume: m.volume || "0",
-            endDate: m.endDate || "",
-            clobTokenIds: m.clobTokenIds || "[]",
-            lastTradePrice: typeof m.lastTradePrice === "number" ? m.lastTradePrice : 0.5,
-          });
-        }
+    for (const event of events) {
+      if (!event?.slug) continue;
+      for (const m of event.markets || []) {
+        if (!m.slug || m.closed === true || m.active === false) continue;
+        if (seen.has(m.slug)) continue;
+        seen.add(m.slug);
+        allRows.push({
+          slug: m.slug,
+          eventSlug: event.slug,
+          question: m.question || "",
+          volume: m.volume || "0",
+          endDate: m.endDate || "",
+          clobTokenIds: m.clobTokenIds || "[]",
+          lastTradePrice: typeof m.lastTradePrice === "number" ? m.lastTradePrice : 0.5,
+        });
       }
     }
 
-    if (!batchHadRows) reachedEnd = true;
+    const next = data.next_cursor ?? null;
+    if (!next || next === cursor) break; // reached the end
+    cursor = next;
   }
 
   if (allRows.length === 0) {

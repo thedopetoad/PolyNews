@@ -140,8 +140,12 @@ export async function GET(request: NextRequest) {
     // Fetch events for this league. 15s cache keeps upstream load sane
     // (~4 req/min/sport regardless of traffic) while staying fresh enough
     // for real-money bet slips to reflect market state changes promptly.
+    //
+    // Migrated to /events/keyset on 2026-04-23 (legacy /events deprecated
+    // 2026-05-01). We only need page 1 since limit=20 covers the whole
+    // visible slate for a given league.
     const res = await fetch(
-      `${GAMMA_API}/events?active=true&closed=false&limit=20&series_id=${seriesId}&order=startDate&ascending=true`,
+      `${GAMMA_API}/events/keyset?active=true&closed=false&limit=20&series_id=${seriesId}&order=startDate&ascending=true`,
       { next: { revalidate: 10 } }
     );
 
@@ -149,7 +153,13 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ events: [] });
     }
 
-    const rawEvents = await res.json();
+    const body = await res.json();
+    // Keyset wraps the array in `{ events: [...], next_cursor }`; fall
+    // back to a raw array for forward-compat if Gamma ever ships a
+    // different shape.
+    const rawEvents: { markets?: unknown[]; [key: string]: unknown }[] = Array.isArray(body)
+      ? body
+      : (body?.events ?? []);
 
     // Parse events and their markets
     const events: ParsedEvent[] = [];

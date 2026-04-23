@@ -1,9 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { POLYMARKET_GAMMA_API } from "@/lib/constants";
 
+// Migrated from /events → /events/keyset on 2026-04-23. Callers today
+// (/ai + /trade pages) only pass `limit`, so there's no cursor
+// threading to preserve — we just hit page 1 of the keyset feed.
+// `offset` kept in ALLOWED_PARAMS as a no-op for backward compat so
+// older cached frontends don't 400; it's dropped before the upstream
+// call since the deprecated endpoint goes away 2026-05-01.
 const ALLOWED_PARAMS = ["active", "closed", "limit", "offset", "slug", "id", "tag"];
 const MAX_LIMIT = 50;
 const MIN_VOLUME = 10000; // $10K minimum to filter junk markets
+const KEYSET_UPSTREAM_STRIP = new Set(["offset"]);
 
 interface MarketData {
   clobTokenIds?: string;
@@ -17,6 +24,37 @@ interface MarketData {
 interface EventData {
   markets?: MarketData[];
   [key: string]: unknown;
+}
+
+interface KeysetEventsResponse {
+  events?: EventData[];
+  next_cursor?: string | null;
+}
+
+/**
+ * Fetch one page of events from the keyset endpoint. Returns just the
+ * events array so the rest of the handler (which was written against
+ * the legacy array-shaped response) keeps working.
+ */
+async function fetchKeysetEvents(params: URLSearchParams): Promise<EventData[]> {
+  const upstream = new URLSearchParams();
+  for (const [k, v] of params) {
+    if (!KEYSET_UPSTREAM_STRIP.has(k)) upstream.set(k, v);
+  }
+  try {
+    const res = await fetch(
+      `${POLYMARKET_GAMMA_API}/events/keyset?${upstream.toString()}`,
+      { headers: { Accept: "application/json" }, next: { revalidate: 15 } },
+    );
+    if (!res.ok) return [];
+    const body = (await res.json()) as KeysetEventsResponse | EventData[];
+    // Defensive: if Gamma ever fully removes the legacy shape, this
+    // might briefly return the new object; handle both.
+    if (Array.isArray(body)) return body;
+    return body.events ?? [];
+  } catch {
+    return [];
+  }
 }
 
 /**
@@ -58,26 +96,14 @@ export async function GET(request: NextRequest) {
       const tagParams = new URLSearchParams(params);
       tagParams.set("limit", "8");
 
-      const tagFetches = tags.map(async (tag) => {
+      const tagFetches = tags.map((tag) => {
         const tp = new URLSearchParams(tagParams);
         tp.set("tag", tag);
-        try {
-          const res = await fetch(`${POLYMARKET_GAMMA_API}/events?${tp.toString()}`, {
-            headers: { Accept: "application/json" },
-            next: { revalidate: 15 },
-          });
-          if (!res.ok) return [];
-          return res.json();
-        } catch {
-          return [];
-        }
+        return fetchKeysetEvents(tp);
       });
 
       // Also fetch default (no tag) for trending/popular
-      const defaultFetch = fetch(`${POLYMARKET_GAMMA_API}/events?${params.toString()}`, {
-        headers: { Accept: "application/json" },
-        next: { revalidate: 15 },
-      }).then((r) => (r.ok ? r.json() : [])).catch(() => []);
+      const defaultFetch = fetchKeysetEvents(params);
 
       const [defaultEvents, ...tagResults] = await Promise.all([defaultFetch, ...tagFetches]);
 
@@ -96,22 +122,7 @@ export async function GET(request: NextRequest) {
       // Cap total events to avoid CLOB price fetch timeout
       events = events.slice(0, limit);
     } else {
-      const response = await fetch(
-        `${POLYMARKET_GAMMA_API}/events?${params.toString()}`,
-        {
-          headers: { Accept: "application/json" },
-          next: { revalidate: 15 },
-        }
-      );
-
-      if (!response.ok) {
-        return NextResponse.json(
-          { error: "Failed to fetch events" },
-          { status: response.status }
-        );
-      }
-
-      events = await response.json();
+      events = await fetchKeysetEvents(params);
     }
 
     // Attach event metadata to each market + filter junk sub-markets

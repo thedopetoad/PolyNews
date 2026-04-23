@@ -105,36 +105,62 @@ export async function loadCatalog(): Promise<CatalogRow[]> {
   return rows;
 }
 
+// Bootstrap fallback — only runs when markets_catalog has < 100 rows.
+// Migrated to cursor-based /events/keyset on 2026-04-23 since the old
+// offset-paginated /events endpoint is deprecated 2026-05-01. Since
+// cursor pagination can't be parallelized, we walk 4 sequential pages
+// (matches the prior 4-offset fanout = 200 events).
 async function fetchGammaFallback(): Promise<CatalogRow[]> {
-  const offsets = [0, 50, 100, 150];
-  const results = await Promise.allSettled(
-    offsets.map(async (offset) => {
-      const res = await fetch(
-        `${GAMMA_API}/events?active=true&closed=false&limit=50&order=volume&ascending=false&offset=${offset}`,
-        { next: { revalidate: 300 } },
-      );
-      if (!res.ok) return [];
-      return (await res.json()) as {
-        slug: string;
-        markets?: {
-          slug?: string;
-          question?: string;
-          volume?: string;
-          endDate?: string;
-          clobTokenIds?: string;
-          lastTradePrice?: number;
-          closed?: boolean;
-          active?: boolean;
-        }[];
-      }[];
-    }),
-  );
+  interface KeysetEvent {
+    slug?: string;
+    markets?: {
+      slug?: string;
+      question?: string;
+      volume?: string;
+      endDate?: string;
+      clobTokenIds?: string;
+      lastTradePrice?: number;
+      closed?: boolean;
+      active?: boolean;
+    }[];
+  }
+  interface KeysetResponse {
+    events?: KeysetEvent[];
+    next_cursor?: string | null;
+  }
 
   const rows: CatalogRow[] = [];
   const seen = new Set<string>();
-  for (const r of results) {
-    if (r.status !== "fulfilled") continue;
-    for (const event of r.value) {
+  let cursor: string | null = null;
+  const MAX_PAGES = 4;
+  const PAGE_SIZE = 50;
+
+  for (let page = 0; page < MAX_PAGES; page++) {
+    const qs = new URLSearchParams({
+      active: "true",
+      closed: "false",
+      limit: String(PAGE_SIZE),
+      order: "volume",
+      ascending: "false",
+    });
+    if (cursor) qs.set("cursor", cursor);
+
+    let body: KeysetResponse;
+    try {
+      const res = await fetch(`${GAMMA_API}/events/keyset?${qs.toString()}`, {
+        next: { revalidate: 300 },
+      });
+      if (!res.ok) break;
+      body = (await res.json()) as KeysetResponse;
+    } catch {
+      break;
+    }
+
+    const events = body.events ?? [];
+    if (events.length === 0) break;
+
+    for (const event of events) {
+      if (!event.slug) continue;
       for (const m of event.markets || []) {
         if (!m.slug || m.closed === true || m.active === false) continue;
         if (seen.has(m.slug)) continue;
@@ -150,6 +176,10 @@ async function fetchGammaFallback(): Promise<CatalogRow[]> {
         });
       }
     }
+
+    const next = body.next_cursor ?? null;
+    if (!next || next === cursor) break;
+    cursor = next;
   }
   return rows;
 }
