@@ -118,7 +118,7 @@ export function NewsFeed({ className }: { className?: string }) {
   const headlineTitles = useMemo(() => headlines.slice(0, 30).map((h) => h.title), [headlines]);
 
   // Incremental market search: POST triggers next batch, polls every 60s
-  const { data: marketLinksData } = useQuery({
+  const { data: marketLinksData, isLoading: marketLinksLoading } = useQuery({
     queryKey: ["news-market-links"],
     queryFn: async () => {
       if (headlineTitles.length === 0) return { links: [], remaining: 0 };
@@ -365,6 +365,22 @@ export function NewsFeed({ className }: { className?: string }) {
                       title="The matcher couldn't find any Polymarket markets directly related to this headline."
                     >
                       No markets found
+                    </span>
+                  ) : marketLinksLoading ? (
+                    // Initial page-load state: the top-level market-links
+                    // query hasn't resolved yet, so we don't know if this
+                    // headline has cached matches. Show a neutral "finding"
+                    // pill instead of the active Find CTA so we don't
+                    // tempt the user into triggering a duplicate force
+                    // request while the bulk POST is already in flight.
+                    <span
+                      className="ml-auto flex items-center gap-1.5 rounded-md border border-[#30363d] bg-[#21262d] text-[#adbac7] whitespace-nowrap text-[12px] px-3 py-2 min-h-[36px] select-none"
+                      aria-live="polite"
+                    >
+                      <svg className="w-3.5 h-3.5 text-[#58a6ff] animate-spin" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M21 12a9 9 0 11-6.219-8.56" />
+                      </svg>
+                      Finding related markets…
                     </span>
                   ) : (
                     <button
