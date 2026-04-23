@@ -17,6 +17,19 @@ interface MarketLink {
   yesPrice: number;
 }
 
+// Actual shape returned by /api/news/markets — the server keys links
+// by headlineTitle so the client can group them. `MarketLink` above is
+// legacy from an earlier headlineIndex-based design that's still kept
+// as a structural hint.
+interface ApiLink {
+  headlineHash?: string;
+  headlineTitle: string;
+  question: string;
+  slug: string;
+  eventSlug: string;
+  yesPrice: number;
+}
+
 function timeAgo(dateStr: string): string {
   const date = new Date(dateStr);
   if (isNaN(date.getTime())) return "";
@@ -180,12 +193,28 @@ export function NewsFeed({ className }: { className?: string }) {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ headlines: [title], force: true }),
         });
-        const payload = await res.json();
-        const gotAny = Array.isArray(payload?.links) && payload.links.length > 0;
-        // Refresh the shared query so linkByTitle rebuilds with the new
-        // matches. This is a cheap refetch — the backend just reads the
-        // cache row now that the pipeline has already written to it.
-        await queryClient.invalidateQueries({ queryKey: ["news-market-links"] });
+        const payload = (await res.json()) as { links?: ApiLink[]; remaining?: number };
+        const newLinks: ApiLink[] = Array.isArray(payload?.links) ? payload.links : [];
+        const gotAny = newLinks.length > 0;
+
+        // Instantly merge the new links into the react-query cache so
+        // `linkByTitle` picks them up without a round-trip refetch. We
+        // avoid `invalidateQueries` here because awaiting it blocks the
+        // spinner clear on the 15-headline refetch — which can be slow
+        // and made the button look stuck. The backend already persisted
+        // the matches to `consensus_cache`, so next natural refetch
+        // (or other visitors) get the same state from the server.
+        queryClient.setQueryData<{ links: ApiLink[]; remaining?: number } | undefined>(
+          ["news-market-links"],
+          (old) => {
+            const existing = old?.links ?? [];
+            // Drop any old links tied to this title (handles a prior
+            // cached-as-empty state) before merging the new ones in.
+            const filtered = existing.filter((l) => l.headlineTitle !== title);
+            return { ...(old ?? {}), links: [...filtered, ...newLinks], remaining: 0 };
+          },
+        );
+
         if (gotAny) {
           setFindState((prev) => {
             const next = { ...prev };
