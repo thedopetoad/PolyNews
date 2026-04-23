@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { eq, inArray } from "drizzle-orm";
 import { getDb, consensusCache, marketsCatalog } from "@/db";
+import { NEWS_MARKETS_CACHE_KEY } from "@/lib/news-markets";
 
 // GET /api/markets/live
 //
@@ -19,7 +20,7 @@ import { getDb, consensusCache, marketsCatalog } from "@/db";
 //   4. Sort by volume desc so the chyron leads with the most liquid
 //      markets.
 
-const NEWS_CACHE_KEY = "news-mkt-v16";
+const NEWS_CACHE_KEY = NEWS_MARKETS_CACHE_KEY;
 
 interface CachedLink {
   headlineHash: string;
