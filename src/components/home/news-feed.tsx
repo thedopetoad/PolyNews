@@ -112,7 +112,10 @@ export function NewsFeed({ className }: { className?: string }) {
     refetchInterval: 5 * 60 * 1000,
   });
 
-  const headlineTitles = useMemo(() => headlines.slice(0, 15).map((h) => h.title), [headlines]);
+  // Must match NEWS_MARKETS_MAX_HEADLINES on the backend. The news API
+  // returns ~30, the UI renders all of them, and every rendered row
+  // needs to participate in market matching.
+  const headlineTitles = useMemo(() => headlines.slice(0, 30).map((h) => h.title), [headlines]);
 
   // Incremental market search: POST triggers next batch, polls every 60s
   const { data: marketLinksData } = useQuery({

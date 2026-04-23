@@ -23,6 +23,13 @@ const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 export const NEWS_MARKETS_CACHE_KEY = "news-mkt-v16";
 export const NEWS_MARKETS_CACHE_TTL = 2 * 60 * 60 * 1000; // 2h
 
+// How many headlines we actually match against markets per request.
+// `/api/news` returns ~30 and the UI renders all of them, so the cap
+// here must match (otherwise headlines past the cap render without
+// matches even if the backend already cached results for them via a
+// force-find click).
+export const NEWS_MARKETS_MAX_HEADLINES = 30;
+
 // Per-process catalog cache. Hot serverless instances reuse this to skip the
 // Neon round-trip. 5-min TTL is fine since the underlying cron only updates
 // markets_catalog every 6h.
@@ -326,7 +333,7 @@ export async function processNewsMarkets(
   headlinesInput: string[],
   forceReprocess = false,
 ): Promise<ProcessNewsMarketsResult> {
-  const headlines = headlinesInput.slice(0, 15);
+  const headlines = headlinesInput.slice(0, NEWS_MARKETS_MAX_HEADLINES);
   if (headlines.length === 0) return { links: [], remaining: 0, processedNew: 0 };
 
   const db = getDb();

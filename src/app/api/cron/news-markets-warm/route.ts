@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { processNewsMarkets } from "@/lib/news-markets";
+import { processNewsMarkets, NEWS_MARKETS_MAX_HEADLINES } from "@/lib/news-markets";
 
 // GET /api/cron/news-markets-warm
 //
@@ -49,7 +49,7 @@ export async function GET(request: NextRequest) {
     headlines = ((data.headlines || []) as { title?: string }[])
       .map((h) => (typeof h.title === "string" ? h.title : ""))
       .filter((t): t is string => t.length > 0)
-      .slice(0, 15);
+      .slice(0, NEWS_MARKETS_MAX_HEADLINES);
   } catch (err) {
     return NextResponse.json(
       { error: "Headlines fetch failed", detail: (err as Error).message },
