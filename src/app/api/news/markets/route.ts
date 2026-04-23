@@ -22,8 +22,19 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const headlines: string[] = Array.isArray(body.headlines) ? body.headlines : [];
-    const result = await processNewsMarkets(headlines);
-    return NextResponse.json({ links: result.links, remaining: result.remaining });
+    // `force: true` is used by the "Find Related Markets" button on
+    // headlines that previously matched zero markets. It bypasses the
+    // processed-hash cache so the pipeline reruns from scratch.
+    // Hard-capped to 3 headlines per force request to prevent abusive
+    // clients from triggering GPT calls on the full feed.
+    const force = body.force === true;
+    const capped = force ? headlines.slice(0, 3) : headlines;
+    const result = await processNewsMarkets(capped, force);
+    return NextResponse.json({
+      links: result.links,
+      remaining: result.remaining,
+      processedNew: result.processedNew,
+    });
   } catch (err) {
     console.error("News markets error:", err);
     return NextResponse.json({ links: [], remaining: 0 });

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useMemo, useCallback } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNewsStore, NewsHeadline } from "@/stores/use-news-store";
 import { cn } from "@/lib/utils";
 import { POLYMARKET_BASE_URL } from "@/lib/constants";
@@ -32,9 +32,14 @@ function timeAgo(dateStr: string): string {
 
 export function NewsFeed({ className }: { className?: string }) {
   const { headlines, setHeadlines, setKeywords, setLoading } = useNewsStore();
+  const queryClient = useQueryClient();
   const [activeSource, setActiveSource] = useState<string>("All");
   const [activeCategory, setActiveCategory] = useState<string>("All");
   const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
+  // Headline title → current state of a user-triggered Find Related Markets
+  // request. "finding" while the POST is in flight, "empty" after the
+  // pipeline returned zero matches. Absent = idle (show Find button).
+  const [findState, setFindState] = useState<Record<string, "finding" | "empty">>({});
 
   // Ref callback that wires a NATIVE (non-passive) wheel listener for
   // horizontal scroll on the filter strips. React's onWheel prop is
@@ -161,6 +166,46 @@ export function NewsFeed({ className }: { className?: string }) {
     });
   }, [filtered, linkByTitle]);
 
+  // Kicked off when the user clicks "Find Related Markets" on a headline
+  // that came back with zero matches. Sends just that one headline to the
+  // backend with force=true, which bypasses the processed-hash cache and
+  // reruns the match pipeline fresh. Result is persisted in the shared
+  // consensus_cache row so every other visitor benefits too.
+  const findMarketsForHeadline = useCallback(
+    async (title: string, idx: number) => {
+      setFindState((prev) => ({ ...prev, [title]: "finding" }));
+      try {
+        const res = await fetch("/api/news/markets", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ headlines: [title], force: true }),
+        });
+        const payload = await res.json();
+        const gotAny = Array.isArray(payload?.links) && payload.links.length > 0;
+        // Refresh the shared query so linkByTitle rebuilds with the new
+        // matches. This is a cheap refetch — the backend just reads the
+        // cache row now that the pipeline has already written to it.
+        await queryClient.invalidateQueries({ queryKey: ["news-market-links"] });
+        if (gotAny) {
+          setFindState((prev) => {
+            const next = { ...prev };
+            delete next[title];
+            return next;
+          });
+          setExpandedIdx(idx);
+        } else {
+          setFindState((prev) => ({ ...prev, [title]: "empty" }));
+        }
+      } catch {
+        setFindState((prev) => {
+          const next = { ...prev };
+          delete next[title];
+          return next;
+        });
+      }
+    },
+    [queryClient],
+  );
 
   return (
     <div className={cn("rounded-lg border border-[#21262d] bg-[#161b22] overflow-hidden flex flex-col", className)}>
@@ -243,7 +288,7 @@ export function NewsFeed({ className }: { className?: string }) {
                   {headline.publishedAt && (
                     <span className="text-[10px] text-[#484f58]">{timeAgo(headline.publishedAt)}</span>
                   )}
-                  {hasMarket && (
+                  {hasMarket ? (
                     <button
                       type="button"
                       onClick={(e) => { e.preventDefault(); e.stopPropagation(); setExpandedIdx(isExpanded ? null : idx); }}
@@ -271,6 +316,40 @@ export function NewsFeed({ className }: { className?: string }) {
                       >
                         <path strokeLinecap="round" strokeLinejoin="round" d="M5 8l5 5 5-5" />
                       </svg>
+                    </button>
+                  ) : findState[headline.title] === "finding" ? (
+                    <span
+                      className="ml-auto flex items-center gap-1.5 rounded-md border border-[#30363d] bg-[#21262d] text-[#adbac7] whitespace-nowrap text-[12px] px-3 py-2 min-h-[36px] select-none"
+                      aria-live="polite"
+                    >
+                      <svg className="w-3.5 h-3.5 text-[#58a6ff] animate-spin" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M21 12a9 9 0 11-6.219-8.56" />
+                      </svg>
+                      Searching markets…
+                    </span>
+                  ) : findState[headline.title] === "empty" ? (
+                    <span
+                      className="ml-auto flex items-center gap-1.5 rounded-md border border-[#21262d] bg-transparent text-[#484f58] whitespace-nowrap text-[12px] px-3 py-2 min-h-[36px] select-none"
+                      title="The matcher couldn't find any Polymarket markets directly related to this headline."
+                    >
+                      No markets found
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); findMarketsForHeadline(headline.title, idx); }}
+                      // Find Related Markets: a muted blue pill so it reads
+                      // as "trigger a search" rather than "open content".
+                      // Same shape/size as the expand toggle so rows stay
+                      // visually consistent. Clicking kicks off the pipeline
+                      // server-side and the result is cached globally.
+                      className="ml-auto flex items-center gap-1.5 rounded-md border border-[#1f6feb]/40 bg-[#1f6feb]/10 text-[#58a6ff] hover:bg-[#1f6feb]/20 hover:border-[#1f6feb]/60 transition-all duration-150 touch-manipulation select-none font-medium whitespace-nowrap text-[12px] px-3 py-2 min-h-[36px] active:translate-y-[1px]"
+                    >
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 20 20">
+                        <circle cx="9" cy="9" r="5" />
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M13 13l3.5 3.5" />
+                      </svg>
+                      Find Related Markets
                     </button>
                   )}
                 </div>

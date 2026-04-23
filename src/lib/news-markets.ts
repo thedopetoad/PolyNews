@@ -316,9 +316,15 @@ export interface ProcessNewsMarketsResult {
  * matches (filtered to the current headline set) plus any new ones
  * produced by running GPT on unprocessed headlines. Updates the
  * consensus_cache row in-place.
+ *
+ * `forceReprocess` (used by the user-triggered "Find Related Markets"
+ * button): wipes the passed headlines' existing hashes + links before
+ * running, so the match pipeline runs fresh even if they're already
+ * cached-as-empty.
  */
 export async function processNewsMarkets(
   headlinesInput: string[],
+  forceReprocess = false,
 ): Promise<ProcessNewsMarketsResult> {
   const headlines = headlinesInput.slice(0, 15);
   if (headlines.length === 0) return { links: [], remaining: 0, processedNew: 0 };
@@ -340,6 +346,17 @@ export async function processNewsMarkets(
     if (age > NEWS_MARKETS_CACHE_TTL) {
       existing = { links: [], processedHashes: [], updatedAt: "" };
     }
+  }
+
+  // When forcing, drop the passed headlines from processedHashes and
+  // strip their old links so the pipeline treats them as fresh.
+  if (forceReprocess) {
+    const forceHashes = new Set(headlines.map(hashTitle));
+    existing = {
+      ...existing,
+      processedHashes: existing.processedHashes.filter((h) => !forceHashes.has(h)),
+      links: existing.links.filter((l) => !forceHashes.has(l.headlineHash)),
+    };
   }
 
   const processedSet = new Set(existing.processedHashes);
