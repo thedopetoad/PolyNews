@@ -156,10 +156,12 @@ export async function GET(request: NextRequest) {
     const body = await res.json();
     // Keyset wraps the array in `{ events: [...], next_cursor }`; fall
     // back to a raw array for forward-compat if Gamma ever ships a
-    // different shape.
-    const rawEvents: { markets?: unknown[]; [key: string]: unknown }[] = Array.isArray(body)
-      ? body
-      : (body?.events ?? []);
+    // different shape. Keep the value untyped (pre-migration behavior
+    // inherited from `.json()`) so the existing downstream field
+    // accesses on market/event keep compiling — Gamma's payload keys
+    // are stable across endpoints and we only read a handful of them.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const rawEvents: any[] = Array.isArray(body) ? body : (body?.events ?? []);
 
     // Parse events and their markets
     const events: ParsedEvent[] = [];
