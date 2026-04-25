@@ -144,13 +144,87 @@ export const newsCache = pgTable("news_cache", {
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 
-// AI consensus cache
+// AI consensus cache (legacy, on-demand pipeline). Kept while v2 ships in
+// parallel; remove once /ai page is fully migrated to consensus_runs.
 export const consensusCache = pgTable("consensus_cache", {
   id: text("id").primaryKey(),
   marketQuestion: text("market_question").notNull(),
   result: text("result").notNull(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
+
+// AI Consensus v2 — daily snapshot pipeline.
+//
+// One row per (market, run_date). Cron walks markets through 3 states:
+//   step1_pending  - row created, persona-styled web searches not yet done
+//   step1_done     - 20 round-1 predictions saved (in consensus_persona_predictions)
+//   step2_pending  - waiting for round 2 (re-assess using round-1 context)
+//   step2_done     - 40 predictions saved (rounds 1+2)
+//   step3_done     - bootstrap math complete, final_mean/mode/CI populated
+//   failed         - <15 personas succeeded in step 1, run abandoned
+//
+// id is `${marketQuestionHash}-${runDate}` so re-running the same day is
+// idempotent. Admin "Run Now" deletes the existing row (CASCADE drops the
+// child predictions) and re-inserts a fresh one.
+export const consensusRuns = pgTable(
+  "consensus_runs",
+  {
+    id: text("id").primaryKey(),
+    marketQuestion: text("market_question").notNull(),
+    marketQuestionHash: text("market_question_hash").notNull(),
+    marketSlug: text("market_slug"),
+    eventSlug: text("event_slug"),
+    clobTokenIds: text("clob_token_ids"),
+    marketEndDate: text("market_end_date"),
+    runDate: text("run_date").notNull(), // "2026-04-25" UTC
+    yesPriceAtRun: real("yes_price_at_run").notNull(),
+    status: text("status").notNull().default("step1_pending"),
+    finalMean: real("final_mean"),
+    finalMode: real("final_mode"),
+    distributionP5: real("distribution_p5"),
+    distributionP95: real("distribution_p95"),
+    distributionHistogram: text("distribution_histogram"), // JSON array of bin counts
+    failureReason: text("failure_reason"), // populated when status='failed'
+    triggerSource: text("trigger_source").notNull().default("cron"), // "cron" | "admin"
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    step1At: timestamp("step1_at"),
+    step2At: timestamp("step2_at"),
+    step3At: timestamp("step3_at"),
+  },
+  (table) => [
+    uniqueIndex("consensus_runs_hash_date_idx").on(
+      table.marketQuestionHash,
+      table.runDate,
+    ),
+  ],
+);
+
+// Per-persona predictions for a given run. 20 rows from round 1 + 20 from
+// round 2 = 40 rows per successful run. Round 1 rows include the
+// persona-styled web context; round 2 rows don't (they reason off the DB
+// snapshot of round 1).
+export const consensusPersonaPredictions = pgTable(
+  "consensus_persona_predictions",
+  {
+    id: text("id").primaryKey(),
+    runId: text("run_id")
+      .notNull()
+      .references(() => consensusRuns.id, { onDelete: "cascade" }),
+    persona: text("persona").notNull(),
+    round: integer("round").notNull(), // 1 or 2
+    probability: real("probability").notNull(),
+    bulletPoints: text("bullet_points").notNull(), // JSON array of 3-5 strings
+    webContext: text("web_context"), // round 1 only — the search summary
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("consensus_predictions_run_persona_round_idx").on(
+      table.runId,
+      table.persona,
+      table.round,
+    ),
+  ],
+);
 
 // YouTube live stream cache
 export const youtubeStreamCache = pgTable("youtube_stream_cache", {

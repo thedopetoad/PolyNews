@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { PrizeEditor } from "@/components/admin/prize-editor";
 import { PayoutsBoard } from "@/components/admin/payouts-board";
+import { ConsensusRunNow } from "@/components/admin/consensus-run-now";
 import { deriveProxyAddress } from "@/lib/proxy";
 
 // The single Solana Phantom wallet allowed into admin. Must match
@@ -672,6 +673,9 @@ export default function AdminPage() {
 
       {/* Weekly payouts board */}
       <PayoutsBoard />
+
+      {/* AI Consensus manual trigger */}
+      <ConsensusRunNow />
 
       {/* Airdrop Breakdown */}
       {data.airdropBreakdown.length > 0 && (

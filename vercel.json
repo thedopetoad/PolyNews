@@ -11,6 +11,18 @@
     {
       "path": "/api/cron/news-markets-warm",
       "schedule": "*/10 * * * *"
+    },
+    {
+      "path": "/api/cron/consensus-step1",
+      "schedule": "0 6 * * *"
+    },
+    {
+      "path": "/api/cron/consensus-step2",
+      "schedule": "15 6 * * *"
+    },
+    {
+      "path": "/api/cron/consensus-step3",
+      "schedule": "30 6 * * *"
     }
   ]
 }
