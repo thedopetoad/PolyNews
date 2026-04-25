@@ -29,14 +29,6 @@ const AGENTS = [
     example: "\"Everyone thinks Yes, but they're ignoring the risk of X happening. I'm going against the crowd.\"",
   },
   {
-    id: "news",
-    name: "News Analyst",
-    emoji: "\ud83d\udcf0",
-    color: "#3fb950",
-    desc: "Tracks what's happening in the world RIGHT NOW. Breaking news changes everything.",
-    example: "\"Breaking: a new development just happened that changes the odds significantly.\"",
-  },
-  {
     id: "risk",
     name: "Risk Assessor",
     emoji: "\u26a0\ufe0f",
@@ -44,32 +36,45 @@ const AGENTS = [
     desc: "The careful one. Always asks: how confident are we really? What could go wrong?",
     example: "\"I'm only 60% sure. There's a 15% chance of a surprise outcome nobody is pricing in.\"",
   },
+  {
+    id: "historian",
+    name: "Historian",
+    emoji: "\ud83d\udcdc",
+    color: "#3fb950",
+    desc: "Looks at how similar situations played out before. History rhymes more than it repeats.",
+    example: "\"Every time this has happened in the past 30 years, the outcome was Yes about 70% of the time.\"",
+  },
 ];
 
 const STEPS = [
   {
     title: "1. Pick the Top Markets",
-    desc: "We find the biggest Polymarket markets by trading volume \u2014 the ones where millions of dollars are at stake.",
+    desc: "We pull the top 10 Polymarket markets ending within 1 day to 3 months, with $50K+ volume, prices between 5% and 95%, and category diversity (max 4 per category).",
     icon: "\ud83c\udfaf",
   },
   {
-    title: "2. Round 1: Independent Predictions",
-    desc: "20 AI agents with completely different personalities each make a prediction WITHOUT seeing anyone else's answer. Each agent runs at 5 creativity levels = 100 real predictions. Zero groupthink.",
+    title: "2. Live Web Search",
+    desc: "Before the debate, we ask GPT-4o-mini (via OpenAI's web_search_preview tool) to summarize 3-5 bullets of recent news, polls, or data on the question. That summary is shared with every persona in the rounds below.",
+    icon: "\ud83c\udf10",
+  },
+  {
+    title: "3. Round 1: Independent Predictions",
+    desc: "5 personas with completely different perspectives each return a probability + confidence WITHOUT seeing anyone else's answer. 5 parallel GPT-4o-mini calls.",
     icon: "\ud83e\udde0",
   },
   {
-    title: "3. Round 2: The Debate",
-    desc: "Now all agents see the Round 1 results: the average prediction, the strongest bull argument, and the strongest bear argument. Each agent can change their mind or double down. The contrarian challenges everyone, the risk assessor flags overconfidence.",
+    title: "4. Round 2: The Debate",
+    desc: "All 5 personas now see the Round 1 average, the strongest bull argument, and the strongest bear argument. Each can change their mind or double down. The contrarian challenges everyone, the risk assessor flags overconfidence.",
     icon: "\ud83d\udde3\ufe0f",
   },
   {
-    title: "4. Round 3: Final Vote",
-    desc: "Agents see how the debate shifted the consensus and give their final, most carefully calibrated prediction. Round 3 votes count 3x more than Round 1. Another 100 predictions.",
+    title: "5. Round 3: Final Vote",
+    desc: "Personas see how the debate shifted the consensus (Round 1 \u2192 Round 2) and give their final, most calibrated prediction. Round 3 votes count 3x more than Round 1 in the weighted average.",
     icon: "\ud83d\uddf3\ufe0f",
   },
   {
-    title: "5. Bootstrap to 100,000",
-    desc: "The 300 real predictions are resampled with statistical variation to simulate 100,000 agents. This gives the consensus mathematical weight. The final number is compared to the actual Polymarket price.",
+    title: "6. Aggregate",
+    desc: "15 total predictions are combined into one number weighted by confidence \u00d7 round number. Result is cached for 5 hours. Total cost: about $0.01 per market.",
     icon: "\ud83d\udcc8",
   },
 ];
@@ -193,7 +198,7 @@ export function SwarmDiagram() {
           {/* Consensus result */}
           <div className="text-center">
             <div className="inline-block bg-[#58a6ff]/10 border border-[#58a6ff]/30 rounded-lg px-6 py-3">
-              <p className="text-[10px] text-[#58a6ff] uppercase tracking-wider">100,000 Agent Consensus (3 debate rounds)</p>
+              <p className="text-[10px] text-[#58a6ff] uppercase tracking-wider">5-Persona Consensus (3 debate rounds &middot; 15 calls)</p>
               <p className="text-2xl font-bold text-white mt-1">67% Yes</p>
               <p className="text-[10px] text-[#768390] mt-0.5">Round 1: 62% &rarr; Debate: 65% &rarr; Final: 67%</p>
               <p className="text-[10px] text-[#768390]">vs Market: 60% &mdash; AI says +7% higher</p>
