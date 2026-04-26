@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/admin-auth";
 import {
+  getDb,
+  consensusRuns,
+} from "@/db";
+import {
   selectCandidateMarkets,
   ensureRunRow,
   executeStep1,
@@ -9,6 +13,54 @@ import {
   todayUtc,
   type CandidateMarket,
 } from "@/lib/consensus/pipeline";
+
+/**
+ * Map a thrown error into a UI-friendly code so the admin component can
+ * show specific remediation instead of a raw stack trace.
+ *
+ *   schema_missing  - consensus_runs / consensus_persona_predictions
+ *                     don't exist yet. Run `npx drizzle-kit push`.
+ *   openai_missing  - OPENAI_API_KEY env var unset on Vercel.
+ *   openai_quota    - OpenAI returned 429 / quota exceeded.
+ *   db_unreachable  - Neon connection failed (DNS / network / bad URL).
+ *   unknown         - anything else; show raw message.
+ */
+type ErrorCode =
+  | "schema_missing"
+  | "openai_missing"
+  | "openai_quota"
+  | "db_unreachable"
+  | "unknown";
+
+function classifyError(err: unknown): ErrorCode {
+  const msg = (err instanceof Error ? err.message : String(err)).toLowerCase();
+  if (msg.includes("relation") && msg.includes("does not exist")) return "schema_missing";
+  if (msg.includes("consensus_runs") || msg.includes("consensus_persona_predictions")) return "schema_missing";
+  if (msg.includes("missing credentials") || msg.includes("openai_api_key")) return "openai_missing";
+  if (msg.includes("quota") || msg.includes("rate limit") || msg.includes("429")) return "openai_quota";
+  if (msg.includes("enotfound") || msg.includes("econnrefused") || msg.includes("error connecting to database")) return "db_unreachable";
+  return "unknown";
+}
+
+/**
+ * Cheap upfront probe: try to read 0 rows from consensus_runs. If the
+ * table doesn't exist, we get a "relation does not exist" error and can
+ * return a clean schema_missing response without spinning up 200 OpenAI
+ * calls that all fail at the insert step.
+ */
+async function checkSchema(): Promise<{ ok: true } | { ok: false; code: ErrorCode; detail: string }> {
+  try {
+    const db = getDb();
+    await db.select({ id: consensusRuns.id }).from(consensusRuns).limit(1);
+    return { ok: true };
+  } catch (err) {
+    return {
+      ok: false,
+      code: classifyError(err),
+      detail: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
 
 // POST /api/admin/consensus-run-now
 //
@@ -32,17 +84,34 @@ export async function POST(request: NextRequest) {
   const t0 = Date.now();
   const runDate = todayUtc();
 
+  // Cheap probe before we burn $5 in OpenAI calls — make sure the
+  // tables actually exist and the DB is reachable.
+  const schemaCheck = await checkSchema();
+  if (!schemaCheck.ok) {
+    return NextResponse.json(
+      { error: schemaCheck.code, detail: schemaCheck.detail },
+      { status: schemaCheck.code === "schema_missing" ? 412 : 503 },
+    );
+  }
+
+  if (!process.env.OPENAI_API_KEY) {
+    return NextResponse.json(
+      { error: "openai_missing", detail: "OPENAI_API_KEY env var is not set in this environment" },
+      { status: 412 },
+    );
+  }
+
   let candidates: CandidateMarket[];
   try {
     candidates = await selectCandidateMarkets();
   } catch (err) {
     return NextResponse.json(
-      { error: "Market selection failed", detail: (err as Error).message },
+      { error: classifyError(err), detail: (err as Error).message },
       { status: 502 },
     );
   }
   if (candidates.length === 0) {
-    return NextResponse.json({ error: "No qualifying markets" }, { status: 502 });
+    return NextResponse.json({ error: "no_markets", detail: "Polymarket returned 0 qualifying markets right now" }, { status: 502 });
   }
 
   // Step 1 — replace=true wipes any existing today rows and their predictions
