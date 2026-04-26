@@ -9,7 +9,7 @@
 
 import crypto from "crypto";
 import OpenAI from "openai";
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, desc, ne } from "drizzle-orm";
 import {
   getDb,
   consensusRuns,
@@ -542,6 +542,29 @@ export async function selectCandidateMarkets(): Promise<CandidateMarket[]> {
     clobTokenIds: m.clobTokenIds ?? null,
     endDate: m.endDate ?? null,
   }));
+}
+
+/**
+ * Wipe every consensus_runs row whose run_date is NOT the one we're
+ * keeping. CASCADE drops the child consensus_persona_predictions rows
+ * automatically. Called at the END of step 3 (admin trigger + cron) so
+ * the /ai page never goes blank during a sim — old data sticks around
+ * until the new snapshot has fully landed, then it's swept.
+ *
+ * Returns the row count deleted (just for logging / admin response).
+ */
+export async function pruneOldRuns(keepRunDate: string): Promise<{ deleted: number }> {
+  try {
+    const db = getDb();
+    const deleted = await db
+      .delete(consensusRuns)
+      .where(ne(consensusRuns.runDate, keepRunDate))
+      .returning({ id: consensusRuns.id });
+    return { deleted: deleted.length };
+  } catch (err) {
+    console.error("[consensus] pruneOldRuns failed:", (err as Error).message);
+    return { deleted: 0 };
+  }
 }
 
 /**

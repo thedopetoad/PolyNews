@@ -10,6 +10,7 @@ import {
   executeStep1,
   executeStep2,
   executeStep3,
+  pruneOldRuns,
   todayUtc,
   type CandidateMarket,
 } from "@/lib/consensus/pipeline";
@@ -176,6 +177,12 @@ export async function POST(request: NextRequest) {
     }),
   );
 
+  // Sweep older snapshots so the DB doesn't accumulate. Done AFTER step 3
+  // succeeds so /ai never goes blank — old data sticks around until the
+  // fresh snapshot is fully baked, then it's wiped.
+  const anySucceeded = step3Results.some((r) => r.ok);
+  const prune = anySucceeded ? await pruneOldRuns(runDate) : { deleted: 0 };
+
   return NextResponse.json({
     runDate,
     triggeredBy: admin.pubkey,
@@ -187,6 +194,7 @@ export async function POST(request: NextRequest) {
     },
     step2: { results: step2Results },
     step3: { results: step3Results },
+    pruned: prune.deleted,
     durationMs: Date.now() - t0,
   });
 }

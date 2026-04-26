@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { eq } from "drizzle-orm";
 import { getDb, consensusRuns } from "@/db";
-import { executeStep3, todayUtc } from "@/lib/consensus/pipeline";
+import { executeStep3, pruneOldRuns, todayUtc } from "@/lib/consensus/pipeline";
 
 // GET /api/cron/consensus-step3
 //
@@ -59,11 +59,17 @@ export async function GET(request: NextRequest) {
     }),
   );
 
+  // Sweep yesterday's (and earlier) snapshots now that today's is in.
+  // Done AFTER bootstrap so /ai is never blank during the cron window.
+  const anySucceeded = results.some((r) => r.ok);
+  const prune = anySucceeded ? await pruneOldRuns(runDate) : { deleted: 0 };
+
   return NextResponse.json({
     runDate,
     eligible: todays.length,
     skippedOld: ready.length - todays.length,
     results,
+    pruned: prune.deleted,
     durationMs: Date.now() - t0,
   });
 }
