@@ -79,6 +79,7 @@ interface ConsensusLatestRun {
   distributionP95: number;
   distributionHistogram: number[];
   step3At: string;
+  volume: string | null;
 }
 
 /** ID we use for renderMarketRow / useLivePrices keying — the run id. */
@@ -100,9 +101,9 @@ function consensusRunToMarket(r: ConsensusLatestRun): MarketWithPrices {
     eventSlug: r.eventSlug ?? undefined,
     clobTokenIds: r.clobTokenIds ?? "",
     endDate: r.marketEndDate ?? "",
-    // Volume not stored on the run — show as $0 (renderMarketRow's
-    // formatVolume would print $NaN otherwise).
-    volume: "0",
+    // Volume comes from a markets_catalog JOIN inside /api/consensus/latest.
+    // Falls back to "0" if the catalog row was pruned (delisted market).
+    volume: r.volume ?? "0",
     volume24hr: "0",
     liquidity: "0",
     // Outcome metadata — assume binary Yes/No (true for ~all top consensus markets).

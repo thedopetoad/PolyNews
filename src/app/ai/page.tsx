@@ -27,6 +27,7 @@ interface RunSummary {
   distributionP95: number;
   distributionHistogram: number[];
   step3At: string;
+  volume: string | null;
 }
 
 interface PredictionView {
@@ -69,53 +70,182 @@ function firstTokenId(json: string | null): string {
 }
 
 // --------------------------------------------------------------------------
-// Histogram bar chart (40 bins, simple SVG, no extra deps)
+// Histogram bar chart — bootstrap distribution.
+// Pure SVG, no charting library. Native <title> tooltips on each bar
+// give per-bin counts on hover. Mode bar is highlighted; mean / 90% CI /
+// market price are overlaid as marker lines with labels.
 // --------------------------------------------------------------------------
 
-function Histogram({ bins, mean, p5, p95 }: { bins: number[]; mean: number; p5: number; p95: number }) {
+function Histogram({
+  bins,
+  mean,
+  mode,
+  p5,
+  p95,
+  marketPrice,
+}: {
+  bins: number[];
+  mean: number;
+  mode: number;
+  p5: number;
+  p95: number;
+  marketPrice?: number; // 0-100, optional overlay
+}) {
   const max = Math.max(...bins, 1);
-  const width = 280;
-  const height = 70;
-  const binWidth = width / bins.length;
+  const total = bins.reduce((a, b) => a + b, 0) || 1;
+  const VB_W = 360;
+  const VB_H = 140;
+  const M = { top: 18, right: 6, bottom: 24, left: 6 };
+  const plotW = VB_W - M.left - M.right;
+  const plotH = VB_H - M.top - M.bottom;
+  const binPctWidth = 100 / bins.length;
+  const binPxWidth = plotW / bins.length;
+  const xToScreen = (pct: number) => M.left + (pct / 100) * plotW;
+
+  // Index of the bar containing the mode value (highlighted).
+  const modeBinIdx = Math.min(
+    bins.length - 1,
+    Math.max(0, Math.floor(mode / binPctWidth)),
+  );
+
+  // Determine which markers to label above the chart and avoid overlap by
+  // hiding the market label if it's within 6% of the mean (they'd collide).
+  const showMarketLabel = marketPrice != null && Math.abs(marketPrice - mean) > 6;
+
   return (
-    <svg width={width} height={height} className="w-full">
+    <svg
+      viewBox={`0 0 ${VB_W} ${VB_H}`}
+      className="w-full"
+      style={{ maxHeight: 140 }}
+      role="img"
+      aria-label={`Bootstrap distribution histogram. AI mean ${mean.toFixed(1)}%, mode ${mode.toFixed(1)}%, 90% confidence interval ${p5.toFixed(1)}% to ${p95.toFixed(1)}%${marketPrice != null ? `, market price ${marketPrice.toFixed(1)}%` : ""}.`}
+    >
+      {/* CI shaded band — light wash behind the bars to make the 90% interval visually obvious */}
+      <rect
+        x={xToScreen(p5)}
+        y={M.top}
+        width={xToScreen(p95) - xToScreen(p5)}
+        height={plotH}
+        fill="#bf8700"
+        opacity={0.07}
+      />
+
+      {/* Bars */}
       {bins.map((count, i) => {
-        const h = Math.round((count / max) * (height - 12));
-        const x = i * binWidth;
+        const h = Math.round((count / max) * plotH);
+        const isMode = i === modeBinIdx;
+        const binStartPct = i * binPctWidth;
+        const binEndPct = (i + 1) * binPctWidth;
+        const pctOfTotal = ((count / total) * 100).toFixed(2);
         return (
           <rect
             key={i}
-            x={x}
-            y={height - h - 4}
-            width={binWidth - 1}
+            x={M.left + i * binPxWidth}
+            y={M.top + plotH - h}
+            width={Math.max(0.5, binPxWidth - 0.6)}
             height={h}
-            fill="#58a6ff"
-            opacity={0.55}
-          />
+            fill={isMode ? "#3fb950" : "#58a6ff"}
+            opacity={isMode ? 0.9 : 0.6}
+            className="transition-opacity hover:!opacity-100"
+            style={{ cursor: "default" }}
+          >
+            <title>
+              {`${binStartPct.toFixed(1)}–${binEndPct.toFixed(1)}%  ·  ${count.toLocaleString()} resamples (${pctOfTotal}%)${isMode ? "  ·  MODE" : ""}`}
+            </title>
+          </rect>
         );
       })}
-      {/* p5/p95 marker lines */}
+
+      {/* p5 / p95 dashed marker lines */}
       {[p5, p95].map((p, idx) => (
         <line
           key={idx}
-          x1={(p / 100) * width}
-          x2={(p / 100) * width}
-          y1={4}
-          y2={height - 4}
+          x1={xToScreen(p)}
+          x2={xToScreen(p)}
+          y1={M.top}
+          y2={M.top + plotH}
           stroke="#bf8700"
-          strokeDasharray="2 2"
+          strokeDasharray="3 2"
           strokeWidth={1}
         />
       ))}
-      {/* mean marker line */}
+
+      {/* Mean marker line + label above */}
       <line
-        x1={(mean / 100) * width}
-        x2={(mean / 100) * width}
-        y1={2}
-        y2={height - 2}
+        x1={xToScreen(mean)}
+        x2={xToScreen(mean)}
+        y1={M.top - 4}
+        y2={M.top + plotH}
         stroke="#3fb950"
         strokeWidth={1.5}
       />
+      <text
+        x={xToScreen(mean)}
+        y={M.top - 6}
+        textAnchor="middle"
+        fontSize="9"
+        fontWeight="600"
+        fill="#3fb950"
+      >
+        AI {mean.toFixed(1)}%
+      </text>
+
+      {/* Market price marker (purple) — only if passed and well-formed */}
+      {marketPrice != null && (
+        <>
+          <line
+            x1={xToScreen(marketPrice)}
+            x2={xToScreen(marketPrice)}
+            y1={M.top - 4}
+            y2={M.top + plotH}
+            stroke="#bc8cff"
+            strokeWidth={1.5}
+          />
+          {showMarketLabel && (
+            <text
+              x={xToScreen(marketPrice)}
+              y={M.top - 6}
+              textAnchor="middle"
+              fontSize="9"
+              fontWeight="600"
+              fill="#bc8cff"
+            >
+              Mkt {marketPrice.toFixed(0)}%
+            </text>
+          )}
+        </>
+      )}
+
+      {/* X-axis baseline + tick labels at 0/25/50/75/100% */}
+      <line
+        x1={M.left}
+        x2={M.left + plotW}
+        y1={M.top + plotH + 1}
+        y2={M.top + plotH + 1}
+        stroke="#30363d"
+        strokeWidth={0.6}
+      />
+      {[0, 25, 50, 75, 100].map((tick) => (
+        <g key={tick}>
+          <line
+            x1={xToScreen(tick)}
+            x2={xToScreen(tick)}
+            y1={M.top + plotH + 1}
+            y2={M.top + plotH + 4}
+            stroke="#484f58"
+            strokeWidth={0.6}
+          />
+          <text
+            x={xToScreen(tick)}
+            y={M.top + plotH + 14}
+            textAnchor="middle"
+            fontSize="9"
+            fill="#768390"
+          >
+            {tick}%
+          </text>
+        </g>
+      ))}
     </svg>
   );
 }
@@ -170,18 +300,26 @@ function ExpandedRun({ runId }: { runId: string }) {
           <Histogram
             bins={detail.run.distributionHistogram}
             mean={detail.run.finalMean}
+            mode={detail.run.finalMode}
             p5={detail.run.distributionP5}
             p95={detail.run.distributionP95}
+            marketPrice={detail.run.yesPriceAtRun * 100}
           />
           <div className="flex items-center justify-between mt-1 text-[10px] text-[#768390]">
             <span>
               <span className="text-[#3fb950]">|</span> mean {detail.run.finalMean.toFixed(1)}%
             </span>
             <span>
+              <span className="text-[#bc8cff]">|</span> mkt {(detail.run.yesPriceAtRun * 100).toFixed(0)}%
+            </span>
+            <span>
               <span className="text-[#bf8700]">|</span> 90% CI [{detail.run.distributionP5.toFixed(1)}%, {detail.run.distributionP95.toFixed(1)}%] (±{ciHalf.toFixed(1)})
             </span>
-            <span>mode {detail.run.finalMode.toFixed(1)}%</span>
+            <span><span className="text-[#3fb950]">▮</span> mode {detail.run.finalMode.toFixed(1)}%</span>
           </div>
+          <p className="text-[9px] text-[#484f58] mt-1.5">
+            Hover any bar to see how many of the 10K resamples landed in that 2.5% bin.
+          </p>
         </div>
         {tokenId ? (
           <div className="bg-[#161b22] border border-[#21262d] rounded-md p-3">

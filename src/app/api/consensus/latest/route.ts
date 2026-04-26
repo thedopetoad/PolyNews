@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { eq, desc, and, gte, isNotNull } from "drizzle-orm";
-import { getDb, consensusRuns } from "@/db";
+import { getDb, consensusRuns, marketsCatalog } from "@/db";
 
 // GET /api/consensus/latest
 //
@@ -29,6 +29,7 @@ interface RunSummary {
   distributionP95: number;
   distributionHistogram: number[];
   step3At: string;
+  volume: string | null; // pulled from markets_catalog via JOIN; null if catalog row was pruned
 }
 
 const LOOKBACK_DAYS = 7;
@@ -42,9 +43,17 @@ export async function GET() {
     // for "max by partition" via SQL is awkward enough that this is
     // simpler and the row count is tiny.
     const cutoff = new Date(Date.now() - LOOKBACK_DAYS * 24 * 60 * 60 * 1000);
+    // LEFT JOIN markets_catalog so we can surface live volume on the row.
+    // The catalog is refreshed every 6h by /api/cron/catalog-refresh — if
+    // a market got delisted and pruned out of the catalog, volume comes
+    // back null and the UI falls back to "$0".
     const rows = await db
-      .select()
+      .select({
+        run: consensusRuns,
+        catalogVolume: marketsCatalog.volume,
+      })
       .from(consensusRuns)
+      .leftJoin(marketsCatalog, eq(marketsCatalog.slug, consensusRuns.marketSlug))
       .where(
         and(
           eq(consensusRuns.status, "step3_done"),
@@ -57,13 +66,13 @@ export async function GET() {
     const seen = new Set<string>();
     const unique: typeof rows = [];
     for (const r of rows) {
-      if (seen.has(r.marketQuestionHash)) continue;
-      seen.add(r.marketQuestionHash);
+      if (seen.has(r.run.marketQuestionHash)) continue;
+      seen.add(r.run.marketQuestionHash);
       unique.push(r);
       if (unique.length >= 10) break;
     }
 
-    const runs: RunSummary[] = unique.map((r) => ({
+    const runs: RunSummary[] = unique.map(({ run: r, catalogVolume }) => ({
       id: r.id,
       marketQuestion: r.marketQuestion,
       marketSlug: r.marketSlug,
@@ -78,6 +87,7 @@ export async function GET() {
       distributionP95: r.distributionP95 ?? 0,
       distributionHistogram: safeParse(r.distributionHistogram),
       step3At: r.step3At?.toISOString() ?? r.createdAt.toISOString(),
+      volume: catalogVolume,
     }));
 
     return NextResponse.json({ runs });
