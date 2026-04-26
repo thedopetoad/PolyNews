@@ -18,7 +18,6 @@ import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { AIRDROP_AMOUNTS, POLYMARKET_BASE_URL } from "@/lib/constants";
 import { LoginButton } from "@/components/layout/login-modal";
-import { getTopConsensusMarkets } from "@/lib/market-filters";
 import { ParticleBackground } from "@/components/ai/particle-background";
 import { useLivePrices, usePositionLivePrices } from "@/hooks/use-live-prices";
 import {
@@ -60,6 +59,69 @@ interface ConsensusResult {
   consensus: number;
   confidence: number;
   trend: string;
+}
+
+// Shape returned by /api/consensus/latest — matches the v2 consensus_runs
+// table. We adapt these into MarketWithPrices so the existing
+// renderMarketRow + useLivePrices can consume them unchanged.
+interface ConsensusLatestRun {
+  id: string;
+  marketQuestion: string;
+  marketSlug: string | null;
+  eventSlug: string | null;
+  clobTokenIds: string | null;
+  marketEndDate: string | null;
+  runDate: string;
+  yesPriceAtRun: number;
+  finalMean: number;
+  finalMode: number;
+  distributionP5: number;
+  distributionP95: number;
+  distributionHistogram: number[];
+  step3At: string;
+}
+
+/** ID we use for renderMarketRow / useLivePrices keying — the run id. */
+function runToMarketId(r: ConsensusLatestRun): string {
+  return r.id;
+}
+
+/**
+ * Adapt a v2 consensus run into the MarketWithPrices shape that
+ * renderMarketRow expects. Fields the row doesn't display get safe
+ * defaults so we don't have to ship a parallel render function.
+ */
+function consensusRunToMarket(r: ConsensusLatestRun): MarketWithPrices {
+  return {
+    // Stable across the day; useLivePrices keys on this.
+    id: r.id,
+    question: r.marketQuestion,
+    slug: r.marketSlug ?? "",
+    eventSlug: r.eventSlug ?? undefined,
+    clobTokenIds: r.clobTokenIds ?? "",
+    endDate: r.marketEndDate ?? "",
+    // Volume not stored on the run — show as $0 (renderMarketRow's
+    // formatVolume would print $NaN otherwise).
+    volume: "0",
+    volume24hr: "0",
+    liquidity: "0",
+    // Outcome metadata — assume binary Yes/No (true for ~all top consensus markets).
+    outcomes: '["Yes","No"]',
+    parsedOutcomes: ["Yes", "No"],
+    outcomePrices: JSON.stringify([r.yesPriceAtRun, 1 - r.yesPriceAtRun]),
+    yesPrice: r.yesPriceAtRun,
+    noPrice: 1 - r.yesPriceAtRun,
+    // Polymarket fields we don't need for the trade row but that satisfy the type.
+    conditionId: "",
+    active: true,
+    closed: false,
+    marketMakerAddress: "",
+    image: "",
+    icon: "",
+    description: "",
+    groupItemTitle: "",
+    enableOrderBook: true,
+  };
 }
 
 /* ─── Trade Confirmation Dialog ─── */
@@ -760,9 +822,7 @@ function sportsToTradeable(event: SportsEvent, market: SportsMarket, leagueEmoji
   };
 }
 
-export function TradableMarketsTab({ allMarkets, events, onBought }: {
-  allMarkets: MarketWithPrices[];
-  events: PolymarketEvent[];
+export function TradableMarketsTab({ onBought }: {
   onBought: () => void;
 }) {
   const { user, isConnected, executeTrade, isTrading } = useUser();
@@ -770,7 +830,6 @@ export function TradableMarketsTab({ allMarkets, events, onBought }: {
   const [outcome, setOutcome] = useState<"Yes" | "No">("Yes");
   const [amount, setAmount] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [consensusResults, setConsensusResults] = useState<Record<string, ConsensusResult>>({});
   const [expandedMarketId, setExpandedMarketId] = useState<string | null>(null);
   const [pendingBuy, setPendingBuy] = useState<{
     market: MarketWithPrices;
@@ -781,8 +840,39 @@ export function TradableMarketsTab({ allMarkets, events, onBought }: {
     potentialWin: number;
   } | null>(null);
 
-  // Get the 10 AI consensus markets
-  const consensusMarkets = useMemo(() => getTopConsensusMarkets(events), [events]);
+  // AI Consensus markets — read from the latest snapshot stored in our DB
+  // by the v2 cron pipeline. Falls back to nothing on first load.
+  // Updates daily (06:30 UTC) or whenever admin clicks "Run Now".
+  const { data: latestRunsData } = useQuery({
+    queryKey: ["consensus-latest-trade"],
+    queryFn: async () => {
+      const res = await fetch("/api/consensus/latest");
+      if (!res.ok) return { runs: [] as ConsensusLatestRun[] };
+      return res.json() as Promise<{ runs: ConsensusLatestRun[] }>;
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const consensusMarkets = useMemo(
+    () => (latestRunsData?.runs ?? []).map(consensusRunToMarket),
+    [latestRunsData],
+  );
+
+  // Build consensus result map straight from the run rows. Mean = the
+  // bootstrap headline number, confidence is unused by renderMarketRow,
+  // trend stays "flat" (we no longer compute pre/post-debate shift).
+  const consensusResults = useMemo(() => {
+    const out: Record<string, ConsensusResult> = {};
+    for (const r of latestRunsData?.runs ?? []) {
+      out[runToMarketId(r)] = {
+        consensus: r.finalMean,
+        confidence: 50,
+        trend: "flat",
+      };
+    }
+    return out;
+  }, [latestRunsData]);
+
   const { getPrice, ready: pricesReady } = useLivePrices(consensusMarkets);
 
   // ─── Fetch sports markets from all leagues ───
@@ -866,24 +956,8 @@ export function TradableMarketsTab({ allMarkets, events, onBought }: {
   // Live prices for sports markets
   const { getPrice: getSportsPrice, ready: sportsPricesReady } = useLivePrices(sportsMarkets);
 
-  // Fetch consensus results for the AI markets
-  useEffect(() => {
-    if (consensusMarkets.length === 0) return;
-    consensusMarkets.forEach(async (market) => {
-      if (consensusResults[market.id]) return;
-      try {
-        const res = await fetch("/api/consensus", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ marketQuestion: market.question, currentYesPrice: market.yesPrice }),
-        });
-        if (res.ok) {
-          const result = await res.json();
-          setConsensusResults((prev) => ({ ...prev, [market.id]: result }));
-        }
-      } catch {}
-    });
-  }, [consensusMarkets.length]); // eslint-disable-line react-hooks/exhaustive-deps
+  // (v1 on-demand /api/consensus fetch loop removed — now consensus
+  // results come from the same /api/consensus/latest fetch above.)
 
   // Use the right price getter depending on which section the selected market is from
   const isSportsMarket = selectedMarket ? sportsMarkets.some((m) => m.id === selectedMarket.id) : false;
@@ -1335,11 +1409,7 @@ export default function TradePage() {
         ) : isLoading ? (
           <p className="text-sm text-[#484f58] text-center py-16">Loading markets...</p>
         ) : (
-          <TradableMarketsTab
-            allMarkets={allMarkets}
-            events={(events || []) as PolymarketEvent[]}
-            onBought={() => {}}
-          />
+          <TradableMarketsTab onBought={() => {}} />
         )}
       </div>
     </div>
