@@ -48,34 +48,34 @@ const AGENTS = [
 
 const STEPS = [
   {
-    title: "1. Pick the Top Markets",
-    desc: "We pull the top 10 Polymarket markets ending within 1 day to 3 months, with $50K+ volume, prices between 5% and 95%, and category diversity (max 4 per category).",
+    title: "1. Pick the Top Markets (daily, 06:00 UTC)",
+    desc: "A Vercel cron picks the top 10 Polymarket markets ending within 1 day to 3 months, with $50K+ volume, prices between 5% and 95%, and category diversity (max 4 per category). Each market gets a row in the consensus_runs table for the day.",
     icon: "\ud83c\udfaf",
   },
   {
-    title: "2. Live Web Search",
-    desc: "Before the debate, we ask GPT-4o-mini (via OpenAI's web_search_preview tool) to summarize 3-5 bullets of recent news, polls, or data on the question. That summary is shared with every persona in the rounds below.",
-    icon: "\ud83c\udf10",
+    title: "2. Step 1 \u2014 20 personas each do their OWN web search",
+    desc: "All 20 personas run in parallel. Each one calls OpenAI's web_search_preview tool with a search-style hint matched to its perspective: the Historian searches for past analogues, the INTP Logician searches for verified primary sources, the ESFP Performer searches for media buzz, etc. Each persona then writes a probability + 3-5 bullets based on what it found. Saved to consensus_persona_predictions.",
+    icon: "\ud83d\udd0e",
   },
   {
-    title: "3. Round 1: Independent Predictions",
-    desc: "5 personas with completely different perspectives each return a probability + confidence WITHOUT seeing anyone else's answer. 5 parallel GPT-4o-mini calls.",
-    icon: "\ud83e\udde0",
-  },
-  {
-    title: "4. Round 2: The Debate",
-    desc: "All 5 personas now see the Round 1 average, the strongest bull argument, and the strongest bear argument. Each can change their mind or double down. The contrarian challenges everyone, the risk assessor flags overconfidence.",
+    title: "3. Step 2 \u2014 Re-assess after seeing the round-1 dataset (06:15 UTC)",
+    desc: "A second cron picks up runs that finished step 1. The same 20 personas now see all 20 round-1 probabilities and bullets from the DB, and re-vote. No new web search \u2014 they reason off the round-1 dataset and decide whether to hold firm or update. 20 more rows saved.",
     icon: "\ud83d\udde3\ufe0f",
   },
   {
-    title: "5. Round 3: Final Vote",
-    desc: "Personas see how the debate shifted the consensus (Round 1 \u2192 Round 2) and give their final, most calibrated prediction. Round 3 votes count 3x more than Round 1 in the weighted average.",
-    icon: "\ud83d\uddf3\ufe0f",
+    title: "4. Step 3 \u2014 Bootstrap aggregation (06:30 UTC, no AI)",
+    desc: "Pure JS, no OpenAI calls. We pull the 40 probabilities (rounds 1+2) and run 10,000 bootstrap resamples \u2014 each resample picks 40 values WITH REPLACEMENT and computes a mean. The distribution of those 10,000 means becomes the headline number plus its uncertainty.",
+    icon: "\ud83d\udcca",
   },
   {
-    title: "6. Aggregate",
-    desc: "15 total predictions are combined into one number weighted by confidence \u00d7 round number. Result is cached for 5 hours. Total cost: about $0.01 per market.",
+    title: "5. Report mean, 90% CI, and mode",
+    desc: "The headline is the MEAN of the 10,000 bootstrapped means. The 5th and 95th percentile of the same distribution form a 90% confidence interval (shown as \u00b1X). The MODE is reported as a sanity check \u2014 it should sit very near the mean since the bootstrap distribution is approximately normal.",
     icon: "\ud83d\udcc8",
+  },
+  {
+    title: "6. Cost + the admin escape hatch",
+    desc: "Roughly 60 OpenAI calls per market (20 web searches + 40 chat completions) \u2248 $0.50/market = $5/day for the full top-10 run. The admin can also click 'Run Now' on /admin to wipe today's snapshot and re-run the whole pipeline inline.",
+    icon: "\ud83d\udcb0",
   },
 ];
 
@@ -121,9 +121,9 @@ export function SwarmDiagram() {
 
       {/* Interactive agent diagram */}
       <div>
-        <h4 className="text-sm font-semibold text-white mb-4">Meet the Agents</h4>
+        <h4 className="text-sm font-semibold text-white mb-4">Meet the Personas (5 of 20 shown)</h4>
         <p className="text-sm text-[#768390] mb-4">
-          Click on each agent to learn how they think. The magic is that they all look at the same question but reach different conclusions.
+          The full pipeline runs 20 personas — the 5 originals below plus 15 MBTI-inspired archetypes (INTJ Architect, ENTP Challenger, ESFP Performer, etc.). Each one not only THINKS differently, it also SEARCHES the web differently — a Historian asks Google about precedents, an INTP Logician asks for primary-source data. Click an agent to see how they reason.
         </p>
 
         {/* Visual diagram */}
@@ -135,7 +135,7 @@ export function SwarmDiagram() {
               <p className="text-sm text-white font-medium">&quot;Will X happen by 2026?&quot;</p>
             </div>
             <div className="w-px h-4 bg-[#21262d] mx-auto" />
-            <p className="text-[10px] text-[#484f58]">\u2193 sent to all 5 agents</p>
+            <p className="text-[10px] text-[#484f58]">&darr; sent to all 20 personas (5 representatives shown)</p>
           </div>
 
           {/* Agents row */}
@@ -193,14 +193,14 @@ export function SwarmDiagram() {
               <div key={agent.id} className="w-px h-6" style={{ backgroundColor: agent.color + "40" }} />
             ))}
           </div>
-          <p className="text-[10px] text-[#484f58] text-center mb-3">\u2193 predictions combined (weighted by confidence)</p>
+          <p className="text-[10px] text-[#484f58] text-center mb-3">&darr; 40 votes (20 personas &times; 2 rounds) &rarr; 10K bootstrap resamples</p>
 
           {/* Consensus result */}
           <div className="text-center">
             <div className="inline-block bg-[#58a6ff]/10 border border-[#58a6ff]/30 rounded-lg px-6 py-3">
-              <p className="text-[10px] text-[#58a6ff] uppercase tracking-wider">5-Persona Consensus (3 debate rounds &middot; 15 calls)</p>
-              <p className="text-2xl font-bold text-white mt-1">67% Yes</p>
-              <p className="text-[10px] text-[#768390] mt-0.5">Round 1: 62% &rarr; Debate: 65% &rarr; Final: 67%</p>
+              <p className="text-[10px] text-[#58a6ff] uppercase tracking-wider">20-Persona Bootstrap (2 rounds &middot; 10K resamples)</p>
+              <p className="text-2xl font-bold text-white mt-1">67% &plusmn; 4%</p>
+              <p className="text-[10px] text-[#768390] mt-0.5">Mean 67% &middot; mode 67% &middot; 90% CI [63%, 71%]</p>
               <p className="text-[10px] text-[#768390]">vs Market: 60% &mdash; AI says +7% higher</p>
             </div>
           </div>
@@ -212,16 +212,16 @@ export function SwarmDiagram() {
         <h4 className="text-sm font-semibold text-white mb-3">Why Does This Work?</h4>
         <div className="space-y-3 text-sm text-[#768390]">
           <p>
-            <strong className="text-[#adbac7]">Wisdom of crowds.</strong> When you ask one person a question, they might be wrong. But when you ask many different people and average their answers, the average is usually closer to the truth. Our AI agents are like a diverse crowd of experts.
+            <strong className="text-[#adbac7]">Wisdom of crowds.</strong> When you ask one person a question, they might be wrong. But when you ask many different people and average their answers, the average is usually closer to the truth. We use 20 different AI personas as a diverse crowd of experts.
           </p>
           <p>
-            <strong className="text-[#adbac7]">Diverse perspectives.</strong> If all 5 agents thought the same way, combining them would be useless. The key is that each agent has a completely different way of analyzing the world. The contrarian challenges the consensus, the risk assessor keeps everyone honest.
+            <strong className="text-[#adbac7]">Diverse perspectives AND diverse research.</strong> If all 20 personas thought the same way they&apos;d be useless. The key is that each one not only REASONS differently, it also SEARCHES the web differently. A Historian asks Google about precedents, an INTP Logician asks for primary-source data, an ESFP Performer asks what&apos;s viral on social. They surface fundamentally different facts before they vote.
           </p>
           <p>
-            <strong className="text-[#adbac7]">Confidence weighting.</strong> An agent who says &quot;I&apos;m 90% sure&quot; gets more weight than one who says &quot;I&apos;m only 40% sure.&quot; This means the final number reflects both the prediction AND how confident each agent is.
+            <strong className="text-[#adbac7]">Bootstrap aggregation gives a real confidence interval.</strong> Instead of fake-precise &ldquo;67%&rdquo; we resample the 40 persona votes 10,000 times and report the spread of resampled means. When the 20 personas mostly agree, the band is tight (e.g. 67 &plusmn; 2%). When they disagree wildly, the band widens (67 &plusmn; 12%) and you can see it in the headline. The mode is reported as a sanity check &mdash; bootstrap distributions are approximately normal so mode and mean should land within ~0.5% of each other.
           </p>
           <p>
-            <strong className="text-[#adbac7]">Based on real research.</strong> The <a href="https://arxiv.org/abs/2411.11581" target="_blank" className="text-[#58a6ff] hover:underline">OASIS framework</a> runs up to 1 million agents that simulate entire social networks &mdash; agents follow, argue, share, and influence each other just like real people. MiroFish uses hundreds of thousands of these agents to predict real-world outcomes. Our version is a simplified 5-agent model that trades scale for cost-efficiency, but applies the same core principle: diverse perspectives + weighted aggregation = better predictions.
+            <strong className="text-[#adbac7]">Inspired by, not equal to, real research.</strong> The <a href="https://arxiv.org/abs/2411.11581" target="_blank" className="text-[#58a6ff] hover:underline">OASIS framework</a> simulates up to 1 million social-network agents that follow, argue, and influence each other. Our 20-persona setup is much simpler &mdash; we trade their scale for cost (~$5/day) and latency (one daily snapshot via cron). Same core principle though: diverse perspectives + statistical aggregation = better predictions than any single AI guess.
           </p>
         </div>
       </div>

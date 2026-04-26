@@ -67,41 +67,47 @@ const sections: DocSection[] = [
     content: (
       <div className="space-y-4">
         <p>
-          We select the <strong className="text-[#e6edf3]">top 10 prediction markets</strong> ending between 1 day and 3 months from now, filtered by volume (&ge;$50K), category diversity (max 4 per category, max 2 per topic), edge-price exclusion (drops anything below 5% or above 95%), and a quality blocklist (no Bigfoot, alien, rapture, etc.). Then 5 GPT-4o-mini personas debate each one across 3 rounds.
+          We select the <strong className="text-[#e6edf3]">top 10 prediction markets</strong> ending between 1 day and 3 months from now, filtered by volume (&ge;$50K), category diversity (max 4 per category, max 2 per topic), edge-price exclusion (drops anything below 5% or above 95%), and a quality blocklist (no Bigfoot, alien, rapture, etc.). Then <strong className="text-[#e6edf3]">20 GPT-4o-mini personas</strong> each research and vote on every market across 2 rounds, and we aggregate the 40 votes per market via statistical bootstrap.
         </p>
-        <h4 className="font-semibold text-[#e6edf3] mt-4">Our Implementation: 1 Web Search + 3-Round Debate</h4>
-        <p>For each market we run a 4-step pipeline. All GPT calls use <code className="text-[#d29922] text-xs">gpt-4o-mini</code>.</p>
+        <p>
+          The whole pipeline runs <strong className="text-[#e6edf3]">once a day</strong> via Vercel cron at 06:00, 06:15, and 06:30 UTC (one cron per step). Results are written to Postgres and the /ai page reads from there, so opening the page is instant. The admin can also trigger a fresh run manually from <code className="text-[#d29922] text-xs">/admin</code>.
+        </p>
+        <h4 className="font-semibold text-[#e6edf3] mt-4">Our Implementation: 20 personas, 2 rounds, 1 bootstrap</h4>
+        <p>For each market we run a 3-step pipeline. Each step is its own Vercel function so we never hit the 60-second timeout. All GPT calls use <code className="text-[#d29922] text-xs">gpt-4o-mini</code>.</p>
         <div className="bg-[#0d1117] rounded-lg border border-[#21262d] divide-y divide-[#21262d] mt-3 mb-3">
           <div className="p-3">
-            <p className="text-[#58a6ff] font-medium text-xs">Step 0: Live Web Context</p>
-            <p className="text-xs mt-1">Before the debate, we call OpenAI&apos;s Responses API with the <code className="text-[#d29922] text-[10px]">web_search_preview</code> tool to pull a 3&ndash;5 bullet summary of recent news, polls, or data relevant to the question. Capped at 800 chars and shared with every persona in the next 3 rounds.</p>
+            <p className="text-[#58a6ff] font-medium text-xs">Step 1 (06:00 UTC) — Persona-Styled Research + Vote</p>
+            <p className="text-xs mt-1">All 20 personas run in parallel. Each one calls OpenAI&apos;s Responses API with the <code className="text-[#d29922] text-[10px]">web_search_preview</code> tool, but with <strong className="text-[#e6edf3]">a search-style hint matched to its perspective</strong>: the Historian searches for past analogues, the INTP Logician searches for verified primary-source data, the ESFP Performer searches for media buzz, etc. The persona then writes a probability + 3-5 bullet points based on what it found. Bullets and the underlying web context are saved to <code className="text-[#d29922] text-[10px]">consensus_persona_predictions</code>. ~20 web searches + ~20 chat completions.</p>
           </div>
           <div className="p-3">
-            <p className="text-[#58a6ff] font-medium text-xs">Round 1: Independent Predictions</p>
-            <p className="text-xs mt-1">5 personas (Market Analyst, Political Strategist, Contrarian, Risk Assessor, Historian) each see the question, the live YES price, and the web context, then independently return a probability + confidence + one-sentence reasoning. 5 parallel calls at temperature 0.8 &mdash; nobody sees anyone else&apos;s answer.</p>
+            <p className="text-[#58a6ff] font-medium text-xs">Step 2 (06:15 UTC) — Re-Assess</p>
+            <p className="text-xs mt-1">A separate cron picks up runs that finished step 1. The same 20 personas now see <strong className="text-[#e6edf3]">all 20 round-1 probabilities and bullets from the DB</strong> and re-vote. No new web search — they reason off the round-1 dataset and decide whether to hold firm or update. Another 20 rows saved.</p>
           </div>
           <div className="p-3">
-            <p className="text-[#58a6ff] font-medium text-xs">Round 2: The Debate</p>
-            <p className="text-xs mt-1">All 5 personas now see the Round 1 average, the most bullish reasoning, and the most bearish reasoning, and decide whether to update or double down. 5 parallel calls at temperature 0.9.</p>
-          </div>
-          <div className="p-3">
-            <p className="text-[#58a6ff] font-medium text-xs">Round 3: Final Calibrated Vote</p>
-            <p className="text-xs mt-1">Personas see how much the consensus shifted between rounds (e.g. &ldquo;Pre-debate 65% &rarr; Post-debate 58%&rdquo;) and give one last calibrated answer. 5 parallel calls at temperature 0.7.</p>
+            <p className="text-[#58a6ff] font-medium text-xs">Step 3 (06:30 UTC) — Bootstrap Aggregation</p>
+            <p className="text-xs mt-1">No AI calls. We pull the 40 probabilities (rounds 1+2) and run <strong className="text-[#e6edf3]">10,000 bootstrap resamples</strong> — each resample picks 40 values with replacement from the 40 originals and computes a mean. The distribution of those 10,000 means gives us the headline number plus its uncertainty. Pure JS, runs in &lt;100ms per market.</p>
           </div>
         </div>
-        <h4 className="font-semibold text-[#e6edf3]">Aggregation</h4>
+        <h4 className="font-semibold text-[#e6edf3]">What we report</h4>
         <p>
-          That&apos;s <strong className="text-[#e6edf3]">15 real GPT calls per market</strong>. The final number is a weighted average where every prediction is weighted by <strong className="text-[#e6edf3]">confidence &times; round number</strong>, so Round 3 votes count 3&times; heavier than Round 1. Reported confidence is then scaled down by 0.7 to reflect the small sample size. Each market costs roughly <strong className="text-[#e6edf3]">$0.01</strong> in API calls and results are cached in Postgres for 5 hours, so the swarm only re-runs about 5 times per day.
+          From the bootstrap distribution we surface three numbers per market:
         </p>
-        <h4 className="font-semibold text-[#e6edf3] mt-3">The 5 Personas</h4>
-        <div className="flex flex-wrap gap-1 mt-1">
-          {["Market Analyst", "Political Strategist", "Contrarian", "Risk Assessor", "Historian"].map((name) => (
+        <ul className="list-disc pl-5 text-xs space-y-1">
+          <li><strong className="text-[#e6edf3]">Mean</strong> — the average of the 10,000 bootstrapped means. This is the headline probability.</li>
+          <li><strong className="text-[#e6edf3]">90% confidence interval</strong> — the 5th and 95th percentile of the distribution. Shown as <code className="text-[#d29922] text-[10px]">±X</code> next to the mean. A tight band means the personas agreed; a wide band means they disagreed.</li>
+          <li><strong className="text-[#e6edf3]">Mode</strong> — the most-common bucket in the distribution. Statistically should be near the mean (the bootstrap distribution is approximately normal); we show it as a sanity check.</li>
+        </ul>
+        <p>Cost is roughly <strong className="text-[#e6edf3]">$0.50 per market</strong> (web search dominates), about $5 per daily run. The admin can also force a manual run that wipes today&apos;s snapshot and re-computes.</p>
+        <h4 className="font-semibold text-[#e6edf3] mt-3">The 20 Personas</h4>
+        <p className="text-xs">5 originals plus 15 MBTI-inspired archetypes. Each one has a distinct reasoning style AND a distinct web-search style:</p>
+        <div className="flex flex-wrap gap-1 mt-2">
+          {["Market Analyst", "Political Strategist", "Contrarian", "Risk Assessor", "Historian", "INTJ — Architect", "ENTP — Challenger", "INTP — Logician", "ENTJ — Commander", "INFJ — Advocate", "INFP — Mediator", "ENFP — Campaigner", "ENFJ — Protagonist", "ISTJ — Logistician", "ISFJ — Defender", "ESTJ — Executive", "ESFJ — Consul", "ISTP — Virtuoso", "ESTP — Entrepreneur", "ESFP — Performer"].map((name) => (
             <span key={name} className="text-[10px] text-[#768390] bg-[#1c2128] px-2 py-0.5 rounded border border-[#21262d]">{name}</span>
           ))}
         </div>
-        <h4 className="font-semibold text-[#e6edf3] mt-3">Why Debate Matters</h4>
+        <h4 className="font-semibold text-[#e6edf3] mt-3">Why this design</h4>
         <p>
-          Without debate you get 5 independent guesses averaged together. With debate the contrarian challenges the consensus, the risk assessor flags overconfidence, and the final number reflects deliberation rather than first instinct. The structure is loosely inspired by the <a href="https://arxiv.org/abs/2411.11581" target="_blank" className="text-[#58a6ff] hover:underline">OASIS framework</a> &mdash; OASIS itself simulates up to 1 million social-network agents, but our 5-persona setup trades that scale for cost and latency.
+          The persona-styled web search is the most important piece. The same question searched by a Historian and an ESFP Performer surfaces fundamentally different sources, which feeds genuine diversity into round 1. Round 2 lets each persona react to what the others found without piling on. Bootstrap aggregation then gives us a real confidence interval instead of a fake-precise single number — when the 20 personas disagree, the band widens and you can see it. Fail-soft: if a persona&apos;s web search times out we drop just that persona; the run continues if at least 15 of 20 succeed.
         </p>
         <SwarmDiagram />
       </div>
