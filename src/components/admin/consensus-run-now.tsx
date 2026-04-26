@@ -179,14 +179,22 @@ export function ConsensusRunNow() {
         );
       })()}
 
-      {result && (
+      {result && (() => {
+        const step2Ok = result.step2.results.filter((r) => r.ok).length;
+        const step3Ok = result.step3.results.filter((r) => r.ok).length;
+        const totalVotes = result.step3.results.reduce((sum, r) => sum + (r.sampleSize ?? 0), 0);
+        return (
         <div className="mt-3 space-y-3">
-          <div className="flex items-center gap-2 text-xs text-[#3fb950] bg-[#3fb950]/10 border border-[#3fb950]/20 px-3 py-2 rounded-md">
-            <CheckCircle2 className="w-3.5 h-3.5" />
-            <span>
-              Snapshot complete in {(result.durationMs / 1000).toFixed(1)}s.{" "}
-              {result.step1.ok}/{result.candidates} markets succeeded step 1.
-            </span>
+          <div className="flex items-start gap-2 text-xs text-[#3fb950] bg-[#3fb950]/10 border border-[#3fb950]/20 px-3 py-2 rounded-md">
+            <CheckCircle2 className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
+            <div className="flex-1">
+              <p className="font-semibold">
+                Pipeline complete in {(result.durationMs / 1000).toFixed(1)}s
+              </p>
+              <p className="text-[#3fb950]/85 mt-0.5">
+                {result.candidates} markets in &middot; step 1: {result.step1.ok}/{result.candidates} ok &middot; step 2: {step2Ok}/{result.step1.ok} ok &middot; step 3: {step3Ok}/{result.step1.ok} bootstrapped &middot; {totalVotes} total persona votes saved
+              </p>
+            </div>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
@@ -208,7 +216,8 @@ export function ConsensusRunNow() {
             ))}
           </div>
         </div>
-      )}
+        );
+      })()}
     </div>
   );
 }
