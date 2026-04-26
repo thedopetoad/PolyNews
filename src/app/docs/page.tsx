@@ -118,18 +118,21 @@ const sections: DocSection[] = [
     title: "Paper Trading",
     content: (
       <div className="space-y-3">
-        <p>Practice prediction market trading without risk using live Polymarket data.</p>
-        <h4 className="font-semibold text-[#e6edf3] mt-2">Two-Tab Design</h4>
+        <p>Practice prediction market trading without risk using live Polymarket data. Lives at <code className="text-[#d29922] text-xs">/airdrop?tab=trade</code> and <code className="text-[#d29922] text-xs">/airdrop?tab=portfolio</code>.</p>
+        <h4 className="font-semibold text-[#e6edf3] mt-2">Trade Tab</h4>
+        <p className="text-xs">Two sections, both pulling live odds from the Polymarket CLOB:</p>
         <ul className="list-disc pl-5 space-y-1.5">
-          <li><strong className="text-[#e6edf3]">Portfolio Tab</strong> &mdash; Shows your AIRDROP balance, daily claim, and all open positions with live P&amp;L calculated from current Polymarket odds.</li>
-          <li><strong className="text-[#e6edf3]">Tradable Markets Tab</strong> &mdash; 15 curated markets: 10 from AI Swarm Consensus picks + 5 top sports markets ending soon.</li>
+          <li><strong className="text-[#e6edf3]">AI Swarm Consensus Markets</strong> &mdash; The latest snapshot of markets from the daily consensus pipeline (up to 10 — fewer if today&apos;s filter only matched a smaller set). Each row shows the AI&apos;s mean prediction next to live Yes/No prices and the volume from the catalog.</li>
+          <li><strong className="text-[#e6edf3]">Live Sports Markets</strong> &mdash; Every live or starting-soon (within 24h) sports moneyline. Pulled from <code className="text-[#d29922] text-[10px]">/api/sports/events</code> across all enabled leagues.</li>
         </ul>
+        <h4 className="font-semibold text-[#e6edf3] mt-2">Portfolio Tab</h4>
+        <p className="text-xs">Shows your AIRDROP balance, daily claim, and all open paper positions with live P&amp;L. Closed positions stay hidden across reloads. Buy-in price is frozen at trade time so PnL = (current CLOB midpoint &minus; buy-in price) &times; shares.</p>
         <h4 className="font-semibold text-[#e6edf3] mt-2">How Trading Works</h4>
         <ul className="list-disc pl-5 space-y-1.5">
-          <li><strong className="text-[#e6edf3]">Buy:</strong> Select a market, choose Yes or No, enter shares. You buy in at the current live Polymarket odds. Your buy-in price is stored in the database.</li>
+          <li><strong className="text-[#e6edf3]">Buy:</strong> Select a market, choose Yes or No, enter shares. You buy in at the current live CLOB midpoint. Your buy-in price + the market&apos;s clobTokenId are stored on the position row so it survives even if the market falls off the trade list later.</li>
           <li><strong className="text-[#e6edf3]">Close:</strong> In the Portfolio tab, click Close on any position. The system checks the live Polymarket odds and calculates your P&amp;L based on the price change since your buy-in.</li>
         </ul>
-        <p>AIRDROP tokens are virtual and have no real value. Prices update every 60 seconds from the Polymarket CLOB API.</p>
+        <p>AIRDROP tokens are virtual and have no real value. Prices update every few seconds from the Polymarket CLOB API.</p>
       </div>
     ),
   },
@@ -229,7 +232,13 @@ const sections: DocSection[] = [
             ["/api/sports/leagues", "GET — curated league list with ESPN logos"],
             ["/api/sports/events", "GET — games per league with parsed markets"],
             ["/api/sports/game", "GET — full game detail with ESPN scores + all markets"],
-            ["/api/consensus", "POST — 3-round AI debate for a market question"],
+            ["/api/cron/consensus-step1", "GET (cron 06:00 UTC) — picks top 10 markets, 20 personas each do persona-styled web search + initial vote"],
+            ["/api/cron/consensus-step2", "GET (cron 06:15 UTC) — same 20 personas re-vote after seeing all round-1 outputs"],
+            ["/api/cron/consensus-step3", "GET (cron 06:30 UTC) — bootstrap 10K resamples → mean / mode / 90% CI / histogram. Also prunes old run rows."],
+            ["/api/admin/consensus-run-now", "POST — admin-triggered manual run of all 3 steps inline (Phantom-auth)"],
+            ["/api/consensus/latest", "GET — latest finished run per market (used by /ai page + airdrop trade tab)"],
+            ["/api/consensus/run/[id]", "GET — drill-down for one run with all 20 persona predictions + bullets"],
+            ["/api/consensus", "POST — DEPRECATED v1 on-demand 5-persona endpoint, kept for rollback"],
             ["/api/trade", "POST — paper trade execution (buy/sell)"],
             ["/api/airdrop", "POST — daily AIRDROP claim"],
             ["/api/leaderboard", "GET — top 50 users by balance"],
