@@ -8,7 +8,7 @@ import { snapshotWeeklyPayouts } from "@/lib/airdrop-snapshot";
 // directly — no HTTP round-trip through the cron URL, which keeps
 // this path completely independent of CRON_SECRET.
 export async function POST(request: NextRequest) {
-  const admin = requireAdmin(request);
+  const admin = await requireAdmin(request);
   if (!admin) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   try {

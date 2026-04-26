@@ -3,17 +3,16 @@ import { getDb, users, airdrops, trades, positions, referrals } from "@/db";
 import { sql, desc, gt, count, eq } from "drizzle-orm";
 import { requireAdmin } from "@/lib/admin-auth";
 
-// Gate: cookie-signed HMAC session from /api/admin/login (which verifies
-// a Phantom Solana signature from the single hardcoded admin pubkey).
-// Previous gate was an address-list on the Authorization header — easily
-// spoofable since the address wasn't signature-verified.
-function isAdmin(request: NextRequest): boolean {
-  return requireAdmin(request) !== null;
+// Gate: DB-backed session token from /api/admin/login (which verifies a
+// Phantom Solana signature from the single hardcoded admin pubkey).
+// Async because verification reads the settings table.
+async function isAdmin(request: NextRequest): Promise<boolean> {
+  return (await requireAdmin(request)) !== null;
 }
 
 // GET /api/admin - Full admin dashboard data
 export async function GET(request: NextRequest) {
-  if (!isAdmin(request)) {
+  if (!(await isAdmin(request))) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
@@ -225,7 +224,7 @@ export async function GET(request: NextRequest) {
 
 // POST /api/admin - Admin actions (set balance, reset user)
 export async function POST(request: NextRequest) {
-  if (!isAdmin(request)) {
+  if (!(await isAdmin(request))) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

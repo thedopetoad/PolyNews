@@ -19,7 +19,7 @@ import { requireAdmin } from "@/lib/admin-auth";
 const MAX_RESULTS = 100;
 
 export async function GET(request: NextRequest) {
-  if (!requireAdmin(request)) {
+  if (!(await requireAdmin(request))) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

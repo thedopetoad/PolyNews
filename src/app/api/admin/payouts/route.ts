@@ -9,7 +9,7 @@ import { requireAdmin } from "@/lib/admin-auth";
 // product call — admin tracks sends outside the system.
 
 export async function GET(request: NextRequest) {
-  const admin = requireAdmin(request);
+  const admin = await requireAdmin(request);
   if (!admin) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   try {

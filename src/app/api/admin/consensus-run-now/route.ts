@@ -26,7 +26,7 @@ export const maxDuration = 60;
 export const dynamic = "force-dynamic";
 
 export async function POST(request: NextRequest) {
-  const admin = requireAdmin(request);
+  const admin = await requireAdmin(request);
   if (!admin) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const t0 = Date.now();

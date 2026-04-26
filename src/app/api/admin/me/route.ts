@@ -8,7 +8,7 @@ import { requireAdmin } from "@/lib/admin-auth";
  *   Avoids showing the sign-in button when the admin has a fresh cookie.
  */
 export async function GET(req: NextRequest) {
-  const session = requireAdmin(req);
+  const session = await requireAdmin(req);
   if (!session) {
     return NextResponse.json({ ok: false }, { status: 401 });
   }

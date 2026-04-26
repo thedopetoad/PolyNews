@@ -9,6 +9,7 @@ import {
   buildChallengeMessage,
   extractIssuedAt,
   issueSessionToken,
+  revokeSession,
 } from "@/lib/admin-auth";
 
 /**
@@ -102,8 +103,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Signature verification failed" }, { status: 401 });
     }
 
-    // 5. Issue session cookie
-    const token = issueSessionToken(publicKey);
+    // 5. Issue session cookie (writes the session row to settings table)
+    const token = await issueSessionToken(publicKey);
     const res = NextResponse.json({ ok: true });
     res.cookies.set(ADMIN_COOKIE_NAME, token, {
       httpOnly: true,
@@ -119,8 +120,10 @@ export async function POST(req: NextRequest) {
   }
 }
 
-// Logout — just clears the cookie. No signature needed.
+// Logout — clears the cookie AND revokes the server-side session row.
+// Without the revoke, a stolen cookie would remain valid until expiry.
 export async function DELETE() {
+  await revokeSession();
   const res = NextResponse.json({ ok: true });
   res.cookies.set(ADMIN_COOKIE_NAME, "", {
     httpOnly: true,
