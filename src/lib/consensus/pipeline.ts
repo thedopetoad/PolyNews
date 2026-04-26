@@ -520,6 +520,19 @@ export async function selectCandidateMarkets(): Promise<CandidateMarket[]> {
     console.error("[consensus] gamma fetch failed:", (err as Error).message);
   }
 
+  // Attach eventSlug to each market from its parent event. Without this,
+  // CandidateMarket.eventSlug ends up null and the /ai page link falls
+  // back to the market slug — which 404s on Polymarket because the
+  // canonical URL is /event/<event-slug>, not /event/<market-slug>.
+  // (Mirrors what /api/polymarket/events/route.ts does.)
+  for (const event of events) {
+    const slug = event.slug;
+    if (!slug || !event.markets) continue;
+    for (const market of event.markets) {
+      (market as PolymarketEvent["markets"][number]).eventSlug = slug;
+    }
+  }
+
   const top = getTopConsensusMarkets(events);
   return top.map((m) => ({
     question: m.question,
