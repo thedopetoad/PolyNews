@@ -144,19 +144,24 @@ const GAMMA_API = "https://gamma-api.polymarket.com";
  * Gamma doesn't know the market (shouldn't happen for any position
  * we could actually hold, but the guard keeps redemption from
  * mis-routing if the API ever hiccups).
+ *
+ * Migrated to `/markets/keyset` on 2026-04-27 (legacy `/markets`
+ * deprecated 2026-05-01). The condition_ids filter carries over;
+ * only the response shape changed (now { markets: [...] } instead
+ * of a bare array).
  */
 export async function getNegRiskFlag(conditionId: string): Promise<boolean> {
   if (negRiskCache.has(conditionId)) return negRiskCache.get(conditionId)!;
   try {
     const res = await fetch(
-      `${GAMMA_API}/markets?condition_ids=${encodeURIComponent(conditionId)}&limit=1`,
+      `${GAMMA_API}/markets/keyset?condition_ids=${encodeURIComponent(conditionId)}&limit=1`,
     );
     if (!res.ok) {
       negRiskCache.set(conditionId, false);
       return false;
     }
-    const data = await res.json();
-    const flag = Array.isArray(data) && data[0]?.negRisk === true;
+    const body = (await res.json()) as { markets?: Array<{ negRisk?: boolean }> };
+    const flag = Array.isArray(body.markets) && body.markets[0]?.negRisk === true;
     negRiskCache.set(conditionId, flag);
     return flag;
   } catch {

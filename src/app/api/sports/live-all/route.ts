@@ -60,16 +60,39 @@ async function getClobPrice(tokenId: string): Promise<number | null> {
  * Uses Gamma's `live=true` query filter (the same signal that drives
  * polymarket.com's "Sports Live" page), so our coverage matches theirs:
  * UCL, WTA, ATP, Counter-Strike, League of Legends, NBA, MLB, etc.
+ *
+ * Migrated from `/events?live=true...&limit=200` (deprecated 2026-05-01)
+ * to `/events/keyset` on 2026-04-27. Keyset is cursor-paginated with a
+ * 100-row max page size, so we walk up to 3 pages (300 events) to keep
+ * the same coverage.
  */
+const MAX_KEYSET_PAGES = 3;
+const KEYSET_PAGE_SIZE = 100;
+
 export async function GET() {
   try {
-    const res = await fetch(
-      `${GAMMA_API}/events?live=true&closed=false&limit=200`,
-      { next: { revalidate: 15 } }
-    );
-    if (!res.ok) return NextResponse.json({ events: [] });
+    interface KeysetResponse { events?: unknown[]; next_cursor?: string | null }
+    const rawEvents: any[] = []; // eslint-disable-line @typescript-eslint/no-explicit-any
+    let cursor: string | null = null;
+    for (let page = 0; page < MAX_KEYSET_PAGES; page++) {
+      const params = new URLSearchParams({
+        live: "true",
+        closed: "false",
+        limit: String(KEYSET_PAGE_SIZE),
+      });
+      if (cursor) params.set("cursor", cursor);
+      const res = await fetch(
+        `${GAMMA_API}/events/keyset?${params.toString()}`,
+        { next: { revalidate: 15 } },
+      );
+      if (!res.ok) break;
+      const body = (await res.json()) as KeysetResponse;
+      if (Array.isArray(body.events)) rawEvents.push(...body.events);
+      cursor = body.next_cursor ?? null;
+      if (!cursor) break;
+    }
+    if (rawEvents.length === 0) return NextResponse.json({ events: [] });
 
-    const rawEvents = await res.json();
     const events: LiveEvent[] = [];
 
     for (const event of rawEvents) {

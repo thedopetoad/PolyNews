@@ -130,15 +130,20 @@ export async function GET(request: NextRequest) {
       if (!res.ok) return NextResponse.json({ error: "Event not found" }, { status: 404 });
       event = await res.json();
     } else {
-      const res = await fetch(`${GAMMA_API}/events?slug=${encodeURIComponent(slug!)}&limit=1`, {
-        next: { revalidate: 15 },
-      });
+      // Migrated to /events/keyset on 2026-04-27 (legacy /events?slug=...
+      // deprecated 2026-05-01). Keyset returns { events: [...] } instead
+      // of a bare array; otherwise the slug filter behaves identically.
+      const res = await fetch(
+        `${GAMMA_API}/events/keyset?slug=${encodeURIComponent(slug!)}&limit=1`,
+        { next: { revalidate: 15 } },
+      );
       if (!res.ok) return NextResponse.json({ error: "Event not found" }, { status: 404 });
-      const arr = await res.json();
-      if (!Array.isArray(arr) || arr.length === 0) {
+      const body = (await res.json()) as { events?: unknown[] };
+      const events = Array.isArray(body.events) ? body.events : [];
+      if (events.length === 0) {
         return NextResponse.json({ error: "Event not found" }, { status: 404 });
       }
-      event = arr[0];
+      event = events[0];
     }
 
     // Parse all markets and categorize them

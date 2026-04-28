@@ -182,7 +182,7 @@ const sections: DocSection[] = [
         <h4 className="font-semibold text-[#e6edf3] mt-2">Data Sources</h4>
         <div className="bg-[#0d1117] rounded-lg border border-[#21262d] divide-y divide-[#21262d] mt-2">
           <div className="p-3">
-            <p className="text-xs"><strong className="text-[#58a6ff]">Gamma API</strong> &mdash; <code className="text-[10px] text-[#768390]">gamma-api.polymarket.com/events?series_id=X</code> &mdash; market data, outcomes, prices, slugs.</p>
+            <p className="text-xs"><strong className="text-[#58a6ff]">Gamma API</strong> &mdash; <code className="text-[10px] text-[#768390]">gamma-api.polymarket.com/events/keyset?series_id=X</code> &mdash; market data, outcomes, prices, slugs. (Legacy <code className="text-[10px] text-[#768390]">/events</code> + <code className="text-[10px] text-[#768390]">/markets</code> deprecated 2026-05-01; we&apos;re fully on the cursor-based <code className="text-[10px] text-[#768390]">keyset</code> variants.)</p>
           </div>
           <div className="p-3">
             <p className="text-xs"><strong className="text-[#58a6ff]">CLOB API</strong> &mdash; <code className="text-[10px] text-[#768390]">clob.polymarket.com/midpoint?token_id=X</code> &mdash; real-time midpoint prices.</p>
