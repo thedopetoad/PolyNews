@@ -27,10 +27,10 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, keepPreviousData } from "@tanstack/react-query";
 import { Search, X, GripVertical, Plus, Sparkles, AlertTriangle } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { parseMarketPrices, type PolymarketMarket, type MarketWithPrices, formatVolume } from "@/types/polymarket";
+import { type MarketWithPrices, formatVolume } from "@/types/polymarket";
 
 // --------------------------------------------------------------------------
 // Tunables (will move to settings table when backend ships)
@@ -130,6 +130,18 @@ interface ParlayLeg {
 // Search panel (right column)
 // --------------------------------------------------------------------------
 
+interface SearchHit {
+  id: string;
+  question: string;
+  slug: string;
+  eventSlug: string;
+  clobTokenIds: string;
+  endDate: string;
+  volume: string;
+  yesPrice: number;
+  noPrice: number;
+}
+
 function MarketSearch({
   onAdd,
   selectedIds,
@@ -138,32 +150,76 @@ function MarketSearch({
   selectedIds: Set<string>;
 }) {
   const [query, setQuery] = useState("");
+  const [debouncedQuery, setDebouncedQuery] = useState("");
 
-  const { data: markets = [], isLoading, error } = useQuery({
-    queryKey: ["parlay-market-search"],
+  // 250ms debounce on the input so we don't hammer the DB on every keystroke.
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedQuery(query.trim()), 250);
+    return () => clearTimeout(t);
+  }, [query]);
+
+  // Server-side ILIKE against markets_catalog (~5000 active markets).
+  // keepPreviousData prevents the list from flashing empty between
+  // keystrokes while the new request is in flight.
+  const { data, isFetching, error } = useQuery({
+    queryKey: ["parlay-market-search", debouncedQuery],
     queryFn: async () => {
-      const res = await fetch("/api/polymarket/markets?limit=100&active=true&closed=false");
+      const url = `/api/polymarket/search?q=${encodeURIComponent(debouncedQuery)}`;
+      const res = await fetch(url);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const raw = (await res.json()) as PolymarketMarket[];
-      return raw.map(parseMarketPrices);
+      return (await res.json()) as { q: string; count: number; hits: SearchHit[] };
     },
     staleTime: 60_000,
-    refetchInterval: 60_000,
+    placeholderData: keepPreviousData,
   });
 
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    const list = markets
-      .filter((m) => m.yesPrice > 0.02 && m.yesPrice < 0.98) // exclude near-resolved
-      .filter((m) => m.question);
-    if (!q) return list.slice(0, 50);
-    return list.filter((m) => m.question.toLowerCase().includes(q)).slice(0, 50);
-  }, [markets, query]);
+  const hits = useMemo(
+    () =>
+      (data?.hits ?? [])
+        // Only filter truly resolved markets (price exactly 0 or 1).
+        // Long-shot markets (0.1%, 99%, etc.) stay visible — the
+        // user might want them, and the payout cap protects us.
+        .filter((m) => m.yesPrice > 0 && m.yesPrice < 1)
+        .filter((m) => m.question),
+    [data],
+  );
+
+  // Convert a search hit into the MarketWithPrices shape the parlay
+  // card consumes. Most fields are unused by the card; we just need
+  // id, question, clobTokenIds, yes/no price, and volume.
+  const hitToMarket = (h: SearchHit): MarketWithPrices => ({
+    id: h.id,
+    question: h.question,
+    slug: h.slug,
+    eventSlug: h.eventSlug,
+    clobTokenIds: h.clobTokenIds,
+    endDate: h.endDate,
+    volume: h.volume,
+    yesPrice: h.yesPrice,
+    noPrice: h.noPrice,
+    parsedOutcomes: ["Yes", "No"],
+    outcomes: '["Yes","No"]',
+    outcomePrices: JSON.stringify([h.yesPrice, h.noPrice]),
+    volume24hr: "0",
+    liquidity: "0",
+    conditionId: "",
+    active: true,
+    closed: false,
+    marketMakerAddress: "",
+    image: "",
+    icon: "",
+    description: "",
+    groupItemTitle: "",
+    enableOrderBook: true,
+  });
 
   const handleDragStart = (e: React.DragEvent, market: MarketWithPrices) => {
     e.dataTransfer.setData("application/x-parlay-market", JSON.stringify(market));
     e.dataTransfer.effectAllowed = "copy";
   };
+
+  const isLoading = isFetching && !data;
+  const showingFor = data?.q ?? "";
 
   return (
     <aside className="bg-[#161b22] border border-[#21262d] rounded-lg overflow-hidden flex flex-col h-full">
@@ -177,9 +233,12 @@ function MarketSearch({
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Filter top 100 markets…"
+            placeholder="Search all open Polymarket markets…"
             className="w-full bg-[#0d1117] border border-[#30363d] rounded px-7 py-1.5 text-xs text-white placeholder:text-[#484f58] focus:outline-none focus:border-[#58a6ff]"
           />
+          {isFetching && (
+            <div className="absolute right-2 top-1/2 -translate-y-1/2 w-2 h-2 rounded-full bg-[#58a6ff] animate-pulse" />
+          )}
         </div>
         <p className="text-[9px] text-[#484f58] mt-1.5">
           Drag markets onto the parlay card &mdash; or click <Plus className="inline w-2.5 h-2.5" />
@@ -190,20 +249,23 @@ function MarketSearch({
         {isLoading ? (
           <p className="text-xs text-[#484f58] text-center py-6">Loading markets…</p>
         ) : error ? (
-          <p className="text-xs text-[#f85149] text-center py-6">Failed to load</p>
-        ) : filtered.length === 0 ? (
+          <p className="text-xs text-[#f85149] text-center py-6">Search failed</p>
+        ) : hits.length === 0 ? (
           <p className="text-xs text-[#484f58] text-center py-6">
-            No markets match &ldquo;{query}&rdquo;
+            {showingFor
+              ? <>No markets match &ldquo;{showingFor}&rdquo;</>
+              : "No markets returned"}
           </p>
         ) : (
           <ul className="divide-y divide-[#21262d]">
-            {filtered.map((m) => {
-              const taken = selectedIds.has(m.id);
+            {hits.map((h) => {
+              const taken = selectedIds.has(h.id);
+              const market = hitToMarket(h);
               return (
                 <li
-                  key={m.id}
+                  key={h.id}
                   draggable={!taken}
-                  onDragStart={(e) => !taken && handleDragStart(e, m)}
+                  onDragStart={(e) => !taken && handleDragStart(e, market)}
                   className={cn(
                     "group flex items-start gap-2 px-3 py-2 transition-colors",
                     taken
@@ -214,22 +276,22 @@ function MarketSearch({
                   <GripVertical className="w-3 h-3 text-[#484f58] mt-0.5 flex-shrink-0 group-hover:text-[#768390] transition-colors" />
                   <div className="flex-1 min-w-0">
                     <p className="text-[11px] text-[#e6edf3] line-clamp-2 leading-snug">
-                      {m.question}
+                      {h.question}
                     </p>
                     <div className="flex items-center gap-2 mt-1 text-[10px]">
                       <span className="text-[#3fb950] tabular-nums">
-                        Y {(m.yesPrice * 100).toFixed(0)}%
+                        Y {(h.yesPrice * 100).toFixed(0)}%
                       </span>
                       <span className="text-[#f85149] tabular-nums">
-                        N {(m.noPrice * 100).toFixed(0)}%
+                        N {(h.noPrice * 100).toFixed(0)}%
                       </span>
                       <span className="text-[#484f58] ml-auto">
-                        {formatVolume(m.volume)}
+                        {formatVolume(h.volume)}
                       </span>
                     </div>
                   </div>
                   <button
-                    onClick={() => !taken && onAdd(m)}
+                    onClick={() => !taken && onAdd(market)}
                     disabled={taken}
                     className={cn(
                       "flex-shrink-0 mt-0.5 w-5 h-5 rounded flex items-center justify-center transition-colors",
