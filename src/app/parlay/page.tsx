@@ -28,6 +28,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useQuery, keepPreviousData } from "@tanstack/react-query";
+import { useSpring } from "motion/react";
 import { Search, X, GripVertical, Plus, Sparkles, AlertTriangle, TrendingUp } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
@@ -35,7 +36,6 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { NumberTicker } from "@/components/ui/number-ticker";
 import { type MarketWithPrices, formatVolume } from "@/types/polymarket";
 
 // --------------------------------------------------------------------------
@@ -48,14 +48,56 @@ const MIN_LEGS = 2;
 const MAX_LEGS = 8;
 
 // --------------------------------------------------------------------------
-// Counting multiplier — Magic UI's NumberTicker handles the animation.
-// Spring physics via `motion` library (damping 60, stiffness 100). Each
-// time `value` changes, the spring smoothly animates to the new target.
+// Counting multiplier — custom fast ticker via motion's useSpring.
 //
-// Previous attempts used hand-rolled rAF/setInterval loops which all hit
-// React 19 + StrictMode + Next dev quirks. Letting motion's optimized
-// MotionValue + spring system handle the loop is much more reliable.
+// Magic UI's NumberTicker uses damping=60 stiffness=100 which the user
+// found too slow. Forking it here with damping=24 stiffness=240 — same
+// motion-library physics, but the spring snaps to the new target much
+// faster (~300ms settle vs ~1000ms). Plus we render the period as a
+// custom-positioned CSS dot rather than the literal "." character so
+// it sits at the right baseline regardless of font quirks.
 // --------------------------------------------------------------------------
+
+const SPRING_CONFIG = { damping: 24, stiffness: 240, mass: 0.6 } as const;
+
+/**
+ * Fast spring-driven number tick. Renders the latest interpolated value
+ * formatted with the given decimal places. value can change at any time;
+ * the spring continues smoothly from wherever it currently is.
+ *
+ * `padTo` zero-pads the integer portion (e.g. value 6, padTo 2 → "06").
+ * Used for the decimal half of the multiplier so 0.06 renders as ".06"
+ * not ".6".
+ */
+function FastTicker({
+  value,
+  decimals = 0,
+  padTo,
+}: {
+  value: number;
+  decimals?: number;
+  padTo?: number;
+}) {
+  const format = (v: number) => {
+    const s = v.toFixed(decimals);
+    return padTo ? s.padStart(padTo, "0") : s;
+  };
+  const spring = useSpring(value, SPRING_CONFIG);
+  const [display, setDisplay] = useState(format(value));
+
+  useEffect(() => {
+    spring.set(value);
+  }, [value, spring]);
+
+  useEffect(() => {
+    return spring.on("change", (latest) => {
+      setDisplay(format(latest));
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [spring, decimals, padTo]);
+
+  return <>{display}</>;
+}
 
 /**
  * Compact display for runaway lottery multipliers. Folds anything ≥10K
@@ -74,7 +116,13 @@ function CountingMultiplier({ value, dirty }: { value: number; dirty: boolean })
   const safe = Number.isFinite(value) && value > 0 ? value : 0;
   const { divisor, suffix } = compactSuffix(safe);
   const scaledTarget = safe / divisor;
+  // Split into integer + decimal parts that animate independently.
+  // The "period" is rendered as a CSS dot so its position is locked
+  // to the digits' baseline — no font-quirk dependence.
+  const intTarget = Math.floor(scaledTarget);
   const decimals = suffix ? 1 : 2;
+  const decScale = Math.pow(10, decimals); // 100 for raw, 10 for K/M/B
+  const decTarget = Math.round((scaledTarget - intTarget) * decScale);
 
   return (
     <div className="text-center select-none relative">
@@ -94,26 +142,29 @@ function CountingMultiplier({ value, dirty }: { value: number; dirty: boolean })
           transition: "filter 700ms cubic-bezier(0.34, 1.4, 0.64, 1)",
         }}
       >
-        {/*
-          MONO font (JetBrains Mono via --font-geist-mono → Tailwind
-          font-mono class) so the period sits in a well-proportioned
-          cell at the baseline — fixes the "floating period" perception
-          bug we had with Inter Black at large sizes.
-
-          NumberTicker (Magic UI) handles the count-up animation using
-          motion's spring physics. Spring config tuned in NumberTicker
-          itself: damping 60, stiffness 100.
-        */}
         <span
           className="font-mono text-7xl font-bold inline-flex items-baseline"
           style={{ letterSpacing: "-0.04em" }}
         >
-          <NumberTicker
-            key={`${decimals}-${suffix}`}
-            value={scaledTarget}
-            decimalPlaces={decimals}
-            className="text-[#f7b955] !tracking-tight"
+          <FastTicker value={intTarget} decimals={0} />
+
+          {/* Custom decimal dot — rendered as a small CSS circle whose
+              bottom sits at the digits' baseline (vertical-align: baseline
+              means the bottom of this inline-block aligns with the parent
+              line's baseline). No font dependency = no floating period. */}
+          <span
+            aria-hidden="true"
+            className="inline-block mx-1.5 align-baseline"
+            style={{
+              width: "0.14em",
+              height: "0.14em",
+              borderRadius: "50%",
+              backgroundColor: "currentColor",
+            }}
           />
+
+          <FastTicker value={decTarget} decimals={0} padTo={decimals} />
+
           {suffix && <span className="ml-1">{suffix}</span>}
           <span className="text-5xl font-bold ml-2 opacity-50">×</span>
         </span>
