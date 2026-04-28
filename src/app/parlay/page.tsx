@@ -54,8 +54,22 @@ const MAX_LEGS = 8;
 // --------------------------------------------------------------------------
 
 const DIGIT_HEIGHT_REM = 1; // each digit cell is 1em tall (matches font-size)
-const ROLL_BASE_MS = 700;
-const ROLL_PER_DIGIT_DELAY_MS = 60; // cascade left → right
+
+// Animation timing: integer digits roll first, decimals roll in after.
+// User feedback: "animate the whole number on the left first then roll
+// in the decimals on the right"
+const INT_DURATION_MS = 600;
+const INT_CASCADE_MS = 70;
+const DEC_DURATION_MS = 450;
+const DEC_CASCADE_MS = 50;
+const DEC_START_OFFSET_MS = 350; // decimals start mid-way through integer roll
+
+const CELL_BOX_CLASS =
+  "inline-block overflow-hidden align-baseline tabular-nums";
+const CELL_BOX_STYLE: React.CSSProperties = {
+  height: `${DIGIT_HEIGHT_REM}em`,
+  lineHeight: `${DIGIT_HEIGHT_REM}em`,
+};
 
 function RollingDigit({
   digit,
@@ -66,15 +80,9 @@ function RollingDigit({
   delay: number;
   duration: number;
 }) {
-  if (!/[0-9]/.test(digit)) {
-    return <span className="inline-block tabular-nums">{digit}</span>;
-  }
   const num = parseInt(digit, 10);
   return (
-    <span
-      className="inline-block overflow-hidden align-baseline tabular-nums"
-      style={{ height: `${DIGIT_HEIGHT_REM}em`, lineHeight: `${DIGIT_HEIGHT_REM}em` }}
-    >
+    <span className={CELL_BOX_CLASS} style={CELL_BOX_STYLE}>
       <span
         className="block will-change-transform"
         style={{
@@ -83,14 +91,28 @@ function RollingDigit({
         }}
       >
         {[0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => (
-          <span
-            key={n}
-            className="block tabular-nums"
-            style={{ height: `${DIGIT_HEIGHT_REM}em`, lineHeight: `${DIGIT_HEIGHT_REM}em` }}
-          >
+          <span key={n} className="block tabular-nums" style={CELL_BOX_STYLE}>
             {n}
           </span>
         ))}
+      </span>
+    </span>
+  );
+}
+
+/**
+ * Static character (period, etc.) — wrapped in the SAME 1em-tall
+ * overflow-hidden box as the digit columns so it shares their baseline.
+ * Without this, the period sits at the natural text baseline while the
+ * digit columns use the bottom-of-box baseline (CSS quirk for inline-
+ * blocks with overflow != visible) and the period appears to float
+ * above the digits.
+ */
+function StaticCell({ char }: { char: string }) {
+  return (
+    <span className={CELL_BOX_CLASS} style={CELL_BOX_STYLE}>
+      <span className="block tabular-nums" style={CELL_BOX_STYLE}>
+        {char}
       </span>
     </span>
   );
@@ -112,6 +134,22 @@ function formatMultiplier(v: number): { chars: string[]; suffix: string } {
 
 function RollingMultiplier({ value, dirty }: { value: number; dirty: boolean }) {
   const { chars, suffix } = formatMultiplier(value);
+  const periodIdx = chars.indexOf(".");
+  const integerCount = periodIdx >= 0 ? periodIdx : chars.length;
+
+  // Per-digit timing — integers cascade first, decimals follow.
+  const timingFor = (i: number) => {
+    const isDecimal = periodIdx >= 0 && i > periodIdx;
+    if (!isDecimal) {
+      return { delay: i * INT_CASCADE_MS, duration: INT_DURATION_MS };
+    }
+    const decIdx = i - periodIdx - 1;
+    return {
+      delay: DEC_START_OFFSET_MS + integerCount * INT_CASCADE_MS + decIdx * DEC_CASCADE_MS,
+      duration: DEC_DURATION_MS,
+    };
+  };
+
   return (
     <div className="text-center select-none relative">
       <p className="text-[10px] text-[#484f58] uppercase tracking-[0.25em] mb-3">
@@ -123,15 +161,12 @@ function RollingMultiplier({ value, dirty }: { value: number; dirty: boolean }) 
           dirty && "animate-[parlay-pop_700ms_cubic-bezier(0.34,1.56,0.64,1)]",
         )}
         style={{
-          // Solid gold color — gradient text fill conflicts with the
-          // digit columns' overflow:hidden (transparent children inside
-          // a clipped box can't reveal the parent's gradient bg, so
-          // digits would render as empty space). Solid color it is —
-          // the glow filter does most of the visual work anyway.
           color: "#f7b955",
+          // Tighter glow so adjacent digits don't merge into one blob.
+          // Burst hits ~14px when dirty, settles to a 4px hum.
           filter: dirty
-            ? "drop-shadow(0 0 22px rgba(247, 185, 85, 0.8)) drop-shadow(0 0 6px rgba(247, 185, 85, 0.95))"
-            : "drop-shadow(0 0 10px rgba(210, 153, 34, 0.35))",
+            ? "drop-shadow(0 0 14px rgba(247, 185, 85, 0.7)) drop-shadow(0 0 3px rgba(247, 185, 85, 0.85))"
+            : "drop-shadow(0 0 4px rgba(210, 153, 34, 0.35))",
           transition: "filter 700ms cubic-bezier(0.34, 1.4, 0.64, 1)",
         }}
       >
@@ -139,24 +174,30 @@ function RollingMultiplier({ value, dirty }: { value: number; dirty: boolean }) 
           className="text-7xl font-black tracking-tight inline-flex items-baseline"
           style={{ fontVariantNumeric: "tabular-nums", letterSpacing: "-0.02em" }}
         >
-          {chars.map((c, i) => (
-            // Stable key on index so the column persists across digit
-            // changes — the inner translateY transitions to the new
-            // value instead of remounting (which would snap-in).
-            <RollingDigit
-              key={`d-${i}`}
-              digit={c}
-              delay={i * ROLL_PER_DIGIT_DELAY_MS}
-              duration={ROLL_BASE_MS}
-            />
-          ))}
+          {chars.map((c, i) => {
+            const isDigit = /[0-9]/.test(c);
+            if (!isDigit) {
+              // Period gets the same 1em box treatment as digits so it
+              // shares their baseline (no more floating period).
+              return <StaticCell key={`s-${i}-${c}`} char={c} />;
+            }
+            const { delay, duration } = timingFor(i);
+            return (
+              <RollingDigit
+                key={`d-${i}`}
+                digit={c}
+                delay={delay}
+                duration={duration}
+              />
+            );
+          })}
           {suffix && (
             <span className="ml-1" key={`suffix-${suffix}`}>
               {suffix}
             </span>
           )}
           <span
-            className="text-4xl font-bold ml-1.5 opacity-70"
+            className="text-4xl font-bold ml-2 opacity-50"
             style={{ alignSelf: "center", marginBottom: "0.15em" }}
           >
             ×
