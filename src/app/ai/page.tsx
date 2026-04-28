@@ -276,7 +276,7 @@ function ExpandedRun({ runId }: { runId: string }) {
     <div className="px-4 py-4 bg-[#0d1117] border-t border-[#21262d] space-y-4">
       {/* Top row: histogram + price chart */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div className="bg-[#161b22] border border-[#21262d] rounded-md p-3">
+        <div className="surface-card p-3">
           <p className="text-[10px] text-[#484f58] uppercase tracking-wider mb-1">
             Bootstrap distribution (10K resamples)
           </p>
@@ -305,7 +305,7 @@ function ExpandedRun({ runId }: { runId: string }) {
           </p>
         </div>
         {tokenId ? (
-          <div className="bg-[#161b22] border border-[#21262d] rounded-md p-3">
+          <div className="surface-card p-3">
             <p className="text-[10px] text-[#484f58] uppercase tracking-wider mb-1">
               Polymarket price history
             </p>

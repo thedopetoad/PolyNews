@@ -352,9 +352,8 @@ function MarketSearch({
   const showingFor = data?.q ?? "";
 
   return (
-    <aside className="relative bg-[#161b22] rounded-2xl ring-1 ring-white/[0.06] overflow-hidden flex flex-col h-full">
-      {/* Top edge highlight — the subtle "lit from above" feel */}
-      <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white/10 to-transparent pointer-events-none" />
+    <aside className="surface-card-lg overflow-hidden flex flex-col h-full">
+      {/* Top edge highlight comes from .surface-card-lg::before */}
 
       <div className="px-4 py-3.5 border-b border-white/[0.05]">
         <div className="flex items-center justify-between mb-2.5">
@@ -613,14 +612,14 @@ function ParlayCard({
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
       className={cn(
-        "relative bg-[#161b22] rounded-2xl ring-1 p-6 flex flex-col h-full transition-all duration-300",
-        dragOver
-          ? "ring-[#d29922]/60 bg-gradient-to-b from-[#d29922]/[0.05] via-[#161b22] to-[#161b22] shadow-[0_0_60px_rgba(210,153,34,0.18)]"
-          : "ring-white/[0.06]",
+        "surface-card-lg p-6 flex flex-col h-full transition-all duration-300",
+        dragOver &&
+          "ring-[#d29922]/60 bg-gradient-to-b from-[#d29922]/[0.05] via-[var(--surface-card)] to-[var(--surface-card)] shadow-[0_0_60px_rgba(210,153,34,0.18)]",
       )}
     >
-      {/* Top edge highlight */}
-      <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-[#d29922]/30 to-transparent pointer-events-none" />
+      {/* Surface-card-lg adds the white top edge. We layer a gold-tinted
+          one on top via ::after for the parlay's distinctive accent. */}
+      <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-[#d29922]/30 to-transparent pointer-events-none z-10" />
 
       <div className="flex items-center justify-between mb-1">
         <h2 className="text-sm font-bold text-white tracking-wide flex items-center gap-2">
@@ -848,8 +847,7 @@ export default function ParlayPage() {
 
         <div className="grid grid-cols-1 lg:grid-cols-[220px_1fr_380px] gap-5 lg:h-[calc(100vh-200px)]">
           {/* Left: reserved placeholder */}
-          <div className="hidden lg:flex relative bg-[#161b22] rounded-2xl ring-1 ring-white/[0.06] p-4 items-start justify-center overflow-hidden">
-            <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white/10 to-transparent pointer-events-none" />
+          <div className="hidden lg:flex surface-card-lg p-4 items-start justify-center overflow-hidden">
             <p className="text-[10px] text-[#484f58] uppercase tracking-[0.2em] mt-2">
               Reserved
             </p>
