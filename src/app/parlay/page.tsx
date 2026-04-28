@@ -26,7 +26,7 @@
  * and disable the (placeholder) place button — never silently cap.
  */
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery, keepPreviousData } from "@tanstack/react-query";
 import { Search, X, GripVertical, Plus, Sparkles, AlertTriangle, TrendingUp } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -35,6 +35,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { NumberTicker } from "@/components/ui/number-ticker";
 import { type MarketWithPrices, formatVolume } from "@/types/polymarket";
 
 // --------------------------------------------------------------------------
@@ -47,69 +48,14 @@ const MIN_LEGS = 2;
 const MAX_LEGS = 8;
 
 // --------------------------------------------------------------------------
-// Counting multiplier — value interpolation, rendered as plain text.
+// Counting multiplier — Magic UI's NumberTicker handles the animation.
+// Spring physics via `motion` library (damping 60, stiffness 100). Each
+// time `value` changes, the spring smoothly animates to the new target.
 //
-// Previous attempts used per-digit overflow-hidden rollers (baseline
-// alignment problems) and a complex two-state staggered hook (the rAF
-// callback was getting cancelled before it could fire even once,
-// likely due to React 19 + StrictMode + Next dev all fighting).
-//
-// This version:
-//   • One interpolated value, single useState
-//   • setInterval (~16ms = 60fps) instead of rAF — survives StrictMode
-//     mount/cleanup churn way better; each interval iteration just
-//     reads the closure values and updates state until elapsed >= duration
-//   • Plain text rendering with tabular-nums + text-align:right so the
-//     digits stay aligned regardless of width changes
-//
-// Sequencing the integer-then-decimal phases is done in render, by
-// formatting the value differently based on elapsed time. Simpler than
-// trying to coordinate two animation loops.
+// Previous attempts used hand-rolled rAF/setInterval loops which all hit
+// React 19 + StrictMode + Next dev quirks. Letting motion's optimized
+// MotionValue + spring system handle the loop is much more reliable.
 // --------------------------------------------------------------------------
-
-const COUNT_DURATION_MS = 900;
-
-function useCountTo(target: number, duration = COUNT_DURATION_MS): number {
-  const [value, setValue] = useState(0);
-  // Track the latest emitted value via ref so the next animation can
-  // continue from where the previous one left off (whether it completed
-  // or got interrupted by a fast follow-up target change).
-  const valueRef = useRef(0);
-  valueRef.current = value;
-
-  useEffect(() => {
-    const safe = Number.isFinite(target) && target > 0 ? target : 0;
-    const from = valueRef.current;
-    const t0 = performance.now();
-    let cancelled = false;
-
-    const tick = () => {
-      if (cancelled) return;
-      const elapsed = performance.now() - t0;
-      const p = Math.min(1, elapsed / duration);
-      const eased = 1 - Math.pow(1 - p, 3); // ease-out cubic
-      const next = from + (safe - from) * eased;
-      setValue(next);
-      if (p >= 1) {
-        clearInterval(handle);
-        setValue(safe); // snap to exact target
-      }
-    };
-
-    // setInterval instead of rAF: rAF was getting cancelled by
-    // StrictMode/Next-dev before its callback could even fire once.
-    // 16ms ≈ 60fps which is plenty smooth for a single counting number.
-    const handle = setInterval(tick, 16);
-    tick(); // also fire one immediate tick so we don't wait 16ms for the first frame
-
-    return () => {
-      cancelled = true;
-      clearInterval(handle);
-    };
-  }, [target, duration]);
-
-  return value;
-}
 
 /**
  * Compact display for runaway lottery multipliers. Folds anything ≥10K
@@ -128,9 +74,7 @@ function CountingMultiplier({ value, dirty }: { value: number; dirty: boolean })
   const safe = Number.isFinite(value) && value > 0 ? value : 0;
   const { divisor, suffix } = compactSuffix(safe);
   const scaledTarget = safe / divisor;
-  const animated = useCountTo(scaledTarget);
-  // K/M/B uses 1 decimal place; raw uses 2.
-  const display = suffix ? animated.toFixed(1) : animated.toFixed(2);
+  const decimals = suffix ? 1 : 2;
 
   return (
     <div className="text-center select-none relative">
@@ -151,19 +95,26 @@ function CountingMultiplier({ value, dirty }: { value: number; dirty: boolean })
         }}
       >
         {/*
-          Switching to MONO font for the number. JetBrains Mono is already
-          loaded as `--font-geist-mono` (font-mono class). Monospace fonts
-          are designed for numerical readouts — every glyph including the
-          period sits in a well-proportioned cell at the baseline. Solves
-          the "floating period" perception problem at heavy weights with
-          proportional fonts (Inter Black + . = tiny dot in negative space).
+          MONO font (JetBrains Mono via --font-geist-mono → Tailwind
+          font-mono class) so the period sits in a well-proportioned
+          cell at the baseline — fixes the "floating period" perception
+          bug we had with Inter Black at large sizes.
+
+          NumberTicker (Magic UI) handles the count-up animation using
+          motion's spring physics. Spring config tuned in NumberTicker
+          itself: damping 60, stiffness 100.
         */}
         <span
-          className="font-mono text-7xl font-bold"
+          className="font-mono text-7xl font-bold inline-flex items-baseline"
           style={{ letterSpacing: "-0.04em" }}
         >
-          {display}
-          {suffix}
+          <NumberTicker
+            key={`${decimals}-${suffix}`}
+            value={scaledTarget}
+            decimalPlaces={decimals}
+            className="text-[#f7b955] !tracking-tight"
+          />
+          {suffix && <span className="ml-1">{suffix}</span>}
           <span className="text-5xl font-bold ml-2 opacity-50">×</span>
         </span>
       </div>

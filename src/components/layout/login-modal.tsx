@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useCallback, useRef, useEffect } from "react";
+import Link from "next/link";
+import { Wallet } from "lucide-react";
 import { useAccount, useConnect, useDisconnect } from "wagmi";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { loginWithGoogle, consumePendingRef, captureRefFromUrl } from "@/lib/magic";
@@ -131,6 +133,27 @@ export function LoginButton() {
         </button>
         {menuOpen && (
           <div className="absolute right-0 top-10 w-64 rounded-lg border border-[#21262d] bg-[#161b22] shadow-xl z-50 overflow-hidden">
+            {/* Prominent "View Portfolio" — discoverability fix. Friend
+                of the user clicked the pill expecting a portfolio link;
+                this surfaces that path as the first action so the
+                instinct pays off. */}
+            <Link
+              href="/portfolio"
+              onClick={() => setMenuOpen(false)}
+              className="flex items-center gap-2 px-4 py-3 border-b border-[#21262d] hover:bg-[#1c2128] transition-colors group"
+            >
+              <Wallet className="w-4 h-4 text-[#58a6ff] group-hover:text-[#58a6ff]" />
+              <span className="text-sm font-medium text-white">View Portfolio</span>
+              <svg
+                className="w-3 h-3 text-[#484f58] ml-auto group-hover:text-[#58a6ff] group-hover:translate-x-0.5 transition-all"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+              </svg>
+            </Link>
+
             {/* Nickname row — click "Set" / pencil to edit inline */}
             {user && (
               <div className="px-4 py-3 border-b border-[#21262d]">
