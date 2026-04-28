@@ -131,7 +131,6 @@ function CountingMultiplier({ value, dirty }: { value: number; dirty: boolean })
   const animated = useCountTo(scaledTarget);
   // K/M/B uses 1 decimal place; raw uses 2.
   const display = suffix ? animated.toFixed(1) : animated.toFixed(2);
-  const [intPart, decPart = ""] = display.split(".");
 
   return (
     <div className="text-center select-none relative">
@@ -145,47 +144,27 @@ function CountingMultiplier({ value, dirty }: { value: number; dirty: boolean })
         )}
         style={{
           color: "#f7b955",
-          // Tight glow — digits stay readable, no bloom merge.
           filter: dirty
             ? "drop-shadow(0 0 14px rgba(247, 185, 85, 0.65)) drop-shadow(0 0 3px rgba(247, 185, 85, 0.85))"
             : "drop-shadow(0 0 4px rgba(210, 153, 34, 0.3))",
           transition: "filter 700ms cubic-bezier(0.34, 1.4, 0.64, 1)",
         }}
       >
-        {/* Each piece is its own span inside an inline-flex aligned by
-            BASELINE. With items-baseline, the period (its own span)
-            shares the digit spans' baseline by definition — no font
-            quirks, no inline-block baseline tricks. The decimal becomes
-            slightly smaller / lighter so the integer reads as the
-            primary number — also fixes the "period floating" look at
-            heavy weights, since the eye now expects the decimal to be
-            visually subordinate. */}
+        {/*
+          Switching to MONO font for the number. JetBrains Mono is already
+          loaded as `--font-geist-mono` (font-mono class). Monospace fonts
+          are designed for numerical readouts — every glyph including the
+          period sits in a well-proportioned cell at the baseline. Solves
+          the "floating period" perception problem at heavy weights with
+          proportional fonts (Inter Black + . = tiny dot in negative space).
+        */}
         <span
-          className="inline-flex items-baseline tracking-tight"
-          style={{ fontVariantNumeric: "tabular-nums" }}
+          className="font-mono text-7xl font-bold"
+          style={{ letterSpacing: "-0.04em" }}
         >
-          <span className="text-7xl font-black">{intPart}</span>
-          {decPart && (
-            <>
-              <span
-                className="text-6xl font-black mx-0.5"
-                aria-hidden="true"
-                style={{ position: "relative", top: "-0.02em" }}
-              >
-                .
-              </span>
-              <span className="text-6xl font-bold opacity-85">{decPart}</span>
-            </>
-          )}
-          {suffix && (
-            <span className="text-6xl font-black ml-1.5">{suffix}</span>
-          )}
-          <span
-            className="text-4xl font-bold ml-2 opacity-50"
-            style={{ position: "relative", top: "-0.5em" }}
-          >
-            ×
-          </span>
+          {display}
+          {suffix}
+          <span className="text-5xl font-bold ml-2 opacity-50">×</span>
         </span>
       </div>
 
