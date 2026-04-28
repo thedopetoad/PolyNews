@@ -26,10 +26,15 @@
  * and disable the (placeholder) place button — never silently cap.
  */
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery, keepPreviousData } from "@tanstack/react-query";
-import { Search, X, GripVertical, Plus, Sparkles, AlertTriangle } from "lucide-react";
+import { Search, X, GripVertical, Plus, Sparkles, AlertTriangle, TrendingUp } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Separator } from "@/components/ui/separator";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { type MarketWithPrices, formatVolume } from "@/types/polymarket";
 
 // --------------------------------------------------------------------------
@@ -42,70 +47,149 @@ const MIN_LEGS = 2;
 const MAX_LEGS = 8;
 
 // --------------------------------------------------------------------------
-// Animated multiplier — rAF-driven number counter with ease-out
+// Odometer-style multiplier — each digit position is a vertical 0-9 strip
+// that slides into place independently. Going 5.81 → 12.40 makes the
+// rightmost digit churn through 8→9→0→1→2→3→4 while the integer column
+// rolls 0→1 → that's the satisfying "casino" counting feel.
 // --------------------------------------------------------------------------
 
-function useAnimatedNumber(target: number, duration = 450): number {
-  const [value, setValue] = useState(target);
-  const fromRef = useRef(target);
-  const startRef = useRef<number | null>(null);
-  const rafRef = useRef<number | null>(null);
+const DIGIT_HEIGHT_REM = 1; // each digit cell is 1em tall (matches font-size)
+const ROLL_BASE_MS = 700;
+const ROLL_PER_DIGIT_DELAY_MS = 60; // cascade left → right
 
-  useEffect(() => {
-    fromRef.current = value;
-    startRef.current = null;
-    if (rafRef.current) cancelAnimationFrame(rafRef.current);
-    const tick = (t: number) => {
-      if (startRef.current === null) startRef.current = t;
-      const elapsed = t - startRef.current;
-      const progress = Math.min(1, elapsed / duration);
-      // ease-out cubic
-      const eased = 1 - Math.pow(1 - progress, 3);
-      const next = fromRef.current + (target - fromRef.current) * eased;
-      setValue(next);
-      if (progress < 1) rafRef.current = requestAnimationFrame(tick);
-    };
-    rafRef.current = requestAnimationFrame(tick);
-    return () => {
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [target, duration]);
-
-  return value;
+function RollingDigit({
+  digit,
+  delay,
+  duration,
+}: {
+  digit: string;
+  delay: number;
+  duration: number;
+}) {
+  if (!/[0-9]/.test(digit)) {
+    return <span className="inline-block tabular-nums">{digit}</span>;
+  }
+  const num = parseInt(digit, 10);
+  return (
+    <span
+      className="inline-block overflow-hidden align-baseline tabular-nums"
+      style={{ height: `${DIGIT_HEIGHT_REM}em`, lineHeight: `${DIGIT_HEIGHT_REM}em` }}
+    >
+      <span
+        className="block will-change-transform"
+        style={{
+          transform: `translateY(-${num * DIGIT_HEIGHT_REM}em)`,
+          transition: `transform ${duration}ms cubic-bezier(0.34, 1.4, 0.64, 1) ${delay}ms`,
+        }}
+      >
+        {[0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => (
+          <span
+            key={n}
+            className="block tabular-nums"
+            style={{ height: `${DIGIT_HEIGHT_REM}em`, lineHeight: `${DIGIT_HEIGHT_REM}em` }}
+          >
+            {n}
+          </span>
+        ))}
+      </span>
+    </span>
+  );
 }
 
-function AnimatedMultiplier({ value, dirty }: { value: number; dirty: boolean }) {
-  const animated = useAnimatedNumber(Number.isFinite(value) ? value : 0, 500);
+/**
+ * Smart formatter — keeps the number compact regardless of size.
+ * Lottery-style parlays can produce multipliers in the millions; we
+ * fold those into K / M / B suffixes so the digit roller stays
+ * readable instead of overflowing the card.
+ */
+function formatMultiplier(v: number): { chars: string[]; suffix: string } {
+  if (!Number.isFinite(v) || v <= 0) return { chars: ["0", ".", "0", "0"], suffix: "" };
+  if (v >= 1_000_000_000) return { chars: (v / 1_000_000_000).toFixed(1).split(""), suffix: "B" };
+  if (v >= 1_000_000) return { chars: (v / 1_000_000).toFixed(1).split(""), suffix: "M" };
+  if (v >= 10_000) return { chars: (v / 1_000).toFixed(1).split(""), suffix: "K" };
+  return { chars: v.toFixed(2).split(""), suffix: "" };
+}
+
+function RollingMultiplier({ value, dirty }: { value: number; dirty: boolean }) {
+  const { chars, suffix } = formatMultiplier(value);
   return (
-    <div className="text-center select-none">
-      <p className="text-[10px] text-[#484f58] uppercase tracking-[0.2em] mb-1">Multiplier</p>
+    <div className="text-center select-none relative">
+      <p className="text-[10px] text-[#484f58] uppercase tracking-[0.25em] mb-2">
+        Multiplier
+      </p>
       <div
         className={cn(
-          "inline-block transition-transform duration-300",
-          dirty && "animate-[parlay-pop_500ms_ease-out]",
+          "inline-block relative",
+          dirty && "animate-[parlay-pop_700ms_cubic-bezier(0.34,1.56,0.64,1)]",
         )}
         style={{
-          background: "linear-gradient(135deg, #d29922 0%, #f7b955 50%, #d29922 100%)",
+          background:
+            "linear-gradient(135deg, #d29922 0%, #f7b955 30%, #ffd479 50%, #f7b955 70%, #d29922 100%)",
           WebkitBackgroundClip: "text",
           WebkitTextFillColor: "transparent",
           backgroundClip: "text",
-          textShadow: dirty ? "0 0 30px rgba(247, 185, 85, 0.5)" : "none",
-          filter: dirty ? "drop-shadow(0 0 12px rgba(247, 185, 85, 0.6))" : "none",
-          transition: "filter 600ms ease-out, text-shadow 600ms ease-out",
+          filter: dirty
+            ? "drop-shadow(0 0 18px rgba(247, 185, 85, 0.65)) drop-shadow(0 0 4px rgba(247, 185, 85, 0.9))"
+            : "drop-shadow(0 0 8px rgba(210, 153, 34, 0.25))",
+          transition: "filter 700ms cubic-bezier(0.34, 1.4, 0.64, 1)",
         }}
       >
-        <span className="text-6xl font-black tabular-nums tracking-tight">
-          {animated.toFixed(2)}
+        <span
+          className="text-7xl font-black tracking-tight inline-flex items-baseline"
+          style={{ fontVariantNumeric: "tabular-nums", letterSpacing: "-0.02em" }}
+        >
+          {chars.map((c, i) => (
+            // Stable key on index so the column persists across digit
+            // changes — the inner translateY transitions to the new
+            // value instead of remounting (which would snap-in).
+            <RollingDigit
+              key={`d-${i}`}
+              digit={c}
+              delay={i * ROLL_PER_DIGIT_DELAY_MS}
+              duration={ROLL_BASE_MS}
+            />
+          ))}
+          {suffix && (
+            <span className="ml-1" key={`suffix-${suffix}`}>
+              {suffix}
+            </span>
+          )}
+          <span
+            className="text-4xl font-bold ml-1.5"
+            style={{ alignSelf: "center", marginBottom: "0.15em" }}
+          >
+            ×
+          </span>
         </span>
-        <span className="text-3xl font-bold ml-0.5">×</span>
       </div>
+      {/* Sparkle burst — purely decorative, fires on dirty change */}
+      {dirty && (
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+          {[0, 1, 2, 3, 4, 5].map((i) => (
+            <span
+              key={i}
+              className="absolute w-1 h-1 rounded-full bg-[#f7b955]"
+              style={{
+                animation: `parlay-spark 800ms ease-out forwards`,
+                animationDelay: `${i * 40}ms`,
+                transform: `rotate(${i * 60}deg) translateX(0)`,
+              }}
+            />
+          ))}
+        </div>
+      )}
       <style jsx>{`
         @keyframes parlay-pop {
           0% { transform: scale(1); }
-          40% { transform: scale(1.18); }
-          70% { transform: scale(0.97); }
+          25% { transform: scale(1.14); }
+          55% { transform: scale(0.97); }
+          80% { transform: scale(1.03); }
           100% { transform: scale(1); }
+        }
+        @keyframes parlay-spark {
+          0% { transform: rotate(var(--rot, 0deg)) translateX(20px) scale(0); opacity: 0; }
+          15% { transform: rotate(var(--rot, 0deg)) translateX(20px) scale(1); opacity: 1; }
+          100% { transform: rotate(var(--rot, 0deg)) translateX(80px) scale(0); opacity: 0; }
         }
       `}</style>
     </div>
@@ -222,42 +306,59 @@ function MarketSearch({
   const showingFor = data?.q ?? "";
 
   return (
-    <aside className="bg-[#161b22] border border-[#21262d] rounded-lg overflow-hidden flex flex-col h-full">
-      <div className="px-3 py-2.5 border-b border-[#21262d]">
-        <h2 className="text-xs font-semibold text-white uppercase tracking-wider mb-2">
-          Polymarket Search
-        </h2>
+    <aside className="relative bg-[#161b22] rounded-2xl ring-1 ring-white/[0.06] overflow-hidden flex flex-col h-full">
+      {/* Top edge highlight — the subtle "lit from above" feel */}
+      <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white/10 to-transparent pointer-events-none" />
+
+      <div className="px-4 py-3.5 border-b border-white/[0.05]">
+        <div className="flex items-center justify-between mb-2.5">
+          <h2 className="text-[11px] font-semibold text-[#adbac7] uppercase tracking-[0.16em]">
+            Polymarket
+          </h2>
+          {data && (
+            <span className="text-[10px] text-[#484f58] tabular-nums">
+              {hits.length} markets
+            </span>
+          )}
+        </div>
         <div className="relative">
-          <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[#484f58]" />
-          <input
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[#484f58] pointer-events-none z-10" />
+          <Input
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search all open Polymarket markets…"
-            className="w-full bg-[#0d1117] border border-[#30363d] rounded px-7 py-1.5 text-xs text-white placeholder:text-[#484f58] focus:outline-none focus:border-[#58a6ff]"
+            placeholder="Search all open markets…"
+            className="h-9 rounded-xl bg-[#0d1117] border-white/[0.08] pl-9 pr-8 text-xs text-white placeholder:text-[#484f58] focus-visible:border-[#d29922]/50 focus-visible:ring-[#d29922]/15"
           />
           {isFetching && (
-            <div className="absolute right-2 top-1/2 -translate-y-1/2 w-2 h-2 rounded-full bg-[#58a6ff] animate-pulse" />
+            <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-1 z-10">
+              <span className="w-1 h-1 rounded-full bg-[#d29922] animate-pulse" />
+              <span className="w-1 h-1 rounded-full bg-[#d29922] animate-pulse [animation-delay:120ms]" />
+              <span className="w-1 h-1 rounded-full bg-[#d29922] animate-pulse [animation-delay:240ms]" />
+            </div>
           )}
         </div>
-        <p className="text-[9px] text-[#484f58] mt-1.5">
-          Drag markets onto the parlay card &mdash; or click <Plus className="inline w-2.5 h-2.5" />
+        <p className="text-[9px] text-[#484f58] mt-2 flex items-center gap-1">
+          Drag onto the slip — or click
+          <span className="inline-flex items-center justify-center w-3.5 h-3.5 rounded-md bg-[#21262d] text-[#768390]">
+            <Plus className="w-2 h-2" strokeWidth={3} />
+          </span>
         </p>
       </div>
 
-      <div className="flex-1 overflow-y-auto">
+      <ScrollArea className="flex-1">
         {isLoading ? (
-          <p className="text-xs text-[#484f58] text-center py-6">Loading markets…</p>
+          <p className="text-xs text-[#484f58] text-center py-8">Loading markets…</p>
         ) : error ? (
-          <p className="text-xs text-[#f85149] text-center py-6">Search failed</p>
+          <p className="text-xs text-[#f85149] text-center py-8">Search failed</p>
         ) : hits.length === 0 ? (
-          <p className="text-xs text-[#484f58] text-center py-6">
+          <p className="text-xs text-[#484f58] text-center py-8">
             {showingFor
               ? <>No markets match &ldquo;{showingFor}&rdquo;</>
               : "No markets returned"}
           </p>
         ) : (
-          <ul className="divide-y divide-[#21262d]">
+          <ul className="divide-y divide-white/[0.04]">
             {hits.map((h) => {
               const taken = selectedIds.has(h.id);
               const market = hitToMarket(h);
@@ -267,52 +368,48 @@ function MarketSearch({
                   draggable={!taken}
                   onDragStart={(e) => !taken && handleDragStart(e, market)}
                   className={cn(
-                    "group flex items-start gap-2 px-3 py-2 transition-colors",
+                    "group flex items-start gap-2.5 px-4 py-2.5 transition-all duration-150",
                     taken
                       ? "opacity-40 cursor-not-allowed"
-                      : "cursor-grab active:cursor-grabbing hover:bg-[#1c2128]",
+                      : "cursor-grab active:cursor-grabbing hover:bg-white/[0.02] hover:translate-x-0.5",
                   )}
                 >
-                  <GripVertical className="w-3 h-3 text-[#484f58] mt-0.5 flex-shrink-0 group-hover:text-[#768390] transition-colors" />
+                  <GripVertical className="w-3 h-3 text-[#30363d] mt-1 flex-shrink-0 group-hover:text-[#768390] transition-colors" />
                   <div className="flex-1 min-w-0">
-                    <p className="text-[11px] text-[#e6edf3] line-clamp-2 leading-snug">
+                    <p className="text-[11.5px] text-[#e6edf3] line-clamp-2 leading-snug font-medium">
                       {h.question}
                     </p>
-                    <div className="flex items-center gap-2 mt-1 text-[10px]">
-                      <span className="text-[#3fb950] tabular-nums">
+                    <div className="flex items-center gap-2 mt-1.5 text-[10px]">
+                      <span className="text-[#3fb950] tabular-nums font-medium">
                         Y {(h.yesPrice * 100).toFixed(0)}%
                       </span>
-                      <span className="text-[#f85149] tabular-nums">
+                      <span className="text-[#f85149] tabular-nums font-medium">
                         N {(h.noPrice * 100).toFixed(0)}%
                       </span>
-                      <span className="text-[#484f58] ml-auto">
+                      <span className="text-[#484f58] ml-auto tabular-nums">
                         {formatVolume(h.volume)}
                       </span>
                     </div>
                   </div>
-                  <button
+                  <Button
+                    variant="ghost"
+                    size="icon-xs"
                     onClick={() => !taken && onAdd(market)}
                     disabled={taken}
                     className={cn(
-                      "flex-shrink-0 mt-0.5 w-5 h-5 rounded flex items-center justify-center transition-colors",
-                      taken
-                        ? "bg-[#21262d] text-[#484f58]"
-                        : "bg-[#21262d] text-[#768390] hover:bg-[#d29922]/20 hover:text-[#d29922]",
+                      "flex-shrink-0 mt-0.5 transition-all",
+                      !taken && "hover:bg-[#d29922]/15 hover:text-[#d29922] hover:scale-110",
                     )}
                     title={taken ? "Already in parlay" : "Add to parlay"}
                   >
-                    {taken ? (
-                      <span className="text-[10px]">✓</span>
-                    ) : (
-                      <Plus className="w-3 h-3" />
-                    )}
-                  </button>
+                    {taken ? <span className="text-[#3fb950]">✓</span> : <Plus />}
+                  </Button>
                 </li>
               );
             })}
           </ul>
         )}
-      </div>
+      </ScrollArea>
     </aside>
   );
 }
@@ -332,25 +429,27 @@ function LegRow({
   onRemove: () => void;
   isNew: boolean;
 }) {
+  const accent = leg.outcome === "Yes" ? "#3fb950" : "#f85149";
   return (
     <div
       className={cn(
-        "bg-[#0d1117] border border-[#21262d] rounded-md p-2.5 flex items-start gap-2 transition-all",
-        isNew && "animate-[leg-in_400ms_cubic-bezier(0.34,1.56,0.64,1)]",
+        "relative bg-[#0d1117] rounded-xl ring-1 ring-white/[0.06] p-3 flex items-start gap-2.5 transition-all hover:ring-white/[0.1] group",
+        isNew && "animate-[leg-in_500ms_cubic-bezier(0.34,1.56,0.64,1)]",
       )}
+      style={{ boxShadow: `inset 3px 0 0 0 ${accent}40` }}
     >
       <div className="flex-1 min-w-0">
-        <p className="text-[12px] text-[#e6edf3] leading-snug line-clamp-2">
+        <p className="text-[12px] text-[#e6edf3] leading-snug line-clamp-2 font-medium">
           {leg.market.question}
         </p>
-        <div className="flex items-center gap-2 mt-1.5">
+        <div className="flex items-center gap-2 mt-2">
           <button
             onClick={onToggleOutcome}
             className={cn(
-              "text-[10px] font-bold px-2 py-0.5 rounded border transition-all hover:scale-105",
+              "inline-flex items-center justify-center text-[10px] font-bold px-2.5 py-1 rounded-full transition-all hover:scale-105 active:scale-95",
               leg.outcome === "Yes"
-                ? "bg-[#3fb950]/15 text-[#3fb950] border-[#3fb950]/30"
-                : "bg-[#f85149]/15 text-[#f85149] border-[#f85149]/30",
+                ? "bg-[#3fb950]/15 text-[#3fb950] ring-1 ring-[#3fb950]/30 hover:bg-[#3fb950]/25"
+                : "bg-[#f85149]/15 text-[#f85149] ring-1 ring-[#f85149]/30 hover:bg-[#f85149]/25",
             )}
             title="Click to flip side"
           >
@@ -361,17 +460,19 @@ function LegRow({
           </span>
         </div>
       </div>
-      <button
+      <Button
+        variant="ghost"
+        size="icon-xs"
         onClick={onRemove}
-        className="flex-shrink-0 w-5 h-5 rounded text-[#484f58] hover:text-[#f85149] hover:bg-[#f85149]/10 flex items-center justify-center transition-colors"
+        className="flex-shrink-0 opacity-50 group-hover:opacity-100 hover:bg-[#f85149]/10 hover:text-[#f85149] transition-all"
         title="Remove"
       >
-        <X className="w-3 h-3" />
-      </button>
+        <X />
+      </Button>
       <style jsx>{`
         @keyframes leg-in {
-          0% { transform: translateX(20px) scale(0.9); opacity: 0; }
-          60% { transform: translateX(-2px) scale(1.02); opacity: 1; }
+          0% { transform: translateX(28px) scale(0.92); opacity: 0; }
+          55% { transform: translateX(-3px) scale(1.02); opacity: 1; }
           100% { transform: translateX(0) scale(1); opacity: 1; }
         }
       `}</style>
@@ -398,6 +499,7 @@ function ParlayCard({
 }) {
   const [dragOver, setDragOver] = useState(false);
   const [pulseKey, setPulseKey] = useState(0);
+  const [dirty, setDirty] = useState(false);
 
   // Recompute pricing whenever legs change.
   const { jointProb, multiplier, maxWin, capped } = useMemo(() => {
@@ -419,9 +521,18 @@ function ParlayCard({
     };
   }, [legs, stake]);
 
-  // Bump pulseKey whenever legs change → triggers the gold-glow pulse.
+  // Whenever legs change, fire the gold-glow pulse for ~900ms then
+  // settle back to the calm state. pulseKey just helps gate the very
+  // first render (no glow on initial mount).
   useEffect(() => {
     setPulseKey((k) => k + 1);
+    if (legs.length === 0) {
+      setDirty(false);
+      return;
+    }
+    setDirty(true);
+    const t = setTimeout(() => setDirty(false), 900);
+    return () => clearTimeout(t);
   }, [legs.length]);
 
   const handleDragOver = (e: React.DragEvent) => {
@@ -456,94 +567,123 @@ function ParlayCard({
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
       className={cn(
-        "relative bg-[#161b22] border rounded-lg p-5 flex flex-col h-full transition-all duration-200",
+        "relative bg-[#161b22] rounded-2xl ring-1 p-6 flex flex-col h-full transition-all duration-300",
         dragOver
-          ? "border-[#d29922]/70 bg-[#d29922]/[0.04] shadow-[0_0_40px_rgba(210,153,34,0.15)]"
-          : "border-[#21262d]",
+          ? "ring-[#d29922]/60 bg-gradient-to-b from-[#d29922]/[0.05] via-[#161b22] to-[#161b22] shadow-[0_0_60px_rgba(210,153,34,0.18)]"
+          : "ring-white/[0.06]",
       )}
     >
-      <div className="flex items-baseline justify-between mb-1">
-        <h2 className="text-sm font-bold text-white tracking-wide flex items-center gap-1.5">
-          <Sparkles className="w-3.5 h-3.5 text-[#d29922]" />
+      {/* Top edge highlight */}
+      <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-[#d29922]/30 to-transparent pointer-events-none" />
+
+      <div className="flex items-center justify-between mb-1">
+        <h2 className="text-sm font-bold text-white tracking-wide flex items-center gap-2">
+          <Sparkles className="w-4 h-4 text-[#d29922]" />
           Your Parlay
         </h2>
-        <span className="text-[10px] text-[#484f58] tabular-nums">
+        <Badge
+          variant="ghost"
+          className={cn(
+            "text-[10px] tabular-nums transition-colors",
+            legs.length === 0 ? "text-[#484f58]" : "text-[#adbac7]",
+          )}
+        >
           {legs.length} / {MAX_LEGS} legs
-        </span>
+        </Badge>
       </div>
 
-      {/* Multiplier */}
-      <div className="my-4">
-        <AnimatedMultiplier
-          key={pulseKey}
-          value={multiplier}
-          dirty={pulseKey > 1 && legs.length > 0}
-        />
-        <div className="flex justify-center gap-4 mt-2 text-[10px] text-[#768390]">
-          <span>
-            Joint prob:{" "}
-            <span className="text-[#adbac7] tabular-nums">
-              {legs.length === 0 ? "—" : `${(jointProb * 100).toFixed(2)}%`}
-            </span>
-          </span>
-          <span>
-            House edge:{" "}
-            <span className="text-[#adbac7] tabular-nums">{(HOUSE_EDGE * 100).toFixed(0)}%</span>
-          </span>
+      {/* Multiplier — the focal point */}
+      <div className="my-6 py-4">
+        <RollingMultiplier value={multiplier} dirty={dirty && pulseKey > 1} />
+        <div className="flex items-center justify-center gap-3 mt-4">
+          <Badge variant="ghost" className="text-[10px] tabular-nums text-[#768390] hover:bg-transparent">
+            <span className="text-[#484f58] mr-1">prob</span>
+            {legs.length === 0 ? "—" : `${(jointProb * 100).toFixed(2)}%`}
+          </Badge>
+          <Separator orientation="vertical" className="h-3 bg-[#21262d]" />
+          <Badge variant="ghost" className="text-[10px] tabular-nums text-[#768390] hover:bg-transparent">
+            <span className="text-[#484f58] mr-1">edge</span>
+            {(HOUSE_EDGE * 100).toFixed(0)}%
+          </Badge>
         </div>
       </div>
 
       {/* Drop zone / legs list */}
-      <div className="flex-1 min-h-0 overflow-y-auto -mx-1 px-1">
+      <div className="flex-1 min-h-0 -mx-1">
         {legs.length === 0 ? (
           <div
             className={cn(
-              "h-full min-h-[180px] border-2 border-dashed rounded-md flex flex-col items-center justify-center gap-2 transition-colors",
+              "relative h-full min-h-[200px] rounded-xl flex flex-col items-center justify-center gap-3 transition-all duration-300 mx-1",
               dragOver
-                ? "border-[#d29922]/60 text-[#d29922]"
-                : "border-[#30363d] text-[#484f58]",
+                ? "bg-[#d29922]/[0.06] text-[#f7b955]"
+                : "text-[#484f58]",
             )}
+            style={{
+              backgroundImage:
+                "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100%25' height='100%25'%3E%3Crect width='100%25' height='100%25' fill='none' stroke='" +
+                (dragOver ? "%23d29922" : "%2330363d") +
+                "' stroke-width='2' stroke-dasharray='8 6' stroke-dashoffset='0' rx='12' ry='12'/%3E%3C/svg%3E\")",
+            }}
           >
-            <Sparkles className="w-6 h-6" />
-            <p className="text-xs font-medium">
-              {dragOver ? "Drop to add leg" : "Drag markets here to build your parlay"}
+            <Sparkles
+              className={cn(
+                "w-8 h-8 transition-transform",
+                dragOver && "scale-125 animate-pulse",
+              )}
+            />
+            <p className="text-sm font-semibold">
+              {dragOver ? "Drop to add leg" : "Drag markets here"}
             </p>
-            <p className="text-[10px]">Minimum {MIN_LEGS} legs</p>
+            <p className="text-[10px] text-[#484f58]">
+              Minimum {MIN_LEGS} legs · multiplier compounds
+            </p>
           </div>
         ) : (
-          <div className="space-y-2">
-            {legs.map((leg) => (
-              <LegRow
-                key={leg.id}
-                leg={leg}
-                onToggleOutcome={() => onToggleOutcome(leg.id)}
-                onRemove={() => onRemove(leg.id)}
-                isNew={leg.id === newestLegId}
-              />
-            ))}
-          </div>
+          <ScrollArea className="h-full px-1">
+            <div className="space-y-2 pr-1">
+              {legs.map((leg) => (
+                <LegRow
+                  key={leg.id}
+                  leg={leg}
+                  onToggleOutcome={() => onToggleOutcome(leg.id)}
+                  onRemove={() => onRemove(leg.id)}
+                  isNew={leg.id === newestLegId}
+                />
+              ))}
+            </div>
+          </ScrollArea>
         )}
       </div>
 
       {/* Stake + payout summary */}
-      <div className="mt-4 pt-4 border-t border-[#21262d] space-y-2">
+      <div className="mt-5 pt-5 border-t border-white/[0.05] space-y-3">
         <div className="flex items-center gap-2">
-          <label className="text-[11px] text-[#768390] flex-shrink-0">Stake</label>
-          <input
+          <label className="text-[11px] text-[#768390] flex-shrink-0 w-12">Stake</label>
+          <Input
             type="number"
             min={1}
             value={stake}
             onChange={(e) => onStakeChange(Math.max(0, Number(e.target.value) || 0))}
-            className="flex-1 bg-[#0d1117] border border-[#30363d] rounded px-2 py-1 text-xs text-white tabular-nums focus:outline-none focus:border-[#d29922]"
+            className="h-9 rounded-xl bg-[#0d1117] border-white/[0.08] text-sm text-white tabular-nums focus-visible:border-[#d29922]/50 focus-visible:ring-[#d29922]/15"
           />
-          <span className="text-[10px] text-[#484f58]">AIRDROP</span>
+          <span className="text-[10px] text-[#484f58] uppercase tracking-wider w-14">
+            AIRDROP
+          </span>
         </div>
-        <div className="flex items-center justify-between text-[11px]">
-          <span className="text-[#768390]">Max win</span>
+
+        <div className="flex items-center justify-between px-1">
+          <span className="text-[11px] text-[#768390] uppercase tracking-wider flex items-center gap-1">
+            <TrendingUp className="w-3 h-3" />
+            Max win
+          </span>
           <span
             className={cn(
-              "font-bold tabular-nums",
-              capped ? "text-[#f85149]" : "text-[#3fb950]",
+              "text-base font-bold tabular-nums transition-colors",
+              capped
+                ? "text-[#f85149]"
+                : legs.length === 0
+                ? "text-[#484f58]"
+                : "text-[#3fb950]",
             )}
           >
             {legs.length === 0
@@ -553,19 +693,24 @@ function ParlayCard({
         </div>
 
         {capped && (
-          <div className="flex items-start gap-1.5 text-[10px] text-[#f85149] bg-[#f85149]/5 border border-[#f85149]/20 rounded px-2 py-1.5">
-            <AlertTriangle className="w-3 h-3 flex-shrink-0 mt-0.5" />
-            <span>
-              Max win exceeds the {MAX_PAYOUT_PER_SLIP} cap. Reduce stake or remove a leg —
-              we won&apos;t accept slips that could exceed our payout cap (transparent
-              limit; no silent capping).
+          <div className="flex items-start gap-2 text-[10px] text-[#f85149] bg-[#f85149]/[0.06] ring-1 ring-[#f85149]/20 rounded-lg px-3 py-2">
+            <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
+            <span className="leading-snug">
+              Max win exceeds the {MAX_PAYOUT_PER_SLIP} AIRDROP cap. Reduce stake
+              or remove a leg — we don&apos;t silently cap.
             </span>
           </div>
         )}
 
-        <button
+        <Button
           disabled={tooFew || tooMany || capped || stake <= 0}
-          className="w-full mt-1 px-3 py-2 rounded-md text-xs font-bold bg-gradient-to-r from-[#d29922] to-[#f7b955] text-[#0d1117] hover:brightness-110 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+          className={cn(
+            "w-full h-11 rounded-xl text-sm font-bold transition-all",
+            "bg-gradient-to-r from-[#d29922] via-[#f7b955] to-[#d29922] text-[#0d1117]",
+            "hover:brightness-110 hover:shadow-[0_0_24px_rgba(247,185,85,0.35)]",
+            "active:scale-[0.98]",
+            "disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:shadow-none",
+          )}
           title="Backend not wired up yet — UI prototype"
         >
           {tooFew
@@ -575,7 +720,7 @@ function ParlayCard({
             : capped
             ? "Reduce stake to continue"
             : "Place Parlay (coming soon)"}
-        </button>
+        </Button>
       </div>
     </div>
   );
@@ -625,23 +770,41 @@ export default function ParlayPage() {
     );
 
   return (
-    <div className="min-h-screen bg-[#0d1117] text-[#e6edf3]">
-      <div className="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 pt-6 pb-12">
-        <div className="mb-5">
-          <h1 className="text-2xl font-bold text-white flex items-center gap-2">
-            <Sparkles className="w-5 h-5 text-[#d29922]" />
-            Custom Parlay Maker
-          </h1>
-          <p className="text-xs text-[#768390] mt-1">
-            Drag any Polymarket market into your slip. Multiplier compounds across all
-            legs &mdash; all legs must hit to win.
+    <div className="min-h-screen bg-[#0d1117] text-[#e6edf3] relative overflow-hidden">
+      {/* Soft radial accent in the background */}
+      <div
+        className="absolute inset-0 pointer-events-none opacity-30"
+        style={{
+          background:
+            "radial-gradient(800px 400px at 50% -10%, rgba(210, 153, 34, 0.12), transparent 70%)",
+        }}
+      />
+
+      <div className="relative max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 pt-8 pb-12">
+        <div className="mb-7">
+          <div className="flex items-center gap-2 mb-2">
+            <div className="w-1 h-6 rounded-full bg-gradient-to-b from-[#d29922] to-[#f7b955]" />
+            <h1 className="text-2xl font-bold text-white tracking-tight">
+              Custom Parlay Maker
+            </h1>
+            <Badge
+              variant="outline"
+              className="ml-1 text-[9px] uppercase tracking-wider border-[#d29922]/30 text-[#d29922]/80 bg-[#d29922]/[0.06]"
+            >
+              Beta
+            </Badge>
+          </div>
+          <p className="text-sm text-[#768390] max-w-xl ml-3">
+            Drag any Polymarket market into your slip. Odds compound across legs &mdash;
+            all legs must hit to win.
           </p>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-[200px_1fr_360px] gap-4 lg:h-[calc(100vh-180px)]">
-          {/* Left: placeholder */}
-          <div className="hidden lg:flex bg-[#161b22] border border-[#21262d] rounded-lg p-4 items-start justify-center">
-            <p className="text-[10px] text-[#484f58] uppercase tracking-wider mt-2">
+        <div className="grid grid-cols-1 lg:grid-cols-[220px_1fr_380px] gap-5 lg:h-[calc(100vh-200px)]">
+          {/* Left: reserved placeholder */}
+          <div className="hidden lg:flex relative bg-[#161b22] rounded-2xl ring-1 ring-white/[0.06] p-4 items-start justify-center overflow-hidden">
+            <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white/10 to-transparent pointer-events-none" />
+            <p className="text-[10px] text-[#484f58] uppercase tracking-[0.2em] mt-2">
               Reserved
             </p>
           </div>
