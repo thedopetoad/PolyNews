@@ -116,13 +116,32 @@ function CountingMultiplier({ value, dirty }: { value: number; dirty: boolean })
   const safe = Number.isFinite(value) && value > 0 ? value : 0;
   const { divisor, suffix } = compactSuffix(safe);
   const scaledTarget = safe / divisor;
-  // Split into integer + decimal parts that animate independently.
-  // The "period" is rendered as a CSS dot so its position is locked
-  // to the digits' baseline — no font-quirk dependence.
+
+  // Adaptive decimal precision — Apple Stocks / Bloomberg / Robinhood
+  // pattern. As the integer grows the decimals shrink. Above 100 we
+  // drop the period entirely. This is what every serious financial UI
+  // does and it sidesteps the "where exactly does the period sit"
+  // typography problem at large integer widths.
+  //
+  //   < 10    → "5.81×"   (2 decimals, period shown)
+  //   10-100  → "23.4×"   (1 decimal,  period shown)
+  //   ≥ 100   → "147×"    (0 decimals, NO period)
+  //
+  // For K/M/B variants we always show 1 decimal (their integers are
+  // always single-digit since the suffix kicks in at 10K).
+  let decimals: number;
+  if (suffix) {
+    decimals = 1;
+  } else if (scaledTarget < 10) {
+    decimals = 2;
+  } else if (scaledTarget < 100) {
+    decimals = 1;
+  } else {
+    decimals = 0;
+  }
   const intTarget = Math.floor(scaledTarget);
-  const decimals = suffix ? 1 : 2;
-  const decScale = Math.pow(10, decimals); // 100 for raw, 10 for K/M/B
-  const decTarget = Math.round((scaledTarget - intTarget) * decScale);
+  const decScale = Math.pow(10, decimals);
+  const decTarget = decimals > 0 ? Math.round((scaledTarget - intTarget) * decScale) : 0;
 
   return (
     <div className="text-center select-none relative">
@@ -148,22 +167,34 @@ function CountingMultiplier({ value, dirty }: { value: number; dirty: boolean })
         >
           <FastTicker value={intTarget} decimals={0} />
 
-          {/* Custom decimal dot — rendered as a small CSS circle whose
-              bottom sits at the digits' baseline (vertical-align: baseline
-              means the bottom of this inline-block aligns with the parent
-              line's baseline). No font dependency = no floating period. */}
-          <span
-            aria-hidden="true"
-            className="inline-block mx-1.5 align-baseline"
-            style={{
-              width: "0.14em",
-              height: "0.14em",
-              borderRadius: "50%",
-              backgroundColor: "currentColor",
-            }}
-          />
+          {decimals > 0 && (
+            <>
+              {/*
+                Decimal separator — only rendered when we're actually
+                showing decimal places. For values ≥ 100 we skip the
+                period entirely (matches Apple/Bloomberg precision UX).
 
-          <FastTicker value={decTarget} decimals={0} padTo={decimals} />
+                Positioning: align-self: flex-end pulls the dot to the
+                flex line's bottom, then margin-bottom: 0.22em lifts it
+                to JetBrains Mono's baseline. Sized at 0.18em (~13px
+                at text-7xl) for visual proportion.
+              */}
+              <span
+                aria-hidden="true"
+                style={{
+                  alignSelf: "flex-end",
+                  flex: "none",
+                  width: "0.18em",
+                  height: "0.18em",
+                  borderRadius: "50%",
+                  backgroundColor: "currentColor",
+                  marginInline: "0.18em",
+                  marginBottom: "0.22em",
+                }}
+              />
+              <FastTicker value={decTarget} decimals={0} padTo={decimals} />
+            </>
+          )}
 
           {suffix && <span className="ml-1">{suffix}</span>}
           <span className="text-5xl font-bold ml-2 opacity-50">×</span>
