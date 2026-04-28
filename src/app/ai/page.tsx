@@ -2,10 +2,17 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { Bar, BarChart, Cell, ReferenceLine, XAxis, YAxis } from "recharts";
 import { usePositionLivePrices } from "@/hooks/use-live-prices";
 import { POLYMARKET_BASE_URL } from "@/lib/constants";
 import { SwarmVisualization } from "@/components/ai/swarm-visualization";
 import { MiniPriceChart } from "@/components/mini-price-chart";
+import {
+  ChartContainer,
+  ChartTooltip,
+  ChartTooltipContent,
+  type ChartConfig,
+} from "@/components/ui/chart";
 import { cn } from "@/lib/utils";
 
 // --------------------------------------------------------------------------
@@ -70,11 +77,18 @@ function firstTokenId(json: string | null): string {
 }
 
 // --------------------------------------------------------------------------
-// Histogram bar chart — bootstrap distribution.
-// Pure SVG, no charting library. Native <title> tooltips on each bar
-// give per-bin counts on hover. Mode bar is highlighted; mean / 90% CI /
-// market price are overlaid as marker lines with labels.
+// Histogram bar chart — bootstrap distribution, rendered via shadcn Chart
+// (recharts under the hood). Mode bar highlighted in green, mean / 90%
+// CI / market price as ReferenceLines. Native recharts hover gives a
+// proper tooltip with the bin range + count.
 // --------------------------------------------------------------------------
+
+const histogramChartConfig = {
+  count: {
+    label: "Resamples",
+    color: "#58a6ff",
+  },
+} satisfies ChartConfig;
 
 function Histogram({
   bins,
@@ -91,162 +105,131 @@ function Histogram({
   p95: number;
   marketPrice?: number; // 0-100, optional overlay
 }) {
-  const max = Math.max(...bins, 1);
   const total = bins.reduce((a, b) => a + b, 0) || 1;
-  const VB_W = 360;
-  const VB_H = 140;
-  const M = { top: 18, right: 6, bottom: 24, left: 6 };
-  const plotW = VB_W - M.left - M.right;
-  const plotH = VB_H - M.top - M.bottom;
   const binPctWidth = 100 / bins.length;
-  const binPxWidth = plotW / bins.length;
-  const xToScreen = (pct: number) => M.left + (pct / 100) * plotW;
-
-  // Index of the bar containing the mode value (highlighted).
   const modeBinIdx = Math.min(
     bins.length - 1,
     Math.max(0, Math.floor(mode / binPctWidth)),
   );
 
-  // Determine which markers to label above the chart and avoid overlap by
-  // hiding the market label if it's within 6% of the mean (they'd collide).
-  const showMarketLabel = marketPrice != null && Math.abs(marketPrice - mean) > 6;
+  const chartData = bins.map((count, i) => ({
+    bin: i * binPctWidth,
+    binEnd: (i + 1) * binPctWidth,
+    binLabel: `${(i * binPctWidth).toFixed(1)}–${((i + 1) * binPctWidth).toFixed(1)}%`,
+    count,
+    pct: ((count / total) * 100).toFixed(2),
+    isMode: i === modeBinIdx,
+  }));
 
   return (
-    <svg
-      viewBox={`0 0 ${VB_W} ${VB_H}`}
-      className="w-full"
-      style={{ maxHeight: 140 }}
-      role="img"
-      aria-label={`Bootstrap distribution histogram. AI mean ${mean.toFixed(1)}%, mode ${mode.toFixed(1)}%, 90% confidence interval ${p5.toFixed(1)}% to ${p95.toFixed(1)}%${marketPrice != null ? `, market price ${marketPrice.toFixed(1)}%` : ""}.`}
+    <ChartContainer
+      config={histogramChartConfig}
+      className="aspect-auto h-[140px] w-full"
     >
-      {/* CI shaded band — light wash behind the bars to make the 90% interval visually obvious */}
-      <rect
-        x={xToScreen(p5)}
-        y={M.top}
-        width={xToScreen(p95) - xToScreen(p5)}
-        height={plotH}
-        fill="#bf8700"
-        opacity={0.07}
-      />
+      <BarChart
+        data={chartData}
+        margin={{ top: 6, right: 6, bottom: 4, left: 6 }}
+      >
+        {/* X-axis with ticks at 0/25/50/75/100% */}
+        <XAxis
+          dataKey="bin"
+          type="number"
+          domain={[0, 100]}
+          ticks={[0, 25, 50, 75, 100]}
+          tickFormatter={(v) => `${v}%`}
+          tick={{ fontSize: 9, fill: "#768390" }}
+          tickLine={{ stroke: "#30363d" }}
+          axisLine={{ stroke: "#30363d" }}
+        />
+        <YAxis hide domain={[0, "dataMax"]} />
 
-      {/* Bars */}
-      {bins.map((count, i) => {
-        const h = Math.round((count / max) * plotH);
-        const isMode = i === modeBinIdx;
-        const binStartPct = i * binPctWidth;
-        const binEndPct = (i + 1) * binPctWidth;
-        const pctOfTotal = ((count / total) * 100).toFixed(2);
-        return (
-          <rect
-            key={i}
-            x={M.left + i * binPxWidth}
-            y={M.top + plotH - h}
-            width={Math.max(0.5, binPxWidth - 0.6)}
-            height={h}
-            fill={isMode ? "#3fb950" : "#58a6ff"}
-            opacity={isMode ? 0.9 : 0.6}
-            className="transition-opacity hover:!opacity-100"
-            style={{ cursor: "default" }}
-          >
-            <title>
-              {`${binStartPct.toFixed(1)}–${binEndPct.toFixed(1)}%  ·  ${count.toLocaleString()} resamples (${pctOfTotal}%)${isMode ? "  ·  MODE" : ""}`}
-            </title>
-          </rect>
-        );
-      })}
+        {/* 90% CI shaded band — drawn as a horizontal band via two
+            ReferenceLines isn't ideal in recharts; use opacity on the
+            bars within the range instead via Cell (below). The CI lines
+            go on top as dashed markers. */}
 
-      {/* p5 / p95 dashed marker lines */}
-      {[p5, p95].map((p, idx) => (
-        <line
-          key={idx}
-          x1={xToScreen(p)}
-          x2={xToScreen(p)}
-          y1={M.top}
-          y2={M.top + plotH}
+        <Bar dataKey="count" radius={[2, 2, 0, 0]} isAnimationActive={false}>
+          {chartData.map((d, i) => (
+            <Cell
+              key={i}
+              fill={d.isMode ? "#3fb950" : "#58a6ff"}
+              opacity={d.bin >= p5 && d.bin <= p95 ? 0.9 : 0.45}
+            />
+          ))}
+        </Bar>
+
+        {/* p5/p95 dashed CI lines */}
+        <ReferenceLine
+          x={p5}
           stroke="#bf8700"
           strokeDasharray="3 2"
           strokeWidth={1}
         />
-      ))}
+        <ReferenceLine
+          x={p95}
+          stroke="#bf8700"
+          strokeDasharray="3 2"
+          strokeWidth={1}
+        />
 
-      {/* Mean marker line + label above */}
-      <line
-        x1={xToScreen(mean)}
-        x2={xToScreen(mean)}
-        y1={M.top - 4}
-        y2={M.top + plotH}
-        stroke="#3fb950"
-        strokeWidth={1.5}
-      />
-      <text
-        x={xToScreen(mean)}
-        y={M.top - 6}
-        textAnchor="middle"
-        fontSize="9"
-        fontWeight="600"
-        fill="#3fb950"
-      >
-        AI {mean.toFixed(1)}%
-      </text>
+        {/* AI mean marker (green) */}
+        <ReferenceLine
+          x={mean}
+          stroke="#3fb950"
+          strokeWidth={1.5}
+          label={{
+            value: `AI ${mean.toFixed(1)}%`,
+            position: "top",
+            fill: "#3fb950",
+            fontSize: 9,
+            fontWeight: 600,
+          }}
+        />
 
-      {/* Market price marker (purple) — only if passed and well-formed */}
-      {marketPrice != null && (
-        <>
-          <line
-            x1={xToScreen(marketPrice)}
-            x2={xToScreen(marketPrice)}
-            y1={M.top - 4}
-            y2={M.top + plotH}
+        {/* Market price marker (purple) — only when sufficiently far
+            from the mean to avoid overlapping labels */}
+        {marketPrice != null && Math.abs(marketPrice - mean) > 6 && (
+          <ReferenceLine
+            x={marketPrice}
             stroke="#bc8cff"
             strokeWidth={1.5}
+            label={{
+              value: `Mkt ${marketPrice.toFixed(0)}%`,
+              position: "top",
+              fill: "#bc8cff",
+              fontSize: 9,
+              fontWeight: 600,
+            }}
           />
-          {showMarketLabel && (
-            <text
-              x={xToScreen(marketPrice)}
-              y={M.top - 6}
-              textAnchor="middle"
-              fontSize="9"
-              fontWeight="600"
-              fill="#bc8cff"
-            >
-              Mkt {marketPrice.toFixed(0)}%
-            </text>
-          )}
-        </>
-      )}
+        )}
+        {marketPrice != null && Math.abs(marketPrice - mean) <= 6 && (
+          <ReferenceLine x={marketPrice} stroke="#bc8cff" strokeWidth={1.5} />
+        )}
 
-      {/* X-axis baseline + tick labels at 0/25/50/75/100% */}
-      <line
-        x1={M.left}
-        x2={M.left + plotW}
-        y1={M.top + plotH + 1}
-        y2={M.top + plotH + 1}
-        stroke="#30363d"
-        strokeWidth={0.6}
-      />
-      {[0, 25, 50, 75, 100].map((tick) => (
-        <g key={tick}>
-          <line
-            x1={xToScreen(tick)}
-            x2={xToScreen(tick)}
-            y1={M.top + plotH + 1}
-            y2={M.top + plotH + 4}
-            stroke="#484f58"
-            strokeWidth={0.6}
-          />
-          <text
-            x={xToScreen(tick)}
-            y={M.top + plotH + 14}
-            textAnchor="middle"
-            fontSize="9"
-            fill="#768390"
-          >
-            {tick}%
-          </text>
-        </g>
-      ))}
-    </svg>
+        <ChartTooltip
+          cursor={{ fill: "#1c2128", opacity: 0.5 }}
+          content={
+            <ChartTooltipContent
+              hideLabel
+              formatter={(_value, _name, item) => {
+                const d = item.payload as (typeof chartData)[number];
+                return (
+                  <div className="flex flex-col gap-0.5">
+                    <span className="text-[#e6edf3] font-medium">
+                      {d.binLabel}
+                    </span>
+                    <span className="text-[#768390]">
+                      {d.count.toLocaleString()} resamples ({d.pct}%)
+                      {d.isMode ? " · MODE" : ""}
+                    </span>
+                  </div>
+                );
+              }}
+            />
+          }
+        />
+      </BarChart>
+    </ChartContainer>
   );
 }
 
