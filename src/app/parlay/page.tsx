@@ -114,7 +114,7 @@ function RollingMultiplier({ value, dirty }: { value: number; dirty: boolean }) 
   const { chars, suffix } = formatMultiplier(value);
   return (
     <div className="text-center select-none relative">
-      <p className="text-[10px] text-[#484f58] uppercase tracking-[0.25em] mb-2">
+      <p className="text-[10px] text-[#484f58] uppercase tracking-[0.25em] mb-3">
         Multiplier
       </p>
       <div
@@ -123,14 +123,15 @@ function RollingMultiplier({ value, dirty }: { value: number; dirty: boolean }) 
           dirty && "animate-[parlay-pop_700ms_cubic-bezier(0.34,1.56,0.64,1)]",
         )}
         style={{
-          background:
-            "linear-gradient(135deg, #d29922 0%, #f7b955 30%, #ffd479 50%, #f7b955 70%, #d29922 100%)",
-          WebkitBackgroundClip: "text",
-          WebkitTextFillColor: "transparent",
-          backgroundClip: "text",
+          // Solid gold color — gradient text fill conflicts with the
+          // digit columns' overflow:hidden (transparent children inside
+          // a clipped box can't reveal the parent's gradient bg, so
+          // digits would render as empty space). Solid color it is —
+          // the glow filter does most of the visual work anyway.
+          color: "#f7b955",
           filter: dirty
-            ? "drop-shadow(0 0 18px rgba(247, 185, 85, 0.65)) drop-shadow(0 0 4px rgba(247, 185, 85, 0.9))"
-            : "drop-shadow(0 0 8px rgba(210, 153, 34, 0.25))",
+            ? "drop-shadow(0 0 22px rgba(247, 185, 85, 0.8)) drop-shadow(0 0 6px rgba(247, 185, 85, 0.95))"
+            : "drop-shadow(0 0 10px rgba(210, 153, 34, 0.35))",
           transition: "filter 700ms cubic-bezier(0.34, 1.4, 0.64, 1)",
         }}
       >
@@ -155,24 +156,24 @@ function RollingMultiplier({ value, dirty }: { value: number; dirty: boolean }) 
             </span>
           )}
           <span
-            className="text-4xl font-bold ml-1.5"
+            className="text-4xl font-bold ml-1.5 opacity-70"
             style={{ alignSelf: "center", marginBottom: "0.15em" }}
           >
             ×
           </span>
         </span>
       </div>
-      {/* Sparkle burst — purely decorative, fires on dirty change */}
+      {/* Sparkle burst — 6 particles radiating outward in a star pattern. */}
       {dirty && (
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-          {[0, 1, 2, 3, 4, 5].map((i) => (
+          {[0, 60, 120, 180, 240, 300].map((rot, i) => (
             <span
-              key={i}
-              className="absolute w-1 h-1 rounded-full bg-[#f7b955]"
+              key={`${rot}-${i}`}
+              className="absolute w-1.5 h-1.5 rounded-full bg-[#f7b955]"
               style={{
-                animation: `parlay-spark 800ms ease-out forwards`,
-                animationDelay: `${i * 40}ms`,
-                transform: `rotate(${i * 60}deg) translateX(0)`,
+                animation: `parlay-spark-${rot} 900ms cubic-bezier(0.34, 1.4, 0.64, 1) forwards`,
+                animationDelay: `${i * 35}ms`,
+                boxShadow: "0 0 12px rgba(247, 185, 85, 0.9)",
               }}
             />
           ))}
@@ -186,11 +187,26 @@ function RollingMultiplier({ value, dirty }: { value: number; dirty: boolean }) 
           80% { transform: scale(1.03); }
           100% { transform: scale(1); }
         }
-        @keyframes parlay-spark {
-          0% { transform: rotate(var(--rot, 0deg)) translateX(20px) scale(0); opacity: 0; }
-          15% { transform: rotate(var(--rot, 0deg)) translateX(20px) scale(1); opacity: 1; }
-          100% { transform: rotate(var(--rot, 0deg)) translateX(80px) scale(0); opacity: 0; }
-        }
+        ${[0, 60, 120, 180, 240, 300]
+          .map(
+            (rot) => `
+          @keyframes parlay-spark-${rot} {
+            0% {
+              transform: rotate(${rot}deg) translateX(0) scale(0);
+              opacity: 0;
+            }
+            20% {
+              transform: rotate(${rot}deg) translateX(40px) scale(1);
+              opacity: 1;
+            }
+            100% {
+              transform: rotate(${rot}deg) translateX(110px) scale(0);
+              opacity: 0;
+            }
+          }
+        `,
+          )
+          .join("\n")}
       `}</style>
     </div>
   );
