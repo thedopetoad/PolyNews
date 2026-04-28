@@ -26,7 +26,7 @@
  * and disable the (placeholder) place button — never silently cap.
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, keepPreviousData } from "@tanstack/react-query";
 import { Search, X, GripVertical, Plus, Sparkles, AlertTriangle, TrendingUp } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -47,108 +47,90 @@ const MIN_LEGS = 2;
 const MAX_LEGS = 8;
 
 // --------------------------------------------------------------------------
-// Odometer-style multiplier — each digit position is a vertical 0-9 strip
-// that slides into place independently. Going 5.81 → 12.40 makes the
-// rightmost digit churn through 8→9→0→1→2→3→4 while the integer column
-// rolls 0→1 → that's the satisfying "casino" counting feel.
+// Counting multiplier — value interpolation, rendered as plain text.
+//
+// Previous attempts used per-digit overflow-hidden rollers (baseline
+// alignment problems) and a complex two-state staggered hook (the rAF
+// callback was getting cancelled before it could fire even once,
+// likely due to React 19 + StrictMode + Next dev all fighting).
+//
+// This version:
+//   • One interpolated value, single useState
+//   • setInterval (~16ms = 60fps) instead of rAF — survives StrictMode
+//     mount/cleanup churn way better; each interval iteration just
+//     reads the closure values and updates state until elapsed >= duration
+//   • Plain text rendering with tabular-nums + text-align:right so the
+//     digits stay aligned regardless of width changes
+//
+// Sequencing the integer-then-decimal phases is done in render, by
+// formatting the value differently based on elapsed time. Simpler than
+// trying to coordinate two animation loops.
 // --------------------------------------------------------------------------
 
-const DIGIT_HEIGHT_REM = 1; // each digit cell is 1em tall (matches font-size)
+const COUNT_DURATION_MS = 900;
 
-// Animation timing: integer digits roll first, decimals roll in after.
-// User feedback: "animate the whole number on the left first then roll
-// in the decimals on the right"
-const INT_DURATION_MS = 600;
-const INT_CASCADE_MS = 70;
-const DEC_DURATION_MS = 450;
-const DEC_CASCADE_MS = 50;
-const DEC_START_OFFSET_MS = 350; // decimals start mid-way through integer roll
+function useCountTo(target: number, duration = COUNT_DURATION_MS): number {
+  const [value, setValue] = useState(0);
+  // Track the latest emitted value via ref so the next animation can
+  // continue from where the previous one left off (whether it completed
+  // or got interrupted by a fast follow-up target change).
+  const valueRef = useRef(0);
+  valueRef.current = value;
 
-const CELL_BOX_CLASS =
-  "inline-block overflow-hidden align-baseline tabular-nums";
-const CELL_BOX_STYLE: React.CSSProperties = {
-  height: `${DIGIT_HEIGHT_REM}em`,
-  lineHeight: `${DIGIT_HEIGHT_REM}em`,
-};
+  useEffect(() => {
+    const safe = Number.isFinite(target) && target > 0 ? target : 0;
+    const from = valueRef.current;
+    const t0 = performance.now();
+    let cancelled = false;
 
-function RollingDigit({
-  digit,
-  delay,
-  duration,
-}: {
-  digit: string;
-  delay: number;
-  duration: number;
-}) {
-  const num = parseInt(digit, 10);
-  return (
-    <span className={CELL_BOX_CLASS} style={CELL_BOX_STYLE}>
-      <span
-        className="block will-change-transform"
-        style={{
-          transform: `translateY(-${num * DIGIT_HEIGHT_REM}em)`,
-          transition: `transform ${duration}ms cubic-bezier(0.34, 1.4, 0.64, 1) ${delay}ms`,
-        }}
-      >
-        {[0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => (
-          <span key={n} className="block tabular-nums" style={CELL_BOX_STYLE}>
-            {n}
-          </span>
-        ))}
-      </span>
-    </span>
-  );
-}
-
-/**
- * Static character (period, etc.) — wrapped in the SAME 1em-tall
- * overflow-hidden box as the digit columns so it shares their baseline.
- * Without this, the period sits at the natural text baseline while the
- * digit columns use the bottom-of-box baseline (CSS quirk for inline-
- * blocks with overflow != visible) and the period appears to float
- * above the digits.
- */
-function StaticCell({ char }: { char: string }) {
-  return (
-    <span className={CELL_BOX_CLASS} style={CELL_BOX_STYLE}>
-      <span className="block tabular-nums" style={CELL_BOX_STYLE}>
-        {char}
-      </span>
-    </span>
-  );
-}
-
-/**
- * Smart formatter — keeps the number compact regardless of size.
- * Lottery-style parlays can produce multipliers in the millions; we
- * fold those into K / M / B suffixes so the digit roller stays
- * readable instead of overflowing the card.
- */
-function formatMultiplier(v: number): { chars: string[]; suffix: string } {
-  if (!Number.isFinite(v) || v <= 0) return { chars: ["0", ".", "0", "0"], suffix: "" };
-  if (v >= 1_000_000_000) return { chars: (v / 1_000_000_000).toFixed(1).split(""), suffix: "B" };
-  if (v >= 1_000_000) return { chars: (v / 1_000_000).toFixed(1).split(""), suffix: "M" };
-  if (v >= 10_000) return { chars: (v / 1_000).toFixed(1).split(""), suffix: "K" };
-  return { chars: v.toFixed(2).split(""), suffix: "" };
-}
-
-function RollingMultiplier({ value, dirty }: { value: number; dirty: boolean }) {
-  const { chars, suffix } = formatMultiplier(value);
-  const periodIdx = chars.indexOf(".");
-  const integerCount = periodIdx >= 0 ? periodIdx : chars.length;
-
-  // Per-digit timing — integers cascade first, decimals follow.
-  const timingFor = (i: number) => {
-    const isDecimal = periodIdx >= 0 && i > periodIdx;
-    if (!isDecimal) {
-      return { delay: i * INT_CASCADE_MS, duration: INT_DURATION_MS };
-    }
-    const decIdx = i - periodIdx - 1;
-    return {
-      delay: DEC_START_OFFSET_MS + integerCount * INT_CASCADE_MS + decIdx * DEC_CASCADE_MS,
-      duration: DEC_DURATION_MS,
+    const tick = () => {
+      if (cancelled) return;
+      const elapsed = performance.now() - t0;
+      const p = Math.min(1, elapsed / duration);
+      const eased = 1 - Math.pow(1 - p, 3); // ease-out cubic
+      const next = from + (safe - from) * eased;
+      setValue(next);
+      if (p >= 1) {
+        clearInterval(handle);
+        setValue(safe); // snap to exact target
+      }
     };
-  };
+
+    // setInterval instead of rAF: rAF was getting cancelled by
+    // StrictMode/Next-dev before its callback could even fire once.
+    // 16ms ≈ 60fps which is plenty smooth for a single counting number.
+    const handle = setInterval(tick, 16);
+    tick(); // also fire one immediate tick so we don't wait 16ms for the first frame
+
+    return () => {
+      cancelled = true;
+      clearInterval(handle);
+    };
+  }, [target, duration]);
+
+  return value;
+}
+
+/**
+ * Compact display for runaway lottery multipliers. Folds anything ≥10K
+ * into K/M/B so the chip stays readable. The animation operates on the
+ * raw `target` value; once we cross the 10K threshold the displayed
+ * format flips to the suffix variant.
+ */
+function compactSuffix(v: number): { divisor: number; suffix: string } {
+  if (v >= 1_000_000_000) return { divisor: 1_000_000_000, suffix: "B" };
+  if (v >= 1_000_000) return { divisor: 1_000_000, suffix: "M" };
+  if (v >= 10_000) return { divisor: 1_000, suffix: "K" };
+  return { divisor: 1, suffix: "" };
+}
+
+function CountingMultiplier({ value, dirty }: { value: number; dirty: boolean }) {
+  const safe = Number.isFinite(value) && value > 0 ? value : 0;
+  const { divisor, suffix } = compactSuffix(safe);
+  const scaledTarget = safe / divisor;
+  const animated = useCountTo(scaledTarget);
+  // K/M/B uses 1 decimal place; raw uses 2.
+  const display = suffix ? animated.toFixed(1) : animated.toFixed(2);
 
   return (
     <div className="text-center select-none relative">
@@ -162,49 +144,38 @@ function RollingMultiplier({ value, dirty }: { value: number; dirty: boolean }) 
         )}
         style={{
           color: "#f7b955",
-          // Tighter glow so adjacent digits don't merge into one blob.
-          // Burst hits ~14px when dirty, settles to a 4px hum.
+          // Tight glow so digits stay readable instead of merging into a
+          // single bloom. Burst on dirty, calm hum otherwise.
           filter: dirty
-            ? "drop-shadow(0 0 14px rgba(247, 185, 85, 0.7)) drop-shadow(0 0 3px rgba(247, 185, 85, 0.85))"
-            : "drop-shadow(0 0 4px rgba(210, 153, 34, 0.35))",
+            ? "drop-shadow(0 0 14px rgba(247, 185, 85, 0.65)) drop-shadow(0 0 3px rgba(247, 185, 85, 0.85))"
+            : "drop-shadow(0 0 4px rgba(210, 153, 34, 0.3))",
           transition: "filter 700ms cubic-bezier(0.34, 1.4, 0.64, 1)",
         }}
       >
+        {/* Plain text — no overflow-hidden anywhere in the digit chain,
+            so the period sits at its real text baseline alongside the
+            digits. tabular-nums keeps the digits monospaced so the
+            string width changes evenly as values grow. */}
         <span
-          className="text-7xl font-black tracking-tight inline-flex items-baseline"
-          style={{ fontVariantNumeric: "tabular-nums", letterSpacing: "-0.02em" }}
+          className="text-7xl font-black tracking-tight"
+          style={{
+            fontVariantNumeric: "tabular-nums",
+            letterSpacing: "-0.02em",
+            display: "inline-block",
+          }}
         >
-          {chars.map((c, i) => {
-            const isDigit = /[0-9]/.test(c);
-            if (!isDigit) {
-              // Period gets the same 1em box treatment as digits so it
-              // shares their baseline (no more floating period).
-              return <StaticCell key={`s-${i}-${c}`} char={c} />;
-            }
-            const { delay, duration } = timingFor(i);
-            return (
-              <RollingDigit
-                key={`d-${i}`}
-                digit={c}
-                delay={delay}
-                duration={duration}
-              />
-            );
-          })}
-          {suffix && (
-            <span className="ml-1" key={`suffix-${suffix}`}>
-              {suffix}
-            </span>
-          )}
+          {display}
+          {suffix && <span className="ml-1">{suffix}</span>}
           <span
             className="text-4xl font-bold ml-2 opacity-50"
-            style={{ alignSelf: "center", marginBottom: "0.15em" }}
+            style={{ verticalAlign: "0.18em" }}
           >
             ×
           </span>
         </span>
       </div>
-      {/* Sparkle burst — 6 particles radiating outward in a star pattern. */}
+
+      {/* Sparkle burst — 6 particles radiating outward in a star pattern */}
       {dirty && (
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
           {[0, 60, 120, 180, 240, 300].map((rot, i) => (
@@ -220,10 +191,11 @@ function RollingMultiplier({ value, dirty }: { value: number; dirty: boolean }) 
           ))}
         </div>
       )}
+
       <style jsx>{`
         @keyframes parlay-pop {
           0% { transform: scale(1); }
-          25% { transform: scale(1.14); }
+          25% { transform: scale(1.12); }
           55% { transform: scale(0.97); }
           80% { transform: scale(1.03); }
           100% { transform: scale(1); }
@@ -232,18 +204,9 @@ function RollingMultiplier({ value, dirty }: { value: number; dirty: boolean }) 
           .map(
             (rot) => `
           @keyframes parlay-spark-${rot} {
-            0% {
-              transform: rotate(${rot}deg) translateX(0) scale(0);
-              opacity: 0;
-            }
-            20% {
-              transform: rotate(${rot}deg) translateX(40px) scale(1);
-              opacity: 1;
-            }
-            100% {
-              transform: rotate(${rot}deg) translateX(110px) scale(0);
-              opacity: 0;
-            }
+            0%   { transform: rotate(${rot}deg) translateX(0)     scale(0); opacity: 0; }
+            20%  { transform: rotate(${rot}deg) translateX(40px)  scale(1); opacity: 1; }
+            100% { transform: rotate(${rot}deg) translateX(110px) scale(0); opacity: 0; }
           }
         `,
           )
@@ -651,7 +614,7 @@ function ParlayCard({
 
       {/* Multiplier — the focal point */}
       <div className="my-6 py-4">
-        <RollingMultiplier value={multiplier} dirty={dirty && pulseKey > 1} />
+        <CountingMultiplier value={multiplier} dirty={dirty && pulseKey > 1} />
         <div className="flex items-center justify-center gap-3 mt-4">
           <Badge variant="ghost" className="text-[10px] tabular-nums text-[#768390] hover:bg-transparent">
             <span className="text-[#484f58] mr-1">prob</span>
