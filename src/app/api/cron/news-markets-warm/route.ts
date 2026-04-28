@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { processNewsMarkets, NEWS_MARKETS_MAX_HEADLINES } from "@/lib/news-markets";
+import { processNewsMarkets, NEWS_MARKETS_WARM_CAP } from "@/lib/news-markets";
 
 // GET /api/cron/news-markets-warm
 //
@@ -46,10 +46,13 @@ export async function GET(request: NextRequest) {
       );
     }
     const data = await res.json();
+    // Pre-warm a wider window than the UI displays (60 vs 30). Articles
+    // that aren't on screen yet but might rotate in soon are pre-cached
+    // so the user never sees "Find Related Markets" on initial load.
     headlines = ((data.headlines || []) as { title?: string }[])
       .map((h) => (typeof h.title === "string" ? h.title : ""))
       .filter((t): t is string => t.length > 0)
-      .slice(0, NEWS_MARKETS_MAX_HEADLINES);
+      .slice(0, NEWS_MARKETS_WARM_CAP);
   } catch (err) {
     return NextResponse.json(
       { error: "Headlines fetch failed", detail: (err as Error).message },
@@ -62,7 +65,7 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const result = await processNewsMarkets(headlines);
+    const result = await processNewsMarkets(headlines, false, NEWS_MARKETS_WARM_CAP);
     return NextResponse.json({
       ok: true,
       headlineCount: headlines.length,

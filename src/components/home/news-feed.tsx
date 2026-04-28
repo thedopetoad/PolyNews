@@ -121,13 +121,13 @@ export function NewsFeed({ className }: { className?: string }) {
   const { data: marketLinksData, isLoading: marketLinksLoading } = useQuery({
     queryKey: ["news-market-links"],
     queryFn: async () => {
-      if (headlineTitles.length === 0) return { links: [], remaining: 0 };
+      if (headlineTitles.length === 0) return { links: [], remaining: 0, processedHashes: [] as string[] };
       const res = await fetch("/api/news/markets", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ headlines: headlineTitles }),
       });
-      if (!res.ok) return { links: [], remaining: 0 };
+      if (!res.ok) return { links: [], remaining: 0, processedHashes: [] as string[] };
       return res.json();
     },
     enabled: headlineTitles.length > 0,
@@ -140,6 +140,19 @@ export function NewsFeed({ className }: { className?: string }) {
   });
 
   const marketLinks: MarketLink[] = marketLinksData?.links || [];
+  // Normalized title keys of every headline the matcher has finished
+  // processing — including ones that returned zero markets. UI uses
+  // this to show "No markets found" for already-processed-but-empty
+  // rows instead of tempting users into a duplicate Find Related
+  // Markets click. (Same normalization the server uses, mirrored
+  // client-side so we don't have to ship a hash function.)
+  const processedKeySet = useMemo(() => {
+    const arr = (marketLinksData as { processedTitleKeys?: string[] } | undefined)?.processedTitleKeys ?? [];
+    return new Set(arr);
+  }, [marketLinksData]);
+
+  const titleToKey = (title: string) =>
+    title.replace(/[^\w\s]/g, "").toLowerCase().slice(0, 40);
 
   // Map by headline title (fuzzy: first 40 chars lowercase for resilience to title edits)
   const linkByTitle = useMemo(() => {
@@ -168,7 +181,10 @@ export function NewsFeed({ className }: { className?: string }) {
   }, [data, setHeadlines, setKeywords]);
 
   const filtered = useMemo(() => {
-    let result = headlines;
+    // /api/news now returns up to 60 headlines so the warm cron has
+    // lookahead. The UI still caps to 30 visible — same behavior the
+    // user expects.
+    let result = headlines.slice(0, 30);
     if (activeSource !== "All") result = result.filter((h) => h.source === activeSource);
     if (activeCategory !== "All") result = result.filter((h) => h.categories?.includes(activeCategory));
     return result;
@@ -381,6 +397,16 @@ export function NewsFeed({ className }: { className?: string }) {
                         <path strokeLinecap="round" strokeLinejoin="round" d="M21 12a9 9 0 11-6.219-8.56" />
                       </svg>
                       Finding related markets…
+                    </span>
+                  ) : processedKeySet.has(titleToKey(headline.title)) ? (
+                    // Already-processed-but-empty: the matcher saw this
+                    // headline and confidently returned zero markets.
+                    // Don't tempt the user into a duplicate Find click.
+                    <span
+                      className="ml-auto flex items-center gap-1.5 rounded-md border border-[#21262d] bg-transparent text-[#484f58] whitespace-nowrap text-[12px] px-3 py-2 min-h-[36px] select-none"
+                      title="The matcher couldn't find any Polymarket markets directly related to this headline."
+                    >
+                      No markets found
                     </span>
                   ) : (
                     <button

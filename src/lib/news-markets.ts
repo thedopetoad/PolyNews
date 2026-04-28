@@ -24,11 +24,12 @@ export const NEWS_MARKETS_CACHE_KEY = "news-mkt-v16";
 export const NEWS_MARKETS_CACHE_TTL = 2 * 60 * 60 * 1000; // 2h
 
 // How many headlines we actually match against markets per request.
-// `/api/news` returns ~30 and the UI renders all of them, so the cap
-// here must match (otherwise headlines past the cap render without
-// matches even if the backend already cached results for them via a
-// force-find click).
+// `/api/news` returns ~30 and the UI renders all of them. We cover a
+// larger window in the warm cron (NEWS_MARKETS_WARM_CAP) so ~recent
+// articles past the visible feed are also pre-processed and ready
+// when they rotate into view.
 export const NEWS_MARKETS_MAX_HEADLINES = 30;
+export const NEWS_MARKETS_WARM_CAP = 60;
 
 // Per-process catalog cache. Hot serverless instances reuse this to skip the
 // Neon round-trip. 5-min TTL is fine since the underlying cron only updates
@@ -346,6 +347,19 @@ export interface ProcessNewsMarketsResult {
   remaining: number;
   /** How many headlines actually had to hit GPT this call. 0 = pure cache hit. */
   processedNew: number;
+  /**
+   * Normalized title keys (40-char prefix, lowercase, alphanumeric) of
+   * every input headline that has been through the matcher — including
+   * ones that matched 0 markets. Client uses the same normalizeTitle()
+   * mirror to check membership, lets the UI distinguish
+   * "processed, no markets" (show "No markets found") from "not yet
+   * processed" (still show "Find Related Markets") instead of tempting
+   * users into duplicate clicks on already-processed-but-empty rows.
+   *
+   * Returning normalized keys (not md5 hashes) so the browser can
+   * compute the same key without needing crypto.
+   */
+  processedTitleKeys: string[];
 }
 
 /**
@@ -362,9 +376,13 @@ export interface ProcessNewsMarketsResult {
 export async function processNewsMarkets(
   headlinesInput: string[],
   forceReprocess = false,
+  cap: number = NEWS_MARKETS_MAX_HEADLINES,
 ): Promise<ProcessNewsMarketsResult> {
-  const headlines = headlinesInput.slice(0, NEWS_MARKETS_MAX_HEADLINES);
-  if (headlines.length === 0) return { links: [], remaining: 0, processedNew: 0 };
+  // cap defaults to the user-facing 30 (rate-limit + Vercel-timeout
+  // guard for the on-demand POST). The warm cron passes a higher cap
+  // so it can pre-warm the lookahead window the user will scroll into.
+  const headlines = headlinesInput.slice(0, cap);
+  if (headlines.length === 0) return { links: [], remaining: 0, processedNew: 0, processedTitleKeys: [] };
 
   const db = getDb();
 
@@ -402,7 +420,12 @@ export async function processNewsMarkets(
   if (unprocessed.length === 0) {
     const current = new Set(headlines.map(normalizeTitle));
     const relevant = existing.links.filter((l) => current.has(normalizeTitle(l.headlineTitle)));
-    return { links: relevant, remaining: 0, processedNew: 0 };
+    return {
+      links: relevant,
+      remaining: 0,
+      processedNew: 0,
+      processedTitleKeys: headlines.map(normalizeTitle),
+    };
   }
 
   const catalog = await loadCatalog();
@@ -443,5 +466,19 @@ export async function processNewsMarkets(
   const current = new Set(headlines.map(normalizeTitle));
   const relevant = updated.links.filter((l) => current.has(normalizeTitle(l.headlineTitle)));
 
-  return { links: relevant, remaining: 0, processedNew: unprocessed.length };
+  // Normalize every INPUT headline that's now in processedHashes.
+  // The post-processing union of (existing + just-processed) covers
+  // exactly what the cache thinks is processed, mapped back to
+  // normalized keys the client can recompute.
+  const processedHashSet = new Set(updated.processedHashes);
+  const processedTitleKeys = headlines
+    .filter((h) => processedHashSet.has(hashTitle(h)))
+    .map(normalizeTitle);
+
+  return {
+    links: relevant,
+    remaining: 0,
+    processedNew: unprocessed.length,
+    processedTitleKeys,
+  };
 }

@@ -34,6 +34,12 @@ export async function POST(request: NextRequest) {
       links: result.links,
       remaining: result.remaining,
       processedNew: result.processedNew,
+      // Normalized title keys (40-char prefix lowercased) of every
+      // input headline the matcher has finished processing — including
+      // ones that matched 0 markets. UI uses this to show "No markets
+      // found" instead of tempting users into clicking "Find Related
+      // Markets" on already-processed-but-empty rows.
+      processedTitleKeys: result.processedTitleKeys,
     });
   } catch (err) {
     console.error("News markets error:", err);

@@ -176,7 +176,9 @@ async function fetchFreshHeadlines() {
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
-  }).slice(0, 30);
+  }).slice(0, 60); // UI slices to 30 visible; the extra 30 give the warm
+                   // cron lookahead so headlines that rotate in soon are
+                   // already cached when the user scrolls.
 }
 
 export async function GET() {
